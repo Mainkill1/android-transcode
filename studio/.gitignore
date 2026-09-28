@@ -1,0 +1,11 @@
+.forma-work/
+.test-browser-work/
+__pycache__/
+.pytest_cache/
+*.pyc
+media/
+screenshots/
+forma-studio.html
+tests/*results*
+tests/environment.txt
+test-results/

@@ -1,0 +1,137 @@
+/* Shared touch targets: compact content, generous hit areas. No hover-only actions. */
+:root{--touch-target:48px;--export-height:120px}
+button,a[href],select{min-width:var(--touch-target);min-height:var(--touch-target)}
+.primary{min-height:48px}
+button:enabled:active,a[href]:active{filter:brightness(.93)}
+.icon-button,.brand-group .icon-button,.shelf-head .icon-button,.history .icon-button,.play-button{width:48px;height:48px;flex-shrink:0}
+.brand{min-height:48px;align-items:center;display:inline-flex}
+.engine-badge{padding-inline:10px;line-height:1.4;flex-shrink:0}
+.url-form{min-height:64px;gap:10px}
+.url-form input{min-width:48px;min-height:48px;font-size:16px}
+.url-form button{width:48px;height:48px;flex-shrink:0}
+.sample-links{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px}
+.sample-links button{font-size:13px;padding-inline:10px}
+.nav-button{font-size:14px;flex-shrink:0;min-height:48px}
+.nav-button.secondary{font-size:13px}
+.shelf-head{flex-shrink:0}
+.shelf{padding-bottom:max(18px,env(safe-area-inset-bottom));overscroll-behavior:contain;scroll-padding-block:16px}
+.shelf-foot{padding-top:24px}
+.workspace{padding-bottom:calc(var(--export-height) + 28px)}
+.workspace-tabs button{min-height:48px;font-size:14px}
+.history{gap:8px;flex-shrink:0}
+.field select,.field input:not([type=range]),.inspector .field select,.inspector .field input:not([type=range]){min-height:48px;height:auto;padding-block:12px;font-size:16px}
+.field>span,.inspector .field>span{font-size:13px;line-height:1.45}
+.field>small,.helper,.inspector-desc{font-size:12px;line-height:1.6}
+.switch-row{min-height:56px;gap:16px;cursor:pointer;padding-block:8px}
+.switch-row input{width:44px;height:26px}
+.switch-row input:after{width:20px;height:20px}
+.switch-row input:checked:after{left:21px}
+.switch-row>span{font-size:13px;line-height:1.5}
+.switch-row>span small{font-size:12px}
+input[type=range],.field input[type=range],.transport input[type=range]{appearance:none;-webkit-appearance:none;min-height:48px;height:48px;min-width:48px;background:transparent;cursor:pointer;touch-action:pan-y}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:6px;background:#ced9cd}
+input[type=range]::-moz-range-track{height:6px;border-radius:6px;background:#ced9cd}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px;margin-top:-11px;border:3px solid #fff;border-radius:50%;background:var(--accent);box-shadow:0 1px 4px #172b2540}
+input[type=range]::-moz-range-thumb{width:22px;height:22px;border:3px solid #fff;border-radius:50%;background:var(--accent);box-shadow:0 1px 4px #172b2540}
+.small-button,.text-button,.crop-presets button,.inspector-tabs button{min-height:48px;font-size:13px;line-height:1.4}
+.small-button{padding:10px 12px;white-space:normal}
+.crop-presets{gap:8px}
+.crop-presets button{min-width:52px}
+.clip{min-width:110px;min-height:64px;padding:10px 12px}
+.clip b{font-size:12px}
+.clip span{font-size:11px}
+.clip-list{gap:8px;padding:8px;scroll-snap-type:x proximity;overscroll-behavior-x:contain}
+.clip{scroll-snap-align:start}
+.clip-actions{gap:8px}
+.clip-actions .text-button{font-size:12px;padding-inline:8px}
+.timeline-heading{flex-wrap:wrap;gap:8px}
+.timeline-heading b{font-size:13px}
+.timeline-heading span{font-size:12px}
+.transport{display:grid;grid-template-columns:48px 1fr auto;gap:6px 10px}
+.transport .mono{font-size:12px}
+.transport #scrub{grid-column:2/4;grid-row:2;width:100%}
+.transport #play{grid-column:1;grid-row:1/3}
+.transport #play-time{grid-column:2;grid-row:1}
+.transport #total-time{grid-column:3;grid-row:1}
+.seek-actions{display:flex;align-items:center;gap:8px;margin-top:8px}
+.seek-actions button{flex:1}
+.preview-note{font-size:12px;line-height:1.5}
+.trim-nudges{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.trim-nudges button{min-height:48px;border:1px solid var(--line);border-radius:9px;background:var(--bg);font-size:13px;padding:8px 4px}
+.trim-nudges button:first-child,.trim-nudges button:last-child{font-size:21px}
+.trim-nudges button:nth-child(2){grid-column:1/3;grid-row:2}
+.trim-nudges button:last-child{grid-column:2;grid-row:1}
+.trim-step-label{font-size:11px;color:var(--muted);margin:0 0 18px}
+.export-bar{padding-bottom:max(12px,env(safe-area-inset-bottom));min-height:80px}
+.export-bar .primary,.queue-button{min-height:52px;height:auto;font-size:14px}
+.export-info span{font-size:12px;line-height:1.5}
+.export-info b{font-size:12px}
+.toast{bottom:calc(var(--export-height) + 12px);max-height:35dvh;overflow:auto;font-size:13px}
+dialog{max-height:calc(100dvh - 40px);overflow:auto;overscroll-behavior:contain}
+.dialog-head{gap:12px}
+.dialog-head h2{min-width:0}
+.cut-badge{display:flex;align-items:center;justify-content:space-between;gap:8px;line-height:1.6}
+.cut-badge button{flex-shrink:0;padding-inline:8px}
+:focus-visible{scroll-margin-block:90px calc(var(--export-height) + 28px)}
+@media(max-width:999px){
+ body.shelf-open{overflow:hidden}
+ .shelf{width:min(320px,calc(100vw - 48px));padding-top:max(16px,env(safe-area-inset-top))}
+ .shelf-head{margin-bottom:8px;margin-top:0}
+ .shelf .nav-label{margin-block:16px 8px}
+}
+@media(max-width:700px){
+ .appbar{min-height:72px;height:auto;padding:8px max(12px,env(safe-area-inset-right)) 8px max(12px,env(safe-area-inset-left));gap:8px}
+ .brand-group{gap:4px;min-width:0}
+ .brand{gap:6px;font-size:20px}
+ .brand-mark{width:26px;height:28px;font-size:24px}
+ .engine-badge{font-size:11px;gap:5px;padding-inline:8px}
+ .workspace{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right));padding-bottom:calc(var(--export-height) + 28px)}
+ .workspace-heading{align-items:center;gap:8px;margin:0;padding:16px 0}
+ .workspace-heading h1{font-size:22px;line-height:1.2}
+ .workspace-tabs{margin-bottom:16px}
+ .editing #workspace-eyebrow{display:none}
+ .editing .workspace-heading h1{font-size:20px}
+ .source-strip .text-button{padding-inline:8px;font-size:13px}
+ .source-text p{font-size:12px;line-height:1.5}
+ .home{min-height:calc(100dvh - 72px);padding-top:28px}
+ .home-description{font-size:15px}
+ .home .home-symbol{margin-bottom:18px}
+ .home .select-media{min-height:56px;font-size:16px}
+ .home-content{max-width:440px;width:100%}
+ .goal-row{gap:8px}
+ .goal-button{padding:12px 8px;min-height:88px}
+ .goal-button b{font-size:13px;line-height:1.3}
+ .goal-button span{font-size:11px;line-height:1.4}
+ .advanced-toggle{font-size:14px;min-height:56px}
+ .advanced-toggle span{font-size:11px}
+ .inspector-tabs button{font-size:14px}
+ #inspector-content{padding:18px 16px}
+ .inspector-title{font-size:17px}
+ .two-cols{gap:12px}
+ .export-bar{gap:8px;padding-inline:max(16px,env(safe-area-inset-left));min-height:116px}
+ .export-info b{font-size:12px;max-width:54%}
+ .export-info span{font-size:12px;white-space:normal;text-align:right}
+ .export-bar .primary{min-height:52px;font-size:14px}
+ .queue-button{min-height:52px;font-size:14px}
+ .queue-title .small-button{font-size:12px}
+ .job-info b,.job-info span{font-size:12px}
+ .job-status{font-size:11px}
+ .preview-stage{max-height:40dvh}
+ .clip-actions .small-button{flex:1}
+ .clip-actions #reset-cuts{margin-left:0;width:100%;text-align:left}
+ .keyboard-open #export-bar{visibility:hidden;pointer-events:none}
+}
+@media(max-width:360px){
+ .brand{font-size:18px}.engine-badge{font-size:10px}
+ .workspace-heading{flex-wrap:wrap}.workspace-heading .history{margin-left:auto}
+ .home{padding-inline:16px}.home h1{font-size:28px}
+ .inspector .two-cols{grid-template-columns:1fr}
+ .source-text h2{font-size:13px}
+ .goal-button b{font-size:12px}
+}
+@media(max-height:480px) and (orientation:landscape){
+ .home{padding-top:16px}.home-symbol,.home .eyebrow,.home-foot{display:none}
+ .home h1{font-size:26px}.home-description{margin-bottom:14px}
+ .preview-stage{max-height:55dvh}
+ .shelf-foot{padding-top:16px}
+}

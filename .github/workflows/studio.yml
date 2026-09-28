@@ -1,0 +1,45 @@
+name: Studio UI and FFmpeg
+on:
+  push:
+    branches: [main]
+    paths: ['studio/**', '.github/workflows/studio.yml']
+  pull_request:
+    paths: ['studio/**', '.github/workflows/studio.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  studio:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: studio
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test tools and FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install -r requirements-dev.txt
+          python -m playwright install --with-deps chromium
+      - name: Build the standalone reference with generated samples
+        run: python build.py --samples
+      - name: Planner, real encode, API and touch tests
+        run: python -m pytest tests -q --junitxml=test-results/pytest.xml
+      - name: Browser workflow over ordinary HTTP
+        run: python tests/browser_checks.py
+      - name: Upload preview and test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forma-studio-reference
+          path: |
+            studio/forma-studio.html
+            studio/screenshots/
+            studio/test-results/
+            studio/tests/browser-results.*
+          if-no-files-found: warn

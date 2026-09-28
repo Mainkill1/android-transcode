@@ -3,7 +3,9 @@ package dev.forma.app.ui
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 private val Dark = darkColorScheme(
     primary = Color(0xFF70DAC4), onPrimary = Color(0xFF00382E),
@@ -16,6 +18,10 @@ private val Light = lightColorScheme(
     secondary = Color(0xFF49645C), background = Color(0xFFF5F9F7),
     surface = Color(0xFFFAFDFC), surfaceVariant = Color(0xFFE4EEE9)
 )
+/** Reserve real layout space for touch targets, not overlapping invisible hit boxes. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable fun FormaTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (isSystemInDarkTheme()) Dark else Light, content = content)
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 52.dp) {
+        MaterialTheme(colorScheme = if (isSystemInDarkTheme()) Dark else Light, content = content)
+    }
 }
