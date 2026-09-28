@@ -11,12 +11,13 @@ def build(with_samples=False):
     if with_samples:
         generate()
     html = (ROOT / 'web/index.html').read_text(encoding='utf-8')
-    for name in ('ui.css', 'touch.css'):
+    for name in ('ui.css', 'touch.css', 'timeline.css'):
         html = html.replace(f'<link rel="stylesheet" href="{name}">', '')
-    html = html.replace('<script src="ui.js"></script>', '')
-    css = '\n'.join((ROOT / 'web' / f).read_text(encoding='utf-8') for f in ('ui.css', 'touch.css'))
+    for name in ('ui.js', 'timeline.js'):
+        html = html.replace(f'<script src="{name}"></script>', '')
+    css = '\n'.join((ROOT / 'web' / f).read_text(encoding='utf-8') for f in ('ui.css', 'touch.css', 'timeline.css'))
     html = html.replace('/*__CSS__*/', css)
-    html = html.replace('/*__JS__*/', (ROOT / 'web/ui.js').read_text(encoding='utf-8'))
+    html = html.replace('/*__JS__*/', '\n'.join((ROOT / 'web' / name).read_text(encoding='utf-8') for name in ('ui.js', 'timeline.js')))
     samples = {}
     for kind, name, mime in [('video', 'sample.mp4', 'video/mp4'), ('audio', 'sample.wav', 'audio/wav')]:
         path = ROOT / 'media' / name

@@ -99,3 +99,10 @@ def test_web_routes_include_touch_styles(service):
     assert code == 200 and b'touch.css' in content
     code, content, _ = request(service, '/touch.css')
     assert code == 200 and b'--touch-target:48px' in content
+
+@pytest.mark.parametrize('path,mime', [('/timeline.js','javascript'),('/timeline.css','text/css')])
+def test_timeline_assets_are_served_over_real_http(service,path,mime):
+    code,content,headers=request(service,path)
+    assert code==200
+    assert mime in headers['Content-Type']
+    assert content==(ROOT/'web'/path.lstrip('/')).read_bytes()

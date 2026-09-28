@@ -266,6 +266,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not job or job['status']!='completed':return self.respond({'error':'No verified output is available.'},404)
                 return self.send_file(job['output'],job['outputName'] if 'download' in parse_qs(url.query,keep_blank_values=True) else None)
             files={'/':ROOT/'web/index.html','/index.html':ROOT/'web/index.html','/ui.js':ROOT/'web/ui.js','/ui.css':ROOT/'web/ui.css','/touch.css':ROOT/'web/touch.css',
+                   '/timeline.js':ROOT/'web/timeline.js','/timeline.css':ROOT/'web/timeline.css',
                    '/sample.mp4':ROOT/'media/sample.mp4','/sample.wav':ROOT/'media/sample.wav'}
             if path in files:return self.send_file(files[path])
             return self.respond({'error':'Not found.'},404)

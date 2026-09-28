@@ -179,7 +179,7 @@
     state.view=state.pendingView||state.settings.mode;state.pendingView=null;if(state.view==='video'&&!src.hasVideo)state.view='audio';
     if(state.view==='audio'&&src.hasAudio){state.settings.mode='audio';state.settings.format=state.audioFormat;}
     if(state.view==='audio'&&!src.hasAudio)state.view='video';
-    navigate('workspace');schedulePlan();
+    navigate('workspace');window.FormaTimeline?.refresh();schedulePlan();
   }
   function select(label,key,options,value,helptext=''){
     const list=options.map(o=>typeof o==='string'?{value:o,label:o}:o);
@@ -245,27 +245,32 @@
     $('#workspace-message').textContent=message;$('#workspace-message').hidden=!message;
   }
   function renderTimeline(){const s=state.settings;
-    $('#clip-list').innerHTML=s.segments.map((r,i)=>`<button data-clip="${i}" class="clip ${state.selected===i?'selected':''}" aria-label="Select clip ${i+1}" aria-pressed="${state.selected===i}" style="flex-grow:${Math.max(.1,r.end-r.start)}"><b>Clip ${String(i+1).padStart(2,'0')}</b><span>${time(r.start)} – ${time(r.end)}</span></button>`).join('');
+    $('#clip-list').innerHTML=s.segments.map((r,i)=>`<button data-clip="${i}" class="clip ${state.selected===i?'selected':''}" aria-label="Select clip ${i+1}" aria-pressed="${state.selected===i}" style="flex-grow:${Math.max(.1,r.end-r.start)}"><b>Clip ${String(i+1).padStart(2,'0')}</b><span>${time(r.start,true)} – ${time(r.end,true)}</span></button>`).join('');
     $('#timeline-summary').textContent=`${s.segments.length} clip${s.segments.length!==1?'s':''} · ${time(duration(),true)} output`;
     $('#remove-clip').disabled=s.segments.length<2;$('#split').disabled=!state.source.duration;
+    window.FormaTimeline?.refresh();
   }
   function trimNudges(edge){
     return `<div class="trim-nudges"><button data-trim-nudge="${edge}" data-delta="-0.1" aria-label="Move ${edge} earlier by 0.1 seconds">−</button><button data-trim-here="${edge}">Set ${edge} here</button><button data-trim-nudge="${edge}" data-delta="0.1" aria-label="Move ${edge} later by 0.1 seconds">+</button></div>`;
   }
+  function clampTrim(edge,value,range,total){
+    // Round the requested edge before clamping; never round a fractional source end past EOF.
+    const gap=Math.min(.04,total),rounded=Math.round(value*100)/100;
+    return edge==='start'?Math.max(0,Math.min(rounded,range.end-gap)):
+      Math.min(total,Math.max(rounded,range.start+gap));
+  }
   function setTrim(edge,value){
-    if(!Number.isFinite(value))return;
+    if(!Number.isFinite(value)||!state.source?.duration)return;
     const clips=copy(state.settings.segments),r=clips[state.selected];if(!r)return;
-    if(edge==='start')r.start=Math.max(0,Math.min(value,r.end-.04));
-    else r.end=Math.min(state.source.duration,Math.max(value,r.start+.04));
-    r.start=Math.round(r.start*100)/100;r.end=Math.round(r.end*100)/100;
-    change({segments:clips});media.pause();media.currentTime=edge==='start'?r.start:r.end;
+    r[edge]=clampTrim(edge,value,r,state.source.duration);
+    change({segments:clips});media.pause();media.currentTime=r[edge];updatePlayhead();
   }
   function renderInspector(){
     $$('#edit-panel [data-inspector]').forEach(b=>{b.setAttribute('aria-selected',String(b.dataset.inspector===state.inspector));b.disabled=b.dataset.inspector==='picture'&&!state.source.hasVideo;});
     if(!state.source.hasVideo&&state.inspector==='picture')state.inspector='trim';
     const s=state.settings,r=s.segments[state.selected],src=state.source;
     if(state.inspector==='trim'){
-      $('#inspector-content').innerHTML=`<h2 class="inspector-title">Keep the good part.</h2><p class="inspector-desc">Each kept clip becomes part of one output, in the order shown.</p>${r?`<div class="two-cols"><div>${input('Start (seconds)','start',Number(r.start.toFixed(2)),{min:0,max:r.end-.04,step:.01})}${trimNudges('start')}</div><div>${input('End (seconds)','end',Number(r.end.toFixed(2)),{min:r.start+.04,max:src.duration,step:.01})}${trimNudges('end')}</div></div><p class="trim-step-label">Tap − / + for 0.1-second steps. “Here” uses the playhead.</p>${input('Trim start','trimStart',r.start,{type:'range',min:0,max:src.duration,step:.01})}${input('Trim end','trimEnd',r.end,{type:'range',min:0,max:src.duration,step:.01})}<div class="mini-actions"><button class="small-button" data-move="-1" ${state.selected===0?'disabled':''}>Move earlier</button><button class="small-button" data-move="1" ${state.selected===s.segments.length-1?'disabled':''}>Move later</button></div>`:'<p class="helper">A verified duration is needed for editing. Open this source with the local runner.</p>'}<div class="divider"></div>${select('Playback speed','speed',[.5,.75,1,1.25,1.5,2].map(x=>({value:x,label:x===1?'Normal speed':`${x}× speed`})),s.speed,'Audio tempo changes with the picture. Pitch is preserved.')}`;
+      $('#inspector-content').innerHTML=`<h2 class="inspector-title">Fine-tune the cut.</h2><p class="inspector-desc">Drag the timeline brackets for a visual cut. Use seconds below for exact adjustments.</p>${r?`<div class="two-cols"><div>${input('Start (seconds)','start',Number(r.start.toFixed(2)),{min:0,max:r.end-.04,step:.01})}${trimNudges('start')}</div><div>${input('End (seconds)','end',Number(r.end.toFixed(2)),{min:r.start+.04,max:src.duration,step:.01})}${trimNudges('end')}</div></div><p class="trim-step-label">Tap − / + for 0.1-second steps. “Here” uses the playhead.</p><div class="mini-actions"><button class="small-button" data-move="-1" ${state.selected===0?'disabled':''}>Move earlier</button><button class="small-button" data-move="1" ${state.selected===s.segments.length-1?'disabled':''}>Move later</button></div>`:'<p class="helper">A verified duration is needed for editing. Open this source with the local runner.</p>'}<div class="divider"></div>${select('Playback speed','speed',[.5,.75,1,1.25,1.5,2].map(x=>({value:x,label:x===1?'Normal speed':`${x}× speed`})),s.speed,'Audio tempo changes with the picture. Pitch is preserved.')}`;
     }else if(state.inspector==='picture'){
       $('#inspector-content').innerHTML=`<h2 class="inspector-title">Frame it your way.</h2><p class="inspector-desc">Crop first, then rotate and mirror. The original stays untouched.</p><div class="crop-presets"><button data-ratio="original">Original</button><button data-ratio="1">1:1</button><button data-ratio="1.7777777778">16:9</button><button data-ratio="0.5625">9:16</button><button data-ratio="1.3333333333">4:3</button></div><div class="two-cols">${input('Crop left (%)','crop.left',s.crop.left,{min:0,max:94,step:.1})}${input('Crop right (%)','crop.right',s.crop.right,{min:0,max:94,step:.1})}${input('Crop top (%)','crop.top',s.crop.top,{min:0,max:94,step:.1})}${input('Crop bottom (%)','crop.bottom',s.crop.bottom,{min:0,max:94,step:.1})}</div>${select('Rotate clockwise','rotation',[{value:0,label:'No rotation'},{value:90,label:'90° right'},{value:180,label:'180°'},{value:270,label:'90° left'}],s.rotation)}${toggle('Mirror horizontally','flip',s.flip)}<p class="helper">Crop coordinates are rounded to valid pixel boundaries for the selected video encoder.</p>`;
     }else{
@@ -327,20 +332,21 @@
     if(!media.paused&&state.settings?.segments.length){
       const clips=state.settings.segments,r=clips[playIndex];
       if(r&&media.currentTime>=r.end-.025){
-        if(playIndex+1<clips.length){playIndex++;media.currentTime=clips[playIndex].start;}
+        if($('#preview-scope').value==='all'&&playIndex+1<clips.length){playIndex++;media.currentTime=clips[playIndex].start;}
         else{media.pause();media.currentTime=r.end;}
       }
     }
-    draw();
+    window.FormaTimeline?.playhead();draw();
   }
   $('#play').onclick=()=>{
     if(!state.source?.duration){toast('This browser cannot preview the source. Use the local runner to inspect it.');return;}
     if(!media.paused){media.pause();return;}
-    playIndex=state.selected;const r=state.settings.segments[playIndex];
+    playIndex=$('#preview-scope').value==='clip'?state.selected:0;const r=state.settings.segments[playIndex];
     if(media.currentTime<r.start||media.currentTime>=r.end)media.currentTime=r.start;
     media.play().catch(()=>toast('This browser cannot decode the preview. FFmpeg export is independent of browser playback.'));
   };
-  $('#scrub').oninput=e=>{media.currentTime=Number(e.target.value);updatePlayhead();};
+  $('#preview-scope').onchange=()=>media.pause();
+  $('#scrub').oninput=e=>{media.pause();media.currentTime=Number(e.target.value);updatePlayhead();};
   media.addEventListener('loadeddata',()=>{$('#preview-error').hidden=true;
     // A hidden decoder may not expose its first bitmap until an explicit seek.
     if(media.currentTime===0&&Number.isFinite(media.duration))media.currentTime=Math.min(.001,media.duration/2);
@@ -382,7 +388,7 @@
     if(!state.jobs.length){$('#queue-list').innerHTML='<div class="queue-empty">No exports yet.<br><br>Add media, choose a result, and convert.</div>';return;}
     $('#queue-list').innerHTML=[...state.jobs].reverse().map(j=>`<article class="queue-item" data-job="${esc(j.id)}"><div class="job-top"><div class="job-icon">${icon(j.mode==='video'?'video':'audio')}</div><div class="job-info"><b>${esc(j.outputName)}</b><span>${esc(j.sourceName)} · ${time(j.duration)}${j.size?' · '+size(j.size):''}</span></div><span class="job-status ${esc(j.status)}">${esc(j.status)}</span></div>${j.status==='encoding'||j.status==='verifying'?`<div class="progress" role="progressbar" aria-label="Encoding progress" aria-valuenow="${Math.round(j.progress*100)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${Math.round(j.progress*100)}%"></span></div>`:''}${j.error?`<pre class="job-error">${esc(j.error)}</pre>`:''}<div class="job-actions">${['encoding','queued','verifying'].includes(j.status)?`<button data-cancel="${esc(j.id)}" class="small-button">Cancel</button>`:''}${j.status==='completed'?`<span class="pill">VERIFIED OUTPUT</span><a href="/output/${encodeURIComponent(j.id)}" target="_blank" rel="noopener" class="small-button">Open</a><a href="/output/${encodeURIComponent(j.id)}?download=1" class="small-button" download="${esc(j.outputName)}">${icon('download')}Save file</a>`:''}</div></article>`).join('');
   }
-  window.FormaStudio={state,activate,defaults,change,navigate,setView,render,draw,duration,applyCrop};
+  window.FormaStudio={state,activate,defaults,change,navigate,setView,render,draw,duration,applyCrop,setTrim,clampTrim,updatePlayhead,time};
   const measureFooter=()=>{
     const h=$('#export-bar').hidden?0:Math.ceil($('#export-bar').getBoundingClientRect().height);
     document.documentElement.style.setProperty('--export-height',`${h}px`);
