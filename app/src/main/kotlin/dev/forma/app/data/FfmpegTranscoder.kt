@@ -19,7 +19,7 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
         val reportFile = File(published.parentFile, "${spec.id}.acceleration.json")
         val events = JSONArray()
         val report = JSONObject().put("schemaVersion", 1).put("jobId", spec.id)
-            .put("requestedEncoder", spec.settings.video.name).put("events", events)
+            .put("targetBytes", spec.targetBytes ?: JSONObject.NULL).put("requestedEncoder", spec.settings.video.name).put("events", events)
             .put("publicationTrackedByQueue", true).put("deviceQualification", false)
             .put("sdk", Build.VERSION.SDK_INT).put("fingerprint", Build.FINGERPRINT).put("model", Build.MODEL)
         try {
@@ -29,13 +29,10 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
             val input = files.stage(spec)
             val inspected = bridge.probe(input.absolutePath)
             val actual = inspected.copy(uri = spec.source.uri, name = spec.source.name)
-            val problems = Planner.validate(actual, spec.trim, spec.settings, caps)
+            val problems = Planner.validate(actual, spec.trim, UploadFit.effective(actual, spec.trim, spec.settings, spec.targetBytes), caps)
             require(problems.isEmpty()) { problems.joinToString("\n") }
-            val attempts = bridge.prepareAttempts(actual, spec.trim, spec.settings, input.absolutePath, temporary.absolutePath)
             onState(JobState.RUNNING)
-            ExportRetry.run(attempts, temporary,
-                execute = { attempt, progress -> bridge.execute(attempt.arguments, progress) },
-                verify = { attempt -> verifyEncodedOutput(bridge, actual, spec.trim, spec.settings, temporary, attempt) },
+            ByteCapExport.run(bridge, actual, spec.trim, spec.settings, input, temporary, spec.targetBytes,
                 onProgress = onProgress,
                 onAttempt = { event ->
                     val route = event.attempt.decision

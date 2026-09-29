@@ -20,12 +20,9 @@ internal class KitNextBridge : FfmpegBridge {
             check(ReturnCode.isSuccess(session.getReturnCode())) { "Could not query FFmpeg $option." }
             return session.getOutput().orEmpty()
         }
-        val encoders = Regex("(?m)^\\s*[VAS][A-Z.]{5}\\s+(\\S+)").findAll(listing("-encoders"))
-            .map { it.groupValues[1] }.toSet()
-        val muxers = Regex("(?m)^\\s*E\\s+(\\S+)").findAll(listing("-muxers"))
-            .flatMap { it.groupValues[1].split(',').asSequence() }.toSet()
-        val filters = Regex("(?m)^\\s*[TSC.]{3}\\s+(\\S+)").findAll(listing("-filters"))
-            .map { it.groupValues[1] }.toSet()
+        val encoders = FfmpegListing.encoders(listing("-encoders"))
+        val muxers = FfmpegListing.muxers(listing("-muxers"))
+        val filters = FfmpegListing.filters(listing("-filters"))
         Capabilities(true, "Device support is established by bounded real export attempts, not capability reports alone.", encoders, muxers, filters,
             "FFmpegKitNext 9.0.0 · ${FFmpegKitConfig.getFFmpegVersion()}")
     }

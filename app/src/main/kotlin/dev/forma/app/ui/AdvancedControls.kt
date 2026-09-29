@@ -37,6 +37,7 @@ import kotlin.math.roundToLong
                 if (s.video.deviceRequested) Text(if (s.video.automatic)
                     "Tries device encoders, then software for codec failures. Constant quality or source frame rate uses software. Reports show the actual route."
                 else "Tries device configurations without software fallback. Older Android versions may not identify whether the component is hardware.", style = MaterialTheme.typography.bodySmall)
+                if (ui.targetBytes != null) Text("Remove the size limit to use these quality settings.", style=MaterialTheme.typography.bodySmall)
                 Choice("Rate control", s.rateControl, if (s.video.hardware) listOf(RateControl.BITRATE) else RateControl.entries,
                     { if (it == RateControl.QUALITY) "Constant quality" else "Average bitrate" }) { update(s.copy(rateControl = it)) }
                 if (s.rateControl == RateControl.QUALITY) {

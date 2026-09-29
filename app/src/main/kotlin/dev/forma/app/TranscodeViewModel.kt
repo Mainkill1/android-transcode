@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.*
 data class FileTask(val label: String, val fraction: Float? = null, val cancelling: Boolean = false)
 data class TranscodeUiState(
     val editor: Editor = Editor(),
+    val targetBytes: Long? = 10_000_000,
     val sources: List<SourceEdit> = emptyList(),
     val selectedUri: String? = null,
     val capabilities: Capabilities = Capabilities(reason = "Checking the encoder build…"),
@@ -44,6 +45,7 @@ sealed interface UiAction {
     data object RetryInitialization : UiAction
     data object DismissMessage : UiAction
     data class DismissMessageIf(val message: String) : UiAction
+    data class SetTargetBytes(val targetBytes: Long?) : UiAction
     data class Preset(val goal: Goal, val quality: Quality) : UiAction
     data class ChangeSettings(val settings: Settings) : UiAction
     data class Select(val uri: String) : UiAction
@@ -66,8 +68,8 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     val runState = graph.runs.state
     private var fileJob: Job? = null
     private var initialization: Job? = null
-    private data class ValidationKey(val sources: List<SourceEdit>, val settings: Settings, val caps: Capabilities)
-    private fun key(ui: TranscodeUiState) = ValidationKey(ui.sources, ui.editor.settings, ui.capabilities)
+    private data class ValidationKey(val sources: List<SourceEdit>, val settings: Settings, val caps: Capabilities, val targetBytes: Long?)
+    private fun key(ui: TranscodeUiState) = ValidationKey(ui.sources, ui.editor.settings, ui.capabilities, ui.targetBytes)
 
     init {
         initialize()
@@ -75,10 +77,10 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             mutable.map(::key).distinctUntilChanged().collectLatest { input ->
                 mutable.update { it.copy(validating = true) }
                 val results = withContext(Dispatchers.Default) {
-                    val base = input.sources.flatMap { e -> ensureActive(); Planner.validate(e.source, e.trim, input.settings).map { "${e.source.name}: $it" } }.distinct()
+                    val base = input.sources.flatMap { e -> ensureActive(); runCatching { Planner.validate(e.source, e.trim, UploadFit.effective(e.source,e.trim,input.settings,input.targetBytes)) }.getOrElse { listOf(it.message ?: "Invalid size limit") }.map { "${e.source.name}: $it" } }.distinct()
                     val native = if (input.caps.available) input.sources.flatMap { e ->
                         ensureActive()
-                        Planner.validate(e.source, e.trim, input.settings, input.caps).map { "${e.source.name}: $it" }
+                        runCatching { Planner.validate(e.source, e.trim, UploadFit.effective(e.source,e.trim,input.settings,input.targetBytes), input.caps) }.getOrElse { listOf(it.message ?: "Invalid size limit") }.map { "${e.source.name}: $it" }
                     }.distinct() else emptyList()
                     base to native
                 }
@@ -113,6 +115,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             is UiAction.Select -> mutable.update { it.copy(selectedUri = action.uri) }
             is UiAction.RemoveSource -> edit { it.copy(validating = true, sources = it.sources.filterNot { e -> e.source.uri == action.uri }) }
             is UiAction.ChangeTrim -> edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(trim = action.trim) else e }) }
+            is UiAction.SetTargetBytes -> { action.targetBytes?.let(UploadFit::validateTarget); mutable.update { it.copy(targetBytes=action.targetBytes) } }
             UiAction.Queue -> enqueue(false)
             UiAction.Convert -> enqueue(true)
             UiAction.StartQueue -> runOperation { startQueue() }
@@ -182,10 +185,10 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         runOperation {
             require(draft.sources.isNotEmpty()) { "Choose media first." }
             val problems = withContext(Dispatchers.Default) { draft.sources.flatMap { e ->
-                Planner.validate(e.source, e.trim, draft.editor.settings, if (start) draft.capabilities else null).map { "${e.source.name}: $it" }
+                Planner.validate(e.source, e.trim, UploadFit.effective(e.source,e.trim,draft.editor.settings,draft.targetBytes), if (start) draft.capabilities else null).map { "${e.source.name}: $it" }
             } }
             require(problems.isEmpty()) { problems.joinToString("\n") }
-            graph.queue.add(draft.sources.map { JobSpec(UUID.randomUUID().toString(), it.source, it.trim, draft.editor.settings) })
+            graph.queue.add(draft.sources.map { JobSpec(UUID.randomUUID().toString(), it.source, it.trim, draft.editor.settings, draft.targetBytes) })
             if (start) startQueue()
             else mutable.update { it.copy(message = "${draft.sources.size} job(s) added. You can keep editing; queued settings are independent.") }
         }

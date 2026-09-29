@@ -119,6 +119,7 @@ import kotlinx.coroutines.launch
                 } }
                 when (page) {
                     "home" -> {
+                        item(key="size-limit") { ByteLimitControl(ui.targetBytes) { onAction(UiAction.SetTargetBytes(it)) } }
                         if (ui.sources.isEmpty()) item(key = "empty-home") {
                             Column(Modifier.fillMaxWidth().padding(vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                 Text("Your media.\nReady to share.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)

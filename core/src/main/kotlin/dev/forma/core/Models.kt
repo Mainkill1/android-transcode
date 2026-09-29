@@ -74,7 +74,10 @@ data class Editor(
     val goal: Goal = Goal.SHARE,
     val quality: Quality = Quality.BALANCED
 )
-data class JobSpec(val id: String, val source: Source, val trim: Trim, val settings: Settings)
+data class JobSpec(val id: String, val source: Source, val trim: Trim, val settings: Settings,
+                   val targetBytes: Long? = null) {
+    init { targetBytes?.let(UploadFit::validateTarget) }
+}
 enum class JobState { QUEUED, PREPARING, RUNNING, VERIFYING, COMPLETED, FAILED, CANCELLED, INTERRUPTED }
 data class QueueEntry(val spec: JobSpec, val state: JobState = JobState.QUEUED, val message: String = "")
 data class Capabilities(
