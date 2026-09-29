@@ -1,6 +1,6 @@
 # Image editor: feature catalog and delivery scope
 
-**Status: A implementation is present; device qualification and independent review are pending.**
+**Status: A implementation is present; focused native qualification passed. Broader device/UI gates remain pending.**
 The branch adds native image contracts, Compose tools, private staging, versioned
 image drafts and tagged queue jobs, verified FFmpeg export, and an isolated direct
 instrumentation runner. Host/build evidence is recorded below. A passing build is
@@ -241,10 +241,11 @@ not merge the other drafts.
 
 ## A implementation and qualification evidence
 
-Every row below is **Implemented, pending device qualification**. Host unit tests
-cover the pure contracts and persisted data; assembled instrumentation includes
-native known-answer oracles. The rows identify real consumers, not a claim that
-all device gates have passed.
+Every row below has an implemented production consumer. The direct native/Android
+suite passed 26/26 on OnePlus LE2125, API 36, arm64, 4 KiB pages at production
+revision `ea886a2`. Host tests cover pure contracts and persisted data. The matrix
+describes implemented behavior; separate UI/accessibility/API and 16 KiB runtime
+gates below remain pending.
 
 | ID | Production consumer | Behavior/evidence |
 | --- | --- | --- |
@@ -302,14 +303,19 @@ Video/audio payload availability alone does not qualify image decoding. The
 previous payload failed a real PNG decode and is not counted as a pass. The first
 image-capable device run at `9d48f5f` passed 20/26; EXIF fixture ICC, transparent
 blur edges, markup thread budgeting and active verification cancellation failed.
-The current fixes require a new matching-APK run; the prior report remains failure.
+The corrected `ea886a2` pair passed 26/26 in fresh run
+`e606eaf0-35fc-46e7-85e6-4e35ff69155c` (JUnit OK 1, zero skipped cases).
+Its source hashes, prepared routes/arguments, decoded output and installed APK
+identity were verified by the root agent. The prior report remains a historical
+failure.
 
-Host gates: core, engine and app JVM suites; matching lab APK assembly and debug lint;
+Host gates: 140 JVM tests (core 77, engine 20, app 43), zero failures/skips;
+matching lab APK assembly and debug lint;
 39 CLI core checks and 14 Android/native-build contract tests. A product-only
 release archive builds with `testing/image` physically absent and
 `-PimageTests=false`; release DEX/assets contain no image scenario, fixture,
 report or test UI classes, and native ELF/APK payload checks pass. These checks do
-not establish actual device processing.
+establish packaging/exclusion only; native processing has the separate run above.
 
 Saved records require explicit nullable intent keys. Frozen image queue jobs keep
 requested Auto separate from their resolved codec; main schema 1 and audio schema
@@ -326,11 +332,28 @@ preview cannot share the budget, it returns to labeled Original while updating.
 Actual-pixel preview can be unavailable for large outputs; reduce output size or
 use Fit. Its cached full rendered graph and displayed region are both bounded.
 
-Pending root-owned qualification: matching native LAB APK installation; direct
-26-case `all` report and decoded pixel/alpha/metadata checks; Compose large-text,
+Verified image-native Maven AAR SHA-256:
+`75d5f5c1b7c2e11160589f87343dd1c73b1eaaa092790e32e52a36583d91c693`.
+Qualified debug app APK SHA-256:
+`11ae673c3567231f7efa678679d7099b3daf50f477a68e18b66b60df4a1a1083`;
+matching 26-case test APK:
+`e1598569bbefa73a72dac9c76e59fc9034f52732cefbfba7c5060041df66dd1f`.
+Product-only unsigned release APK SHA-256:
+`1492640830a9476ec72952d39884c4d6b9640ef525ef6a98441fb04099215990`;
+it was built from `ea886a2` with image tests physically absent, retains product
+image rendering, and contains no test runner/fixture/report/UI/provider entries.
+
+The pending WebP-focused extension runs lossless/lossy alpha variants inside
+`alpha_geometry`; the existing 26-case pass does not itself qualify those variants.
+Parent-owned provenance/reports are retained under `vendor/pr-readiness/pr8` and
+`vendor/pr-readiness/pr8-native-provenance.json` outside source commits.
+
+Pending root-owned qualification: WebP-focused extension; ordinary native/Compose
+regressions; Compose large-text,
 TalkBack, keyboard, lifecycle/Share/Save flows; API 26/27 and another vendor when
 available; actual 16 KiB page-size execution. Root alone owns ADB and retains run
-reports/artifact hashes. No phone pass is asserted by this document.
+reports/artifact hashes. The phone pass above is limited to the stated device,
+revision, artifacts and cases.
 
 ## Primary references
 

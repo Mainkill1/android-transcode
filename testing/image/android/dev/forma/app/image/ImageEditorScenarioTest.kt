@@ -279,6 +279,24 @@ class ImageEditorScenarioTest {
                     assertEquals(if(index==0)1 else 2,actual.width);assertEquals(if(index==0)1 else 2,actual.height);file.delete()
                 }
                 assertEquals(sparseInfo.hash,ImageProbe.hash(sparse))
+                val original=BitmapFactory.decodeFile(input.path)
+                try {
+                    for(lossless in listOf(true,false)){
+                        val webp=ImageJobSpec(UUID.randomUUID().toString(),d.copy(output=d.output.copy(format=ImageFormat.WEBP,lossless=lossless,targetBytes=null)),info)
+                        transcoder.run(webp,{},{});val file=graph.files.output(QueueJobSpec.Image(webp))
+                        val actual=bridge.inspectImage(file.path);assertEquals(ImageFormat.WEBP,actual.format);assertEquals(ImageAlpha.PRESENT,actual.alpha)
+                        val b=BitmapFactory.decodeFile(file.path)
+                        try {
+                            assertEquals(original.width,b.width);assertEquals(original.height,b.height)
+                            if(lossless)for(y in 0 until original.height)for(x in 0 until original.width)assertEquals("Lossless WebP pixel $x,$y",original.getPixel(x,y),b.getPixel(x,y))
+                            else for((x,y) in listOf(5 to 5,95 to 5,5 to 71,95 to 71)){
+                                assertColorClose("Lossy WebP corner $x,$y",original.getPixel(x,y),b.getPixel(x,y),12)
+                                assertEquals(Color.alpha(original.getPixel(x,y)),Color.alpha(b.getPixel(x,y)))
+                            }
+                            ImageMetadata.requireClean(file,ImageFormat.WEBP)
+                        }finally{b.recycle();file.delete()}
+                    }
+                }finally{original.recycle()}
             }
             if(id=="solid_redaction" || id=="full_device_roundtrip")assertEquals(Color.BLACK,decoded.getPixel(70,50))
             if(id=="full_device_roundtrip") {
@@ -305,7 +323,7 @@ class ImageEditorScenarioTest {
             }
             ImageMetadata.requireClean(output,d.output.format)
             assertEquals(source.hash,ImageProbe.hash(input))
-            return JSONObject().put("sourceHash",source.hash).put("documentHash",documentHash(d)).put("format",d.output.format.name).put("width",decoded.width).put("height",decoded.height).put("bytes",output.length()).put("outputHash",ImageProbe.hash(output)).put("fullyDecoded",true).put("sourceUnchanged",true).put("nativeBuild",caps.build)
+            return JSONObject().put("sourceHash",source.hash).put("documentHash",documentHash(d)).put("format",d.output.format.name).put("width",decoded.width).put("height",decoded.height).put("bytes",output.length()).put("outputHash",ImageProbe.hash(output)).put("fullyDecoded",true).put("webpLosslessAndLossyAlphaVerified",id=="alpha_geometry").put("sourceUnchanged",true).put("nativeBuild",caps.build)
         }finally{decoded.recycle()}
     }
     private fun documentHash(document:ImageEditDocument)=java.security.MessageDigest.getInstance("SHA-256").digest(ImageDocumentCodec.encode(document).toString().toByteArray()).joinToString(""){"%02x".format(it)}

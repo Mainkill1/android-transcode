@@ -1,6 +1,7 @@
 # Image editor testing: isolated sources and direct ADB
 
-**Implemented runner; physical/native qualification is pending root-owned runs.**
+**Implemented runner; root verified 26/26 direct native/Android cases at `ea886a2`
+on OnePlus LE2125/API 36. Broader UI/API/16 KiB runtime gates remain pending.**
 `scenarios.json` declares 36 acceptance cases. Direct `all` selects exactly 26
 native/Android cases; eight host cases, one release artifact gate and one explicit no-native case run separately.
 The runner is opt-in: ordinary no-argument test discovery skips it, while any
@@ -105,7 +106,10 @@ Start with `geometry_crop_turn_resize` for a focused native smoke case, then
 `alpha_blur_edges`, `alpha_geometry`, `jpeg_flatten`, `markup_unicode`,
 `solid_redaction`, `cancel_verify`, `preview_stale` and `full_device_roundtrip`.
 The first image-native run at `9d48f5f` was FAIL 20/26; its report is evidence of
-failures, not qualification of the current fixes. Select
+historical failures. Corrected `ea886a2` passed 26/26 in fresh run
+`e606eaf0-35fc-46e7-85e6-4e35ff69155c` with verified installed hashes. The new
+WebP lossless/lossy alpha extension in `alpha_geometry` requires a separate fresh
+run with the updated test APK. Select
 `native_missing` explicitly on a no-native build to prove the Unavailable behavior.
 Requesting `all` on a no-native build must fail, not skip native cases and report
 success. A missing class or zero-test invocation is failure.
