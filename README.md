@@ -90,3 +90,14 @@ whereas the native queue is persisted.
 
 [Architecture](docs/architecture.md) · [Native testing](docs/testing.md) ·
 [Studio tests](studio/README.md) · [Touchscreen contract](docs/touchscreen.md)
+
+## Native responsiveness update
+
+The native UI now starts with media selection, uses an expandable left shelf and
+separate queue, and keeps cancellation available during other work. A process-wide
+run coordinator protects native cleanup from overlapping starts; bounded progress
+updates are collected only by a small progress view. The service supports Stop,
+Finish current, completion notifications and bounded screen-off wake handling.
+See [native UX, threading and performance validation](docs/native-ux.md).
+Run `tools/check-ux.sh` for the host concurrency checks. This does not close the
+remaining native upload-fit/URL/image/full-editor or physical-device test gates.

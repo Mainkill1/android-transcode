@@ -39,7 +39,12 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
                 check(spec.settings.maxHeight == 0 || output.height <= spec.settings.maxHeight) { "The output exceeded the requested height." }
             }
             currentCoroutineContext().ensureActive()
-            check(temporary.renameTo(published)) { "The verified output could not be published." }
+            // Keep publication and its durable state notification together across cancellation.
+            // Process death between filesystem rename and queue fsync still needs startup recovery.
+            withContext(NonCancellable) {
+                check(temporary.renameTo(published)) { "The verified output could not be published." }
+                onState(JobState.COMPLETED)
+            }
         } finally { directory.deleteRecursively() }
     }
 }

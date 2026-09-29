@@ -25,6 +25,7 @@ class MediaFiles(private val context: Context) {
 
     suspend fun inspect(uri: Uri): Source = withContext(Dispatchers.IO) {
         require(uri.scheme == "content") { "Choose a file through the system document picker." }
+        currentCoroutineContext().ensureActive()
         resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         var name = "Media file"
         var bytes = -1L
@@ -36,11 +37,13 @@ class MediaFiles(private val context: Context) {
                 if (b >= 0 && !c.isNull(b)) bytes = c.getLong(b)
             }
         }
+        currentCoroutineContext().ensureActive()
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(context, uri, null)
             var video = 0; var audio = 0; var width = 0; var height = 0; var duration = 0L; var hdr = false
             repeat(extractor.trackCount) { index ->
+                currentCoroutineContext().ensureActive()
                 val f = extractor.getTrackFormat(index)
                 val mime = f.getString(MediaFormat.KEY_MIME).orEmpty()
                 if (f.containsKey(MediaFormat.KEY_DURATION)) duration = maxOf(duration, f.getLong(MediaFormat.KEY_DURATION) / 1000)
@@ -67,7 +70,7 @@ class MediaFiles(private val context: Context) {
         }
         resolver.openInputStream(Uri.parse(spec.source.uri))?.use { input ->
             target.outputStream().use { output ->
-                val buffer = ByteArray(1024 * 1024)
+                val buffer = ByteArray(64 * 1024)
                 while (true) {
                     currentCoroutineContext().ensureActive()
                     val read = input.read(buffer)
@@ -80,17 +83,30 @@ class MediaFiles(private val context: Context) {
         target
     }
 
-    suspend fun export(spec: JobSpec, destination: Uri) = withContext(Dispatchers.IO) {
+    suspend fun export(spec: JobSpec, destination: Uri, onBytes: (Long, Long) -> Unit = { _, _ -> }) = withContext(Dispatchers.IO) {
         require(destination.toString() != spec.source.uri) { "The original cannot be the export destination." }
         val source = output(spec)
         require(source.isFile && source.length() > 0) { "The completed output is no longer available." }
+        val total = source.length()
         try {
-            resolver.openOutputStream(destination, "w")?.use { out -> source.inputStream().use { it.copyTo(out) } }
-                ?: throw IOException("The destination is not writable.")
-        } catch (e: Exception) {
+            resolver.openOutputStream(destination, "w")?.use { out -> source.inputStream().use { input ->
+                val buffer = ByteArray(64 * 1024)
+                var copied = 0L
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    out.write(buffer, 0, read)
+                    copied += read
+                    onBytes(copied, total)
+                }
+                out.flush()
+                check(copied == total) { "The output changed during saving." }
+            } } ?: throw IOException("The destination is not writable.")
+        } catch (error: Exception) {
             // Only the new ACTION_CREATE_DOCUMENT result is eligible for cleanup.
             runCatching { DocumentsContract.deleteDocument(resolver, destination) }
-            throw e
+            throw error
         }
     }
 }

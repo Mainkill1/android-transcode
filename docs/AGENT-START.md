@@ -33,3 +33,13 @@ sliders. All attempts read the original. Never publish an oversized result.
 Report exactly what you changed, commands run, real artifact identities, device
 identity, effective encoder component, remaining failures and unrun gates.
 Do not call the native port complete until the acceptance gates in the plan pass.
+
+## Native UX and background-work update
+
+Read `docs/native-ux.md` before changing execution ownership. The current code
+adds a process-wide RunCoordinator, a serialized/cached native bridge, thread
+budgets, throttled progress and a source-first Compose workspace. Do not move
+encoding back into ViewModel scope, collect raw progress at the editor root or
+release the run slot before native cancellation cleanup completes. Keep Stop
+independent of import/save and queue-mutation busy flags. Native upload-fit and
+full editor parity are still required; host/Compose checks are not phone timing.

@@ -2,19 +2,34 @@ package dev.forma.app
 
 import android.app.Application
 import dev.forma.app.data.*
+import dev.forma.app.work.RunCoordinator
+import dev.forma.ffmpeg.ManagedFfmpegBridge
 import dev.forma.ffmpeg.createFfmpegBridge
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class FormaApplication : Application() {
     val graph by lazy { AppGraph(this) }
 }
 
-/** Small manual composition root; no service locators inside the domain or native adapter. */
+/** UI lifecycles never own native encoding. The foreground service owns its run ticket. */
 class AppGraph(application: Application) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val files = MediaFiles(application)
     val queue = QueueRepository(application)
-    val bridge = createFfmpegBridge()
+    val runs = RunCoordinator(scope)
+    val bridge = ManagedFfmpegBridge(createFfmpegBridge())
     val transcoder = FfmpegTranscoder(files, bridge)
-    val ready = scope.async { queue.load(); files.cleanupWork() }
+    private val initialization = Mutex()
+    private var initialized = false
+    suspend fun initialize() = withContext(Dispatchers.IO) {
+        initialization.withLock {
+            if (!initialized) {
+                queue.load()
+                files.cleanupWork()
+                initialized = true
+            }
+        }
+    }
 }
