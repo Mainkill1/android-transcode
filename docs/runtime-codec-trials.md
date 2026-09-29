@@ -208,7 +208,7 @@ process death, or a codec call that never returns.
 
 ## Qualification checkpoint
 
-Final review qualification (2026-09-29) uses the pinned source-built FFmpeg n9.0.1 bundle. **44 JVM tests**, native app/test builds and lint pass. Fourteen real desktop stream-completeness cases pass, including rejection of decodable truncated video hidden behind full-length audio, shortened audio, shifted streams and wrong CFR counts. WAV/FLAC inputs lacking declared start clocks use measured packet/frame timestamps; unknown clocks remain unknown.
+Final review qualification (2026-09-29) uses the pinned source-built FFmpeg n9.0.1 bundle. **45 JVM tests** pass after the test-only completion-order follow-up; native app/test builds and lint passed at the product qualification checkpoint. Fourteen real desktop stream-completeness cases pass, including rejection of decodable truncated video hidden behind full-length audio, shortened audio, shifted streams and wrong CFR counts. WAV/FLAC inputs lacking declared start clocks use measured packet/frame timestamps; unknown clocks remain unknown.
 
 On the attached **OnePlus 9 Pro LE2125**, API 36, arm64, 4096-byte pages:
 
@@ -300,7 +300,7 @@ failed-copy deletion. Original and alias documents with existing bytes, the sour
 and unreadable destinations are rejected. A genuinely empty new document is accepted.
 This also protects incoming originals after private shared imports change their URI.
 Host guard regressions and an instrumentation-only disposable provider exercise these
-boundaries. Current JVM reports contain 44 passing tests; the earlier 15-test physical
+boundaries. Current JVM reports contain 45 passing tests; the earlier 15-test physical
 report `b710ebff-f1c4-42d6-84e9-6ec52bc15d0c` and its APK identities above remain
 revision-specific evidence, separate from the Save-guard qualification.
 
@@ -331,3 +331,11 @@ Matching final Save-guard APK identities (workspace `vendor/pr-readiness/pr6/sav
 debug  0544f0c85bc84530ce06512fbcaf527b0895f37f3f2d801998cde58a85318b81
 test   6852826a93c6308e51fa0131395990f59268e5294bec8cf107722d5e1e461f21
 ```
+
+The completion-order follow-up changes tests only. A monitor-held regression proves
+that a worker's `job.join()` can return before the coordinator callback publishes
+IDLE/error; checks now await that published state with a bounded flow wait before
+checking recovery or starting another run. Error, cleanup and exclusivity assertions
+remain. Full JVM tests (core 4, engine 20, app 21) and the UX CLI passed; evidence is
+under `build/pr6-review/runtime-publication-{full,cli}.log`. Production code and
+the qualified debug/test/release APK identities above are unchanged.
