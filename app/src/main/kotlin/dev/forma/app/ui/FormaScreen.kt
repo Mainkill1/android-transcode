@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
+import dev.forma.app.ui.FormaButton as Button
+import dev.forma.app.ui.FormaTextButton as TextButton
+import dev.forma.app.ui.FormaOutlinedButton as OutlinedButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -200,7 +203,7 @@ import kotlinx.coroutines.launch
         Text("What would you like to do?", style = MaterialTheme.typography.titleMedium)
         Choice("Result", editor.goal, Goal.entries, { it.label }) { action(UiAction.Preset(it, editor.quality)) }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Quality.entries.forEach { q -> FilterChip(selected = editor.quality == q && !editor.custom,
+            Quality.entries.forEach { q -> FilterChip(modifier = Modifier.formaTouchTarget(), selected = editor.quality == q && !editor.custom,
                 onClick = { action(UiAction.Preset(editor.goal, q)) }, label = { Text(q.label) }) }
         }
         if (editor.custom) Text("Choosing a result or quality replaces custom encoder settings, not your trims.", style = MaterialTheme.typography.bodySmall)

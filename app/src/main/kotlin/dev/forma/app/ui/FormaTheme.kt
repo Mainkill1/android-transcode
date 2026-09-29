@@ -18,7 +18,7 @@ private val Light = lightColorScheme(
     secondary = Color(0xFF49645C), background = Color(0xFFF5F9F7),
     surface = Color(0xFFFAFDFC), surfaceVariant = Color(0xFFE4EEE9)
 )
-/** Reserve real layout space for touch targets, not overlapping invisible hit boxes. */
+/** Reserve spacing for small controls; TouchControls sets real button bounds too. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun FormaTheme(content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 52.dp) {
