@@ -71,4 +71,15 @@ class AudioGraphPlannerTest {
         assertTrue(graph(ChannelMode.MONO).contains("pan=mono|c0=0.5*c0+0.5*c1"))
         assertTrue(graph(ChannelMode.SWAP).contains("pan=stereo|c0=c1|c1=c0"))
     }
+
+    @Test fun linkedVideoKeepsItsDurationWhenAudioEndsEarly() {
+        val source = Source("input", "clip.mp4", 30000, width=320, height=240, videoTracks=1, audioTracks=1,
+            audioStreams=listOf(SourceAudioFacts(sampleRateHz=48000,channels=1,durationUs=20000000,totalSamples=960000)))
+        val settings = Settings(audioEdit=AudioEdit(nodes=listOf(AudioEffectNode("gain", "gain", parameters=GainParameters(-6.0)))))
+        val graph=AudioGraphPlanner.plan(source,Trim(),settings)
+        assertEquals(30000000L,graph.outputDurationUs)
+        assertEquals(1440000L,graph.outputFrames)
+        val args=Planner.arguments(source,Trim(),settings,"input","output")
+        assertEquals("30.000",args[args.indexOf("-t")+1])
+    }
 }

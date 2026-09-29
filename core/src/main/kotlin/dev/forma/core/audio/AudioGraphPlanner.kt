@@ -25,7 +25,7 @@ object AudioGraphPlanner {
     fun sourceFacts(source: Source, trim: Trim, settings: Settings): SourceAudioFacts {
         val original = source.audioStreams.getOrNull(settings.audioTrack) ?: SourceAudioFacts(streamIndex = settings.audioTrack)
         val fallback = source.durationMs.coerceIn(0, Long.MAX_VALUE / 1000) * 1000
-        val end = trim.endMs?.coerceIn(0, Long.MAX_VALUE / 1000)?.times(1000) ?: original.durationUs.takeIf { it > 0 } ?: fallback
+        val end = trim.endMs?.coerceIn(0, Long.MAX_VALUE / 1000)?.times(1000) ?: original.durationUs.takeIf { it > 0 && settings.container.audioOnly } ?: fallback
         val selected = (end - trim.startMs.coerceIn(0, Long.MAX_VALUE / 1000) * 1000).coerceAtLeast(0)
         val rate = settings.audioEdit.rate
         return original.copy(durationUs = if (rate.numerator > 0 && rate.denominator > 0)
@@ -50,14 +50,15 @@ object AudioGraphPlanner {
         if (!processed) return AudioGraphPlan(outputDurationUs = facts.durationUs, sampleRateHz = outputRate, channels = outputChannels)
         val inputRate = measured?.sampleRateHz
         val startUs = trim.startMs * 1000
-        val endUs = trim.endMs?.times(1000) ?: measured?.durationUs?.takeIf { it > 0 } ?: source.durationMs * 1000
+        val endUs = trim.endMs?.times(1000) ?: measured?.durationUs?.takeIf { it > 0 && settings.container.audioOnly } ?: source.durationMs * 1000
         val startSample = inputRate?.let { roundRatio(startUs, it.toLong(), 1000000) }
         val endSample = if (inputRate != null) {
             if (trim.endMs == null && measured.totalSamples != null) measured.totalSamples
             else roundRatio(endUs, inputRate.toLong(), 1000000).let { end -> measured.totalSamples?.let { end.coerceAtMost(it) } ?: end }
         } else null
         val outputFrames = if (startSample != null && endSample != null && outputRate != null)
-            roundRatio(endSample - startSample, outputRate.toLong() * edit.rate.denominator, inputRate.toLong() * edit.rate.numerator) else null
+            if (!settings.container.audioOnly) roundRatio(endUs - startUs, outputRate.toLong(), 1000000)
+            else roundRatio(endSample - startSample, outputRate.toLong() * edit.rate.denominator, inputRate.toLong() * edit.rate.numerator) else null
         val durationUs = if (outputFrames != null && outputRate != null) roundRatio(outputFrames, 1000000, outputRate.toLong()) else facts.durationUs
         val filters = buildList {
             if (startSample != null && endSample != null) add("atrim=start_sample=$startSample:end_sample=$endSample")

@@ -82,7 +82,7 @@ object Planner {
         fun seconds(ms: Long) = String.format(Locale.ROOT, "%.3f", ms / 1000.0)
         val audio = if (source.audioTracks > 0 && settings.audio != AudioEncoder.NONE) AudioGraphPlanner.plan(source, trim, settings) else null
         val filtered = audio?.processed == true
-        val durationUs = if (filtered) audio!!.outputDurationUs else if (settings.container.audioOnly) audio?.outputDurationUs else null
+        val durationUs = if (settings.container.audioOnly) audio?.outputDurationUs else null
         val durationText = durationUs?.let { if (it % 1000 == 0L) seconds(it / 1000) else String.format(Locale.ROOT, "%.6f", it / 1000000.0) }
             ?: seconds(duration(source, trim))
         return buildList {
