@@ -46,7 +46,16 @@ class QueueRepository(context: Context) {
     }
     suspend fun transition(id: String, state: JobState, message: String = "") = change { entries ->
         require(entries.any { it.spec.id == id }) { "The job no longer exists." }
-        entries.map { if (it.spec.id == id) QueueRules.transition(it, state, message) else it }
+        entries.map { if (it.spec.id == id) QueueRules.transition(it, state, message).let { next ->
+            if(state==JobState.COMPLETED) next.copy(completedAtMs=System.currentTimeMillis()) else next
+        } else it }
+    }
+    suspend fun pruneCompleted(days:Int,nowMs:Long):Set<String> = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val expired=dev.forma.core.settings.ConsumerSettings.expiredHistory(mutable.value,days,nowMs)
+            if(expired.isNotEmpty()) persist(mutable.value.filterNot { it.spec.id in expired })
+            expired
+        }
     }
     private suspend fun change(update: (List<QueueEntry>) -> List<QueueEntry>) = withContext(Dispatchers.IO) {
         mutex.withLock { persist(update(mutable.value)) }

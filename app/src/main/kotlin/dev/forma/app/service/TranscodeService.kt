@@ -18,6 +18,8 @@ import dev.forma.app.data.LiveProgress
 import dev.forma.app.work.*
 import dev.forma.core.*
 import dev.forma.core.settings.PowerWorkerInstruction
+import dev.forma.core.settings.ConsumerSettings
+import dev.forma.core.settings.PreferenceValues
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
 
@@ -34,6 +36,8 @@ class TranscodeService : Service() {
         super.onCreate()
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, getString(R.string.channel_name), NotificationManager.IMPORTANCE_LOW))
+        getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(COMPLETION_CHANNEL,"Conversion finished",NotificationManager.IMPORTANCE_DEFAULT))
     }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -143,20 +147,20 @@ class TranscodeService : Service() {
                 val spec = active ?: break
                 currentCoroutineContext().ensureActive()
                 try {
-                    notify("Preparing ${spec.source.name}", null)
+                    notify("Preparing media",null,spec.source.name)
                     graph.transcoder.run(spec, { state ->
                         graph.queue.transition(spec.id, state)
                         graph.queue.progress.value = null
-                        notify(when (state) { JobState.VERIFYING -> "Checking ${spec.source.name}"; JobState.COMPLETED -> "Ready: ${spec.source.name}"; else -> "Converting ${spec.source.name}" }, null)
+                        notify(when (state) { JobState.VERIFYING -> "Checking output"; JobState.COMPLETED -> "Output ready"; else -> "Converting media" }, null,spec.source.name)
                     }, { progress ->
                         if (uiGate.accept(spec.id)) graph.queue.progress.value = LiveProgress(spec.id, progress)
                         if (notificationGate.accept(spec.id)) {
                             val status = when (graph.runs.state.value.mode) {
-                                RunMode.DRAINING -> "Finishing current: ${spec.source.name}"
+                                RunMode.DRAINING -> "Finishing current file"
                                 RunMode.STOPPING -> "Stopping safely…"
-                                else -> "Converting ${spec.source.name}"
+                                else -> "Converting media"
                             }
-                            notify(status, WorkPolicy.fraction(progress.processedMs, Planner.duration(spec.source, spec.trim)))
+                            notify(status, WorkPolicy.fraction(progress.processedMs, Planner.duration(spec.source, spec.trim)),spec.source.name)
                         }
                     })
                     completed++
@@ -165,6 +169,11 @@ class TranscodeService : Service() {
                 catch (error: Exception) { graph.queue.transition(spec.id, JobState.FAILED, error.message ?: "Conversion failed.") }
                 finally { graph.queue.progress.value = null }
                 active = null
+                if(graph.queue.entries.value.firstOrNull { it.spec.id==spec.id }?.state==JobState.FAILED &&
+                    !ConsumerSettings.continueAfterError(preferences())) {
+                    graph.queue.error.value="A conversion failed. Review the item before starting remaining jobs."
+                    graph.runs.finishCurrent()
+                }
             }
             if (completed > 0) {
                 val waiting = graph.queue.entries.value.count { it.state == JobState.QUEUED }
@@ -227,14 +236,17 @@ class TranscodeService : Service() {
             .addAction(0, "Finish current", finish).addAction(0, "Stop", stop).build()
     }
     private fun allowed() = Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-    private fun notify(text: String, fraction: Float?) = postNotification {
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(text, fraction))
+    private fun preferences() = graph.settings.state.value.document?.values ?: PreferenceValues.EMPTY
+    private fun notify(text: String, fraction: Float?, name:String?=null) = postNotification {
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION,
+            notification(ConsumerSettings.notification(preferences(),text,name), fraction))
     }
     private fun completion(text: String) = postNotification {
         getSystemService(NotificationManager::class.java).notify(COMPLETION,
-            NotificationCompat.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_forma)
+            NotificationCompat.Builder(this, if(ConsumerSettings.choice(preferences(),"queue.completion_sound")=="channel") COMPLETION_CHANNEL else CHANNEL)
+                .setSilent(ConsumerSettings.choice(preferences(),"queue.completion_sound")=="off").setSmallIcon(R.drawable.ic_forma)
                 .setContentTitle("Forma · ready to share").setContentText(text).setContentIntent(openIntent())
-                .setAutoCancel(true).setOnlyAlertOnce(true).build())
+                .setAutoCancel(true).build())
     }
     private fun postNotification(action: () -> Unit) {
         try { if (allowed()) action() }
@@ -245,6 +257,7 @@ class TranscodeService : Service() {
         const val STOP = "dev.forma.STOP_QUEUE"
         const val FINISH_CURRENT = "dev.forma.FINISH_CURRENT"
         private const val CHANNEL = "transcoding"
+        private const val COMPLETION_CHANNEL = "transcoding-completed"
         private const val NOTIFICATION = 1
         private const val COMPLETION = 2
         private val ACTIVE = setOf(JobState.PREPARING, JobState.RUNNING, JobState.VERIFYING)

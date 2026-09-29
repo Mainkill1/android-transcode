@@ -25,41 +25,41 @@ import kotlin.math.roundToLong
 /** Contextual controls retain existing native features, without listing future features as settings. */
 @Composable internal fun AdvancedControls(ui: TranscodeUiState, action: (UiAction) -> Unit) {
     val s = ui.editor.settings
-    fun update(value: Settings) = action(UiAction.ChangeSettings(value))
+    fun update(value: Settings, vararg explicitIds:String) = action(UiAction.ChangeSettings(value,explicitIds=explicitIds.toSet()))
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Section("Video & format", true) {
-            Choice("Output format", s.container, Container.entries, { it.name }) { update(s.copy(container = it, audio = when(it) { Container.WAV -> AudioEncoder.PCM_S16LE;Container.FLAC -> AudioEncoder.FLAC;Container.M4A,Container.MP4 -> AudioEncoder.AAC;else -> s.audio })) }
+            Choice("Output format", s.container, Container.entries, { it.name }) { update(s.copy(container = it, audio = when(it) { Container.WAV -> AudioEncoder.PCM_S16LE;Container.FLAC -> AudioEncoder.FLAC;Container.M4A,Container.MP4 -> AudioEncoder.AAC;else -> s.audio }),"export.container","audio.codec") }
             if (!s.container.audioOnly) {
                 Choice("Video encoder", s.video, VideoEncoder.entries, { it.label },
                     enabled = { if (it.hardware) ui.capabilities.available && it.ffmpeg in ui.capabilities.encoders else !ui.capabilities.available || it.ffmpeg in ui.capabilities.encoders }) {
-                    update(if (it.hardware) s.copy(video = it, rateControl = RateControl.BITRATE, fps = if (s.fps == 0) 30 else s.fps) else s.copy(video = it))
+                    update(if (it.hardware) s.copy(video = it, rateControl = RateControl.BITRATE, fps = if (s.fps == 0) 30 else s.fps) else s.copy(video = it),"video.codec","engine.encode_backend")
                 }
                 if (s.video.hardware) Text("Device encoder checked before conversion", style = MaterialTheme.typography.bodySmall)
                 Choice("Rate control", s.rateControl, if (s.video.hardware) listOf(RateControl.BITRATE) else RateControl.entries,
-                    { if (it == RateControl.QUALITY) "Constant quality" else "Average bitrate" }) { update(s.copy(rateControl = it)) }
+                    { if (it == RateControl.QUALITY) "Constant quality" else "Average bitrate" }) { update(s.copy(rateControl = it),"video.rate_control") }
                 if (s.rateControl == RateControl.QUALITY) {
                     val upper = if (s.video in setOf(VideoEncoder.VP9, VideoEncoder.AV1)) 63f else 51f
                     Text("Quality: ${s.crf} · lower keeps more detail")
-                    Slider(value = s.crf.toFloat().coerceIn(0f, upper), onValueChange = { update(s.copy(crf = it.roundToInt())) },
+                    Slider(value = s.crf.toFloat().coerceIn(0f, upper), onValueChange = { update(s.copy(crf = it.roundToInt()),"video.quality") },
                         valueRange = 0f..upper, steps = upper.toInt() - 1, modifier = Modifier.semantics { contentDescription = "Constant quality" })
-                } else Choice("Video bitrate", s.videoKbps, listOf(500, 1000, 2000, 4000, 8000, 12000, 20000, 40000), { "$it kb/s" }) { update(s.copy(videoKbps = it)) }
+                } else Choice("Video bitrate", s.videoKbps, listOf(500, 1000, 2000, 4000, 8000, 12000, 20000, 40000), { "$it kb/s" }) { update(s.copy(videoKbps = it),"video.bitrate_kbps") }
                 Choice("Frame rate", s.fps, if (s.video.hardware) listOf(24, 25, 30, 50, 60, 120) else listOf(0, 24, 25, 30, 50, 60, 120),
-                    { if (it == 0) "Same as source" else "$it fps" }) { update(s.copy(fps = it)) }
+                    { if (it == 0) "Same as source" else "$it fps" }) { update(s.copy(fps = it),"video.frame_rate") }
             }
         }
         if (!s.container.audioOnly) Section("Picture & filters") {
-            Choice("Maximum height", s.maxHeight, listOf(0, 480, 720, 1080, 1440, 2160, 4320), { if (it == 0) "Same as source" else "$it pixels" }) { update(s.copy(maxHeight = it)) }
+            Choice("Maximum height", s.maxHeight, listOf(0, 480, 720, 1080, 1440, 2160, 4320), { if (it == 0) "Same as source" else "$it pixels" }) { update(s.copy(maxHeight = it),"video.max_height") }
             Text("Keeps proportions · No upscaling", style = MaterialTheme.typography.bodySmall)
-            Toggle("Deinterlace", s.deinterlace) { update(s.copy(deinterlace = it)) }
+            Toggle("Deinterlace", s.deinterlace) { update(s.copy(deinterlace = it),"video.deinterlace") }
             Toggle("Reduce noise", s.denoise) { update(s.copy(denoise = it)) }
         }
         Section("Audio") {
-            Choice("Audio encoder", s.audio, AudioEncoder.entries, { if (it == AudioEncoder.NONE) "Remove sound" else it.name }) { update(s.copy(audio = it)) }
+            Choice("Audio encoder", s.audio, AudioEncoder.entries, { if (it == AudioEncoder.NONE) "Remove sound" else it.name }) { update(s.copy(audio = it),"audio.codec") }
             val tracks = ui.selected?.source?.audioTracks ?: 0
             if (tracks > 0 && s.audio != AudioEncoder.NONE) Choice("Source track", s.audioTrack, (0 until tracks).toList(), { "Track ${it + 1}" }) { update(s.copy(audioTrack = it)) }
-            if (s.audio.usesBitrate) Choice("Audio bitrate", s.audioKbps, listOf(64, 96, 128, 160, 192, 256, 320), { "$it kb/s" }) { update(s.copy(audioKbps = it)) }
+            if (s.audio.usesBitrate) Choice("Audio bitrate", s.audioKbps, listOf(64, 96, 128, 160, 192, 256, 320), { "$it kb/s" }) { update(s.copy(audioKbps = it),"audio.bitrate_kbps") }
             if (s.audio != AudioEncoder.NONE) Toggle("Mix down to stereo", dev.forma.app.audio.AudioEditorSettings.stereoEnabled(s)) {
-                update(dev.forma.app.audio.AudioEditorSettings.withStereo(s,it))
+                update(dev.forma.app.audio.AudioEditorSettings.withStereo(s,it),"audio.channels")
             }
         }
         ui.selected?.let { edit -> Section("Trim selected file") {

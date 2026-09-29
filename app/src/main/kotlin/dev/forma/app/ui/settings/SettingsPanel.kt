@@ -32,6 +32,7 @@ import dev.forma.core.settings.*
     onValuesChanged: (PreferenceValues) -> Unit, onSave: () -> Unit,
     onDiscard: () -> Unit, onClose: () -> Unit,
     busy: Boolean = false, error: String? = null, canSave: Boolean = true, backRequest: Int = 0,
+    preset: PreferenceValues = PreferenceValues.EMPTY,
     runControls: @Composable () -> Unit = {}
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
@@ -41,8 +42,9 @@ import dev.forma.core.settings.*
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var resetIds by remember { mutableStateOf<List<String>?>(null) }
     val category = categoryId?.let(SettingCategory::valueOf)
-    val resolved = remember(draft.values, appDefaults, jobScope) {
+    val resolved = remember(draft.values, appDefaults, preset, jobScope) {
         SettingsResolver.resolve(if (jobScope) appDefaults else draft.values,
+            preset=if(jobScope) preset else PreferenceValues.EMPTY,
             job=if (jobScope) draft.values else PreferenceValues.EMPTY)
     }
     val categories = SettingCategory.entries.filter { c -> SettingCatalog.all.any { it.category == c && (!jobScope || it.scope == SettingScope.JOB) } }
@@ -118,7 +120,7 @@ import dev.forma.core.settings.*
                                 Text("Previews three overrides below; nothing changes until you apply.", style=MaterialTheme.typography.bodySmall)
                             }
                             if (jobScope) item(key="scope-help") {
-                                Text("Current editor values are explicit overrides. Reset a field to inherit its app default. Queued jobs are unchanged.",
+                                Text("Reset removes this job override and restores its frozen app or preset value. Queued jobs are unchanged.",
                                     style=MaterialTheme.typography.bodySmall, modifier=Modifier.padding(vertical=8.dp))
                             }
                             if (rows.isEmpty()) item(key="no-results") { Text("No matching settings.", Modifier.padding(16.dp)) }
@@ -149,7 +151,7 @@ import dev.forma.core.settings.*
     selectedId?.let { id ->
         val spec = SettingCatalog[id]
         SettingSheet(spec, resolved.getValue(id).value, jobScope,
-            inheritedValue=if (jobScope) appDefaults[id] ?: spec.defaultValue else spec.defaultValue,
+            inheritedValue=if (jobScope) SettingsResolver.resolve(appDefaults,preset).getValue(id).value else spec.defaultValue,
             onChange={ onValuesChanged(draft.values.with(id,it)); selectedId=null },
             onReset={ onValuesChanged(draft.values.without(id)); selectedId=null }, onClose={ selectedId=null })
     }

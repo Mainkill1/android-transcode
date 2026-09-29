@@ -21,11 +21,18 @@ class MediaFiles(private val context: Context) {
     private val outputRoot get() = File(context.filesDir, "outputs").apply { mkdirs() }
     private val importRoot get() = File(context.filesDir, "imports").apply { mkdirs() }
     private fun importedUri(file: File) = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-    fun workDir(spec: JobSpec) = File(workRoot, spec.id).apply { mkdirs() }
-    fun output(spec: JobSpec) = File(outputRoot, "${spec.id}.${spec.settings.container.extension}")
+    fun workDir(spec: JobSpec) = dev.forma.core.settings.ManagedMediaPaths.work(workRoot,spec.id).apply { mkdirs() }
+    fun output(spec: JobSpec) = File(outputRoot, "${dev.forma.core.settings.ManagedMediaPaths.work(outputRoot,spec.id).name}.${spec.settings.container.extension}")
     fun outputUri(spec: JobSpec): Uri = FileProvider.getUriForFile(context, "${context.packageName}.files", output(spec))
     fun exportName(spec: JobSpec) = spec.source.name.substringBeforeLast('.').replace(Regex("[/\\\\\\x00]"), "_").take(100) + "_forma." + spec.settings.container.extension
     fun cleanupWork() { workRoot.listFiles()?.forEach { it.deleteRecursively() } }
+    /** Startup only: initialization finishes before any native reader starts. No active-run cleanup API. */
+    fun cleanupExpiredOutputs(ids:Set<String>) {
+        ids.forEach { id ->
+            val identity=dev.forma.core.settings.ManagedMediaPaths.work(outputRoot,id).name
+            Container.entries.forEach { File(outputRoot,"$identity.${it.extension}").delete() }
+        }
+    }
     // Editor-only copies expire on the next process start; every persisted job keeps its source.
     fun cleanupImports(referencedUris: Set<String>) {
         importRoot.listFiles()?.forEach { directory ->
@@ -116,6 +123,7 @@ class MediaFiles(private val context: Context) {
     }
 
     suspend fun stage(spec: JobSpec): File = withContext(Dispatchers.IO) {
+        require(Uri.parse(spec.source.uri).scheme=="content") { "Reselect this source through the system picker." }
         val target = File(workDir(spec), "source.media")
         if (spec.source.bytes > 0) require(target.parentFile!!.usableSpace > spec.source.bytes + 64L * 1024 * 1024) {
             "Not enough private storage to stage the source plus working space."

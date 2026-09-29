@@ -16,7 +16,7 @@ object PowerRuntimeChecks {
             check(PowerSettings.boundIds.all { SettingCatalog[it].implemented })
             check(!SettingCatalog["power.auto_continue"].implemented)
             check(!SettingCatalog["power.respect_saver"].implemented)
-            check(SettingCatalog.all.count { it.implemented } == 26)
+            check(SettingCatalog.all.count { it.implemented } == 26 + ConsumerSettings.boundIds.size)
         },
         "implemented power values pass save validation while deferred values remain blocked" to {
             val live = PreferenceValues.of(mapOf(

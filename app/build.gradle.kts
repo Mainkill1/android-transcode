@@ -16,6 +16,8 @@ android {
     }
     // External test sources are packaged only in the instrumentation APK, never in main/release.
     if (providers.gradleProperty("settingsTests").orNull != "false") {
+        sourceSets.getByName("test").java.srcDir(rootProject.file("testing/settings/app"))
+        sourceSets.getByName("test").resources.srcDir(rootProject.file("testing/settings/fixtures"))
         sourceSets.getByName("androidTest").java.srcDir(rootProject.file("testing/settings/android"))
         sourceSets.getByName("androidTest").java.srcDir(rootProject.file("testing/settings/core"))
     }

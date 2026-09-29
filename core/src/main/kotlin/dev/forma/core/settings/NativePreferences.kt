@@ -16,7 +16,9 @@ object NativePreferences {
     private fun i(value: Int) = SettingValue.Integer(value.toLong())
 
     /** The legacy editor has no provenance: capture its values explicitly rather than guessing inheritance. */
-    fun capture(s: Settings): PreferenceValues = PreferenceValues.of(mapOf(
+    fun capture(s: Settings): PreferenceValues = PreferenceValues.of(snapshotEntries(s))
+    fun captureLegacy(s: Settings): PreferenceValues = PreferenceValues.legacyMedia(snapshotEntries(s))
+    private fun snapshotEntries(s: Settings): Map<String,SettingValue> = mapOf(
         "video.codec" to c(when (s.video) {
             VideoEncoder.X264, VideoEncoder.H264_HW -> "h264"
             VideoEncoder.X265, VideoEncoder.H265_HW -> "hevc"
@@ -31,7 +33,7 @@ object NativePreferences {
         "engine.encode_backend" to c(if (s.video.hardware) "hardware" else "software"),
         "engine.decode_backend" to c("software"), "engine.filter_backend" to c("cpu"),
         "export.container" to c(s.container.name.lowercase(java.util.Locale.ROOT))
-    ))
+    )
     private fun channel(s: Settings) = s.audioEdit.output.channels?.name?.lowercase(java.util.Locale.ROOT)
         ?: if (s.stereo) "stereo" else "source"
     fun cpuOnly(values: PreferenceValues): PreferenceValues = values

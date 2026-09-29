@@ -14,16 +14,25 @@ enum class ValueOrigin { FACTORY, APP, PRESET, JOB }
 data class ResolvedSetting(val value: SettingValue, val origin: ValueOrigin)
 
 /** Copies at every boundary: caller-owned maps can never mutate queued/resolved settings. */
-class PreferenceValues private constructor(private val data: Map<String, SettingValue>) {
+class PreferenceValues private constructor(private val data: Map<String, SettingValue>, private val legacy: Boolean = false) {
     operator fun get(id: String): SettingValue? = data[id]
     val entries: Map<String, SettingValue> get() = data
-    fun with(id: String, value: SettingValue) = of(data + (id to value))
-    fun without(id: String) = of(data - id)
-    fun withoutCategory(category: SettingCategory) = of(data.filterKeys { SettingCatalog[it].category != category })
+    fun with(id: String, value: SettingValue): PreferenceValues {
+        require(SettingCatalog[id].error(value)==null) { "Invalid setting: $id" }
+        return if(legacy) legacyMedia(data + (id to value)) else of(data + (id to value))
+    }
+    fun without(id: String) = if(legacy) legacyMedia(data - id) else of(data - id)
+    fun withoutCategory(category: SettingCategory) = (data.filterKeys { SettingCatalog[it].category != category }).let { if(legacy) legacyMedia(it) else of(it) }
     override fun equals(other: Any?) = other is PreferenceValues && data == other.data
     override fun hashCode() = data.hashCode()
     companion object {
         val EMPTY = PreferenceValues(emptyMap())
+        /** Queue migration only: concrete legacy values may exceed newer menu choices/ranges. */
+        internal fun legacyMedia(values: Map<String,SettingValue>):PreferenceValues {
+            require(values.keys.all { it in NativePreferences.boundIds })
+            require(values.all { (id,value) -> value::class==SettingCatalog[id].defaultValue::class })
+            return PreferenceValues(Collections.unmodifiableMap(LinkedHashMap(values)),true)
+        }
         fun of(values: Map<String, SettingValue>): PreferenceValues {
             values.forEach { (id, value) -> require(SettingCatalog[id].error(value) == null) { "$id: ${SettingCatalog[id].error(value)}" } }
             return PreferenceValues(Collections.unmodifiableMap(LinkedHashMap(values)))

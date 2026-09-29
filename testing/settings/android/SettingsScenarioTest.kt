@@ -37,11 +37,13 @@ class SettingsScenarioTest {
             .put("reportPath", "files/settings-tests/$runId.json")
         var failure: Throwable? = null
         try {
-            val all = SettingsChecks.cases + NativePreferenceChecks.cases + SettingsStoreChecks.cases + PowerRegressionChecks.cases
+            val all = SettingsChecks.cases + ProvenanceChecks.cases + ConsumerChecks.cases + NativePreferenceChecks.cases + SettingsStoreChecks.cases + PowerRegressionChecks.cases
             val checks = when (name) {
                 "all" -> all + AndroidSettingsStorageChecks.cases
                 "catalog" -> all.filter { "catalog" in it.first }
                 "overrides" -> all.filter { "explicit auto" in it.first || "reset removes" in it.first || "preset precedence" in it.first }
+                "provenance" -> ProvenanceChecks.cases
+                "queue_privacy" -> ConsumerChecks.cases
                 "battery_low" -> all.filter { "battery boundary" in it.first || "battery recovery" in it.first }
                 "charging_exception" -> all.filter { "charging must not" in it.first || "unknown charging" in it.first }
                 "thermal_wait" -> all.filter { "thermal" in it.first }

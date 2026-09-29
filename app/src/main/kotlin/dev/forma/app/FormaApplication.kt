@@ -34,6 +34,14 @@ class AppGraph(private val application: Application) {
             if (!initialized) {
                 settings.load()
                 queue.load()
+                // Startup cleanup precedes all native/preview readers and never runs on a settings save.
+                val values=settings.state.value.document?.values ?: dev.forma.core.settings.PreferenceValues.EMPTY
+                val expired=if(settings.state.value.document==null) emptySet() else
+                    queue.pruneCompleted(dev.forma.core.settings.ConsumerSettings.historyDays(values),System.currentTimeMillis())
+                files.cleanupExpiredOutputs(expired)
+                if(dev.forma.core.settings.ConsumerSettings.choice(values,"queue.interrupted_prompt")=="review" &&
+                    queue.entries.value.any { it.state==dev.forma.core.JobState.INTERRUPTED })
+                    queue.error.value="Interrupted jobs are waiting for review. Retry them explicitly; partial output is not resumed."
                 files.cleanupWork()
                 java.io.File(application.cacheDir,"audio-preview").deleteRecursively()
                 files.cleanupImports(queue.entries.value.map { it.spec.source.uri }.toSet())

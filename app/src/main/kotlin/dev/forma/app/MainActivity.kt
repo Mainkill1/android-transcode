@@ -18,6 +18,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -81,6 +85,19 @@ private class CreateOutput : ActivityResultContract<ExportRequest, Uri?>() {
     // DO NOT collect native progress here: it would invalidate the whole editor each tick.
     val progressContent: @Composable (QueueEntry) -> Unit = remember(vm) { { entry -> LiveJobProgress(vm, entry) } }
     val context = LocalContext.current
+    val view=LocalView.current
+    val lifecycle=LocalLifecycleOwner.current.lifecycle
+    val preferences by vm.graph.settings.state.collectAsStateWithLifecycle()
+    DisposableEffect(view,lifecycle,preferences.document,run.mode) {
+        fun update() {
+            view.keepScreenOn=dev.forma.core.settings.ConsumerSettings.keepScreenAwake(
+                preferences.document?.values ?: dev.forma.core.settings.PreferenceValues.EMPTY,
+                lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED),run.mode!=dev.forma.app.work.RunMode.IDLE)
+        }
+        val observer=LifecycleEventObserver { _,_ -> update() }
+        lifecycle.addObserver(observer);update()
+        onDispose { lifecycle.removeObserver(observer);view.keepScreenOn=false }
+    }
     var exportId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingStart by rememberSaveable { mutableStateOf<String?>(null) }
     var askedNotifications by rememberSaveable { mutableStateOf(false) }

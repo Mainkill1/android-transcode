@@ -210,7 +210,7 @@ object SettingCatalog {
             options = listOf(SettingOption("off", "Off"), SettingOption("channel", "Follow notification channel"))),
         SettingSpec("queue.keep_screen_on", "Keep screen awake", SettingCategory.QUEUE, SettingScope.GLOBAL,
             SettingValue.Choice("off"), "Visible UI only; distinct from a worker wake lock.", wired = false,
-            options = listOf(SettingOption("off", "Off"), SettingOption("preview", "During preview"), SettingOption("encoding", "While encoding and app visible"))),
+            options = listOf(SettingOption("off", "Off"), SettingOption("preview", "During preview", false), SettingOption("encoding", "While encoding and app visible"))),
         SettingSpec("privacy.history_days", "Completed-history retention (days)", SettingCategory.PRIVACY, SettingScope.GLOBAL,
             SettingValue.Integer(7L), "0 disables completed history. Never prune active or interrupted recovery records.", wired = false, minimum = 0.0, maximum = 90.0, allowedIntegers = setOf(0L, 1L, 7L, 30L, 90L)),
         SettingSpec("diagnostics.level", "Local diagnostic detail", SettingCategory.PRIVACY, SettingScope.GLOBAL,

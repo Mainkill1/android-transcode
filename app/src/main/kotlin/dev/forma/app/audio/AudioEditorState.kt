@@ -2,26 +2,30 @@ package dev.forma.app.audio
 
 import dev.forma.core.*
 import dev.forma.core.audio.*
+import dev.forma.core.settings.SettingValue
 import dev.forma.ffmpeg.audio.AudioPreviewResult
 
 /** The first value of a continuous gesture is one undo point, capped at 50 edits. */
 class AudioEditHistory {
-    var current:AudioEdit=AudioEdit();private set
-    private val past=ArrayDeque<AudioEdit>();private val future=ArrayDeque<AudioEdit>()
-    private var gesture:AudioEdit?=null
-    val canUndo:Boolean get()=past.isNotEmpty() || gesture?.let { it!=current }==true
+    private data class Point(val edit:AudioEdit,val channelOverride:SettingValue?)
+    private var point=Point(AudioEdit(),null)
+    val current:AudioEdit get()=point.edit
+    val currentChannelOverride:SettingValue? get()=point.channelOverride
+    private val past=ArrayDeque<Point>();private val future=ArrayDeque<Point>()
+    private var gesture:Point?=null
+    val canUndo:Boolean get()=past.isNotEmpty() || gesture?.let { it!=point }==true
     val canRedo:Boolean get()=future.isNotEmpty()
-    fun resetBaseline(edit:AudioEdit) { current=edit;past.clear();future.clear();gesture=null }
-    fun update(edit:AudioEdit,commit:Boolean) {
-        if(gesture==null)gesture=current
-        current=edit
+    fun resetBaseline(edit:AudioEdit,channelOverride:SettingValue?=null) { point=Point(edit,channelOverride);past.clear();future.clear();gesture=null }
+    fun update(edit:AudioEdit,commit:Boolean,channelOverride:SettingValue?=currentChannelOverride) {
+        if(gesture==null)gesture=point
+        point=Point(edit,channelOverride)
         if(commit)finish()
     }
     private fun finish() {
-        gesture?.let { if(it!=current) { past.addLast(it);if(past.size>50)past.removeFirst();future.clear() } };gesture=null
+        gesture?.let { if(it!=point) { past.addLast(it);if(past.size>50)past.removeFirst();future.clear() } };gesture=null
     }
-    fun undo():AudioEdit { finish();if(past.isNotEmpty()) { future.addLast(current);current=past.removeLast() };return current }
-    fun redo():AudioEdit { finish();if(future.isNotEmpty()) { past.addLast(current);current=future.removeLast() };return current }
+    fun undo():AudioEdit { finish();if(past.isNotEmpty()) { future.addLast(point);point=past.removeLast() };return current }
+    fun redo():AudioEdit { finish();if(future.isNotEmpty()) { past.addLast(point);point=future.removeLast() };return current }
 }
 data class AudioPreviewState(val identity:String="",val status:String="Not rendered",val path:String?=null,
     val result:AudioPreviewResult?=null,val error:String?=null) {

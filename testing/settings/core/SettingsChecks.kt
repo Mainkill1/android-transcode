@@ -180,7 +180,7 @@ object SettingsChecks {
         }
     )
     @JvmStatic fun main(args: Array<String>) {
-        val all = cases + NativePreferenceChecks.cases + SettingsStoreChecks.cases
+        val all = cases + ProvenanceChecks.cases + ConsumerChecks.cases + NativePreferenceChecks.cases + SettingsStoreChecks.cases
         val selected = if (args.isEmpty()) all else all.filter { it.first.contains(args.single(), ignoreCase=true) }
         check(selected.isNotEmpty()) { "No tests matched" }
         selected.forEach { (name, test) -> test(); println("PASS $name") }

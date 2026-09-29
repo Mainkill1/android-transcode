@@ -20,7 +20,10 @@ object SettingsCodec {
         }
     }.also { require(it.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) { "Preferences document too large" } }
 
-    fun decode(text: String): SettingsDocument {
+    fun decode(text: String): SettingsDocument = decodeDocument(text,false)
+    /** Only queue/editor legacy snapshots use this path, never persistent app preferences. */
+    fun decodeLegacyMediaSnapshot(text:String):SettingsDocument = decodeDocument(text,true)
+    private fun decodeDocument(text: String, legacy:Boolean): SettingsDocument {
         require(text.length <= MAX_BYTES && text.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) { "Preferences document too large" }
         val lines = text.split('\n').let { if (it.lastOrNull() == "") it.dropLast(1) else it }
         val header = lines.firstOrNull()?.split('\t') ?: emptyList()
@@ -42,6 +45,6 @@ object SettingsCodec {
             }
             values[pair[0]] = value
         }
-        return SettingsDocument(revision, PreferenceValues.of(values))
+        return SettingsDocument(revision, if(legacy) PreferenceValues.legacyMedia(values) else PreferenceValues.of(values))
     }
 }

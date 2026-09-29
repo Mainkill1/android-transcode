@@ -1,190 +1,112 @@
-# Advanced settings: implemented foundation and remaining gates
+# Advanced settings: consumers and qualification boundaries
 
-Updated 2026-09-29. PR #4 now contains native implementation, not just a menu
-proposal. This page is the current status; the original [64-option catalog](advanced-settings-catalog.md),
-[design](superpowers/specs/2026-09-29-advanced-settings-design.md), and
-[plan](superpowers/plans/2026-09-29-advanced-settings.md) describe the full target.
-Their initial design-only paragraphs and E/N/D labels are historical, not current
-runtime status. Start here, then use the [direct-ADB test guide](../testing/settings/README.md).
+Updated 2026-09-29. The native registry has **64 typed rows: 33 implemented,
+31 Planned**. Implementation means there is a production consumer, not that every
+codec, device, accessibility configuration or physical safety episode is qualified.
+The original [catalog](advanced-settings-catalog.md), [design](superpowers/specs/2026-09-29-advanced-settings-design.md)
+and [plan](superpowers/plans/2026-09-29-advanced-settings.md) remain the target;
+their design-only status paragraphs are historical. Earlier physical evidence is
+revision-bound in [device validation](advanced-settings-device-validation.md).
 
-## Current target-phone integration
+## Row-to-consumer map
 
-The combined PR3/PR4 product is built and tested on the requested phone. Read
-[the integration and device record](advanced-settings-device-validation.md) for
-117 host tests, 38 physical instrumentation tests, the exact APK hashes, release
-isolation and remaining gates. The earlier foundation CI record below retains
-its own revision boundaries. PR4 remains Draft for live power/provenance and the
-other Planned consumers.
-
-## Implemented scope
-
-| Area | Actual implementation | Remaining boundary |
+| Rows | Consumer | Regression / boundary |
 | --- | --- | --- |
-| Registry | 64 stable typed IDs; eight categories; defaults, ranges, help, search and per-choice availability | 18 bound rows; 46 Planned rows cannot save active values |
-| Native menu | Shelf Settings; editor Defaults & overrides; adaptive category/detail view; All/Changed/Planned filters; Save/Apply/Discard; field/section/all reset; dirty-close protection | Full-dialog rotation, accessibility, font-scale and device visual qualification remain separate gates |
-| Choice sheets | One scroll owner for help, choices and reset; search for lists longer than eight choices; displayed inherited/factory value; keyboard dismissed on selection; full-row boolean target | No fixed footer outside the scrollable area; choice filtering never changes the draft |
-| Appearance | System/light/dark/pure-black themes; mint/dynamic/blue/violet/amber accents; Settings spacing and technical labels | High contrast, haptics and reduced-motion adapters remain Planned |
-| Persistence | Bounded versioned UTF-8 document; immutable values; revision conflict checks; AtomicFile replacement; serialized off-main IO; publication after successful write | Corrupt, future or incompatible data is not silently overwritten |
-| Media bindings | 14 fields map to the existing Settings model; validation before Apply; CPU-pipeline action previews three overrides | Existing FFmpeg preparation/execution still owns exports |
-| Overrides | Factory/app/preset/job resolver; explicit Auto/equal values remain distinct from inheritance | Full Editor/JobSpec/JobCodec provenance persistence is not migrated |
-| Power logic | Pure threshold, charging, hysteresis, thermal, combined-reason and manual-stop decisions; last-known charging state survives unknown telemetry for unplug detection | No AndroidPowerMonitor or service enforcement yet; all power controls remain Planned |
-| Tests | Kotlin assertions, parameterized JUnit, Compose regressions, real Android storage checks, direct ADB scenarios with per-run JSON | No production test receiver, Python ADB driver or claim of physical power/native export qualification |
+| `ui.theme`, `ui.accent`, `ui.density`, `ui.technical_details` (4) | `FormaTheme`, `SettingsPanel` | Native theme/choice sheets; full theme contrast, RTL, TalkBack and 200% font qualification remain device gates |
+| `video.codec`, `video.rate_control`, `video.quality`, `video.bitrate_kbps`, `video.max_height`, `video.frame_rate`, `video.deinterlace` (7) | `NativePreferences.apply` → immutable `Settings` → existing planner/executor | Explicit hardware validates without coercion; fractional rates and detected deinterlacing are disabled choices |
+| `audio.codec`, `audio.bitrate_kbps`, `audio.channels` (3) | Native adapter and PR3 audio graph | Graph, tracks, timing and output policy preserved; MP3/copy choices remain unavailable |
+| `engine.encode_backend`, `engine.decode_backend`, `engine.filter_backend`, `export.container` (4) | Native adapter/preparation | Auto is currently conservative software; decode/filter accept CPU only. No automatic acceleration qualification is claimed |
+| `power.low_action`, `power.low_percent`, `power.only_when_not_charging`, `power.charging_only`, `power.resume_margin`, `power.unplug_action`, `power.thermal_action`, `power.thermal_threshold` (8) | `AndroidPowerMonitor` → `PowerRuntime` → `TranscodeService` / `RunCoordinator` | Synchronous refresh before every claim; cancellation holds native ownership until cleanup; user Stop beats power requeue. Physical unplug/thermal/service qualification is separate |
+| `queue.auto_start_added` | `TranscodeViewModel.enqueue` | Manual Add default; Convert explicitly starts. Auto Add starts only with an idle run slot, and retains queue/capability/power checks |
+| `queue.on_error` | Service queue boundary | Default waits for review after failure; explicit Continue advances. Stop/cancellation remains independent |
+| `queue.interrupted_prompt` | `AppGraph.initialize` after recovery | Review message or quiet retention; never auto-resumes partial output or starts at boot |
+| `queue.notification_detail` | Service notification formatter | Minimal hides source names; filename detail requires explicit selection; progress and mandatory FGS remain |
+| `queue.completion_sound` | Separate completion notification channel | Off sets silent; Follow channel obeys Android channel preferences/permission/DND, once per finished batch |
+| `queue.keep_screen_on` | Visible Activity lifecycle effect | Encoding only, removed on background/disposal/idle; distinct from worker wake lock. Preview choice is unavailable until playback ownership is integrated |
+| `privacy.history_days` | Atomic queue pruning during process initialization | Default 7 days; removes only dated completed records and their managed outputs. Save previews affected items when shortening; applies next launch |
 
-### The 18 bound rows
+`implemented` combines the 18 original native/UI bindings, eight live power
+bindings and seven queue/privacy bindings. Planned values cannot save as active
+preferences; unavailable choices within implemented rows also fail validation.
 
-Appearance: `ui.theme`, `ui.accent`, `ui.density`, `ui.technical_details`.
+## Persisted provenance and migration
 
-Video: `video.codec`, `video.rate_control`, `video.quality`, `video.bitrate_kbps`,
-`video.max_height`, `video.frame_rate`, `video.deinterlace`.
+`Editor` and `JobSpec` carry `MediaPreferences`: frozen app-media defaults and
+revision, the selected preset layer/name, explicit job overrides, and a legacy
+snapshot marker. Live safety/privacy/appearance values are excluded from a new
+job's app-media layer. Saving defaults affects a fresh untouched editor once;
+existing drafts, retries and queued/running settings are not rebased.
 
-Audio: `audio.codec`, `audio.bitrate_kbps`, `audio.channels`.
+Reset removes a value from its layer. Reset/reopen therefore returns to the frozen
+preset/app/factory parent, rather than turning the inherited concrete value back
+into an override. Explicit Auto, false, zero, and values equal to their parent
+remain explicit. The compact Overrides chip survives collapsed advanced controls;
+Defaults & overrides and queue Settings snapshot show counts and origins.
+Preset selection previews changed fields and offers Keep my overrides or Replace
+overrides. Audio undo/redo restores channel inheritance alongside the graph.
+Settings dialog layers/drafts are saveable through Activity recreation.
 
-Engine/container: `engine.encode_backend`, `engine.decode_backend`,
-`engine.filter_backend`, `export.container`.
+Queue schema **3** stores these layers plus an optional completion timestamp.
+Schema 1 preserves its concrete settings with a neutral audio graph; schema 2
+preserves PR3 graph, unknown effect payloads, source stream facts and rational
+timing. Both become explicit legacy snapshots, including H264_HW/H265_HW required
+hardware. Undated legacy completed entries remain retained because their age
+cannot be inferred honestly. New timestamped completed entries use wall-clock
+age; future timestamps are retained rather than prematurely deleted.
 
-Bound means the setting has a consumer; it does **not** mean a native codec has
-been qualified on every phone. Decode/filter currently accept CPU only. Fractional
-frame rates, detected-only deinterlacing, MP3/copy audio remain disabled
-choices within otherwise available rows. WAV/PCM16/float, FLAC containers and
-Source/Stereo/Mono/Left/Right/Swap routing now share PR3's audio graph. Native preparation may reject an export.
+The previous planner accepts some values outside the newer menu lists, for example
+33 fps, 384 kb/s and a 1000-pixel height. A **legacy media snapshot only** decoder
+preserves those values and their explicit origin; normal app preference decoding
+and saving remain strict. Applying edits to an unsupported legacy menu value
+requires choosing/resetting it explicitly; the queue executor keeps its concrete
+old snapshot. Future/corrupt schemas and incompatible preference storage surface
+an error and preserve the original file.
 
-## Decisions the next agent must preserve
+## Storage, ownership and privacy
 
-**No settings-provenance migration.** PR3 supplies its neutral-audio queue
-schema-1→2 migration; this settings integration does not rebase media snapshots
-or add persisted preference origins.
-The legacy editor has concrete settings but no saved origins. Opening its settings
-captures all 14 mapped fields explicitly rather than guessing inheritance. Reset
-inherits within that menu session; Apply writes resolved values back. Reopening
-captures concrete values again. Persistent origins and the final override-count
-chip require the next model migration, not a misleading UI-only approximation.
+App preferences use bounded UTF-8, atomic replacement, process serialization and
+revision conflict checks. Queue schema upgrades use the existing AtomicFile owner.
+A failed write does not publish a newer settings/queue revision.
 
-**Defaults seed an untouched new editor once.** Saving defaults or refreshing
-capabilities cannot rebase an existing draft or queued/running job. A fresh editor
-uses the new source-resolution/AAC-128/source-channel defaults; old queued
-1080p/160-kb/s/stereo and explicit-hardware values retain their concrete settings.
-Removing media is not automatically a new editor session.
+History pruning runs at initialization before any native/preview reader can start;
+it is never called by a live settings save. Recoverable, interrupted, active,
+failed/cancelled and undated legacy records are not retention candidates.
+Pruning follows durable queue replacement; only the selected completed UUIDs'
+private output files are removed. Referenced private imports remain protected.
+Unreadable app preferences skip history pruning. Source display names never form
+working paths: managed paths require exact UUIDs; revoked content grants fail with
+reselection guidance; existing job outputs are never overwritten.
 
-**Auto is currently conservative software, and labeled that way.** Hardware
-required maps to the existing H.264/H.265 path and needs bitrate mode and an explicit
-integer frame rate. It does not silently coerce CRF or fall back. Decode, filter and
-encode policies remain independent. Integrate the automatic hardware/fallback
-executor with its owning acceleration work before changing this behavior.
+There is no persistent product diagnostic-log collector or shared report exporter
+on this branch. `diagnostics.level`, `diagnostics.retention_days` and
+`diagnostics.include_filenames` remain Planned, so a Debug setting cannot persist
+or pretend to collect/redact a report. The requested session-only Debug, 10 MiB
+cap, retention, exact-content preview and token/path redaction need that backend.
+`privacy.temporary_retention` remains Planned: the existing executor discards its
+working directory after native cleanup and startup cleans interrupted work;
+there is no consumer retaining completed work for 24 hours/7 days.
+`privacy.metered_downloads` stays Planned until a downloader exists.
 
-**AtomicFile avoids a new dependency.** The repository already uses atomic queue
-files. SettingsStorage/SettingsStore and the process-owned Android repository add
-serialization, revision checks and IO dispatch around AtomicFile. AtomicFile alone
-does not provide locking [1]. This is a deliberate deviation from the original
-DataStore proposal, not an unpinned extra library. Preserve schema, conflict and
-failed-write behavior in any later storage migration.
+Other deferred media/appearance/backend rows remain Planned. In particular this
+branch does not claim upload byte fitting, automatic hardware fallback, a device
+component selector, HDR transformation or a metadata allowlist. Integrate their
+owners using deliberate model/schema changes; do not silently drop fields.
 
-**Stop stays independent of preference saving.** The settings screen exposes the
-existing RunCoordinator stop action without collecting raw native progress or
-owning a second encoder. Dialog window Back is routed into sheet/search/category
-navigation before the unsaved-changes prompt. The settings screen does not own
-native cleanup or release the active run ticket.
+## Verification and remaining gates
 
-**Unknown is not charging and does not erase history.** The power reducer retains
-the last known charging state only to detect a later transition. Eligibility still
-uses the current sample, so charging-only work does not become eligible on Unknown.
-The sequence Charging → Unknown → Discharging must still trigger an explicit unplug
-policy. Unknown samples reset continuous recovery timers; critical thermal latches
-cannot disappear merely because telemetry becomes unavailable.
+The removable `testing/settings/` tree now includes pure provenance/consumer
+contracts, schema-1/schema-2 fixtures, queue codec/audio-history host regressions,
+Compose equal-choice/reset checks and disposable real-Android queue retention
+checks. `settingsTests=false` removes all external settings source/resource
+references; `audioTests=false` removes the PR3 instrumentation reference.
+See [test commands and boundaries](../testing/settings/README.md).
 
-**Planned is not an active switch.** All power settings remain Planned until the
-worker can enforce them. A pure policy test is not a battery monitor or safe
-checkpoint-resume implementation. Deferred HDR, normalization, automatic hardware,
-size-fit, preview, privacy and queue features must not appear to save successfully
-without a consumer. Existing denoise, trims, source tracks and metadata behavior
-remain available in the editor and are preserved by the settings adapter.
-
-## Verification record
-
-Verification must be bound to the exact code revision. The PR description contains
-the latest observed workflow result; do not inherit a previous revision's green
-status. Repository CI checks the PR merge revision, and its head/base identities
-are recorded in each run.
-
-| Revision / test | Observed evidence |
-| --- | --- |
-| `8f1102e8b9a40a1164f76745edc6e46e562ef936` | First implementation: build/unit/lint and wrapper API compile passed in run `36563320833`; emulator failed report-directory placement |
-| `fa750e1e02f5a4dca3c0f41413f2f3f55f83cd4e` | Report-directory/Back follow-up: workflow `36564368660` completed successfully, including emulator |
-| `dc73e431a2b2a34a17594bddc8057c8a797d56ac` | Test-first commit: workflow `36566079104` compiled, but the emulator reproduced both new failures—missing long-choice search and Reset lacking a scrollable parent |
-| `ceab4fc1657b14133ec6c82ae67edb1f7f6539ee` | Implements both sheet fixes, charging-transition fix, actual Android storage checks and direct-ADB reports; verify this implementation and its descendants against current CI |
-| Power transition regression | Exact original PowerPolicy blob reproduced the lost-unplug failure locally; patched reducer passed all four targeted regressions |
-| Pure settings suite | 39 existing settings assertions plus four new power regressions; both run through Kotlin CLI and parameterized JUnit |
-| Actual Android storage | Four added checks: reopen persisted values, malformed UTF-8 rejection, oversized read/write rejection, and prior-value preservation after an aborted AtomicFile write |
-| Physical-device power/native media, full accessibility/rotation, release isolation | Not qualified by this work; explicitly separate acceptance gates |
-
-The local session used an isolated partial Kotlin mirror without Android SDK or
-ADB; Android compile/lint/instrumentation evidence comes from the repository's
-existing jobs. No local emulator or physical-phone run is claimed. The no-native
-CI mode skips the opt-in native smoke test; wrapper API compilation is not bundled
-FFmpeg execution. Code was self-reviewed; no independent review is claimed.
-
-## Direct ADB: no Python driver
-
-The Python driver and its driver-only tests have been removed. Use the existing
-instrumentation APK directly; there is no extra test app/module or production
-command receiver. Full build, installation, scenario names and result-validation
-instructions are in [testing/settings/README.md](../testing/settings/README.md).
-
-From PowerShell after installing matching debug app/test APKs:
-
-```powershell
-$runId = [guid]::NewGuid().ToString()
-$revision = (git rev-parse HEAD).Trim()
-adb shell am instrument -w -r -e class dev.forma.app.settings.SettingsScenarioTest -e formaSettingsCase all -e formaSettingsRunId $runId -e formaAppRevision $revision dev.forma.transcode.test/androidx.test.runner.AndroidJUnitRunner
-adb exec-out run-as dev.forma.transcode cat "files/settings-tests/$runId.json"
-```
-
-Confirm the installed component with `adb shell pm list instrumentation`. Add
-`-s SERIAL` to each ADB command when multiple devices are connected. This branch
-uses `dev.forma.transcode`, not a differently suffixed application ID from another
-draft. Require successful instrumentation **and** a matching fresh runId/case with
-`result=PASS` and positive matching selected/passed counts. ADB transport exit
-status by itself is not a test result [2].
-
-Each request writes `files/settings-tests/<UUID>.json`; reused IDs are rejected.
-Reports are atomically written and read back before emitting a passing status.
-Unknown scenario names fail; no arbitrary input paths/commands are accepted.
-`callerReportedAppRevision` is clearly caller metadata, not installed APK identity
-proof. Retain the matching app/test APK hashes when collecting evidence.
-
-`all` executes 45 pure checks and four real Android storage checks. Power samples
-remain synthetic and `nativeExecution` remains false. `storage_roundtrip` now uses
-the production Android storage adapter in a disposable test directory;
-`storage_memory` retains the original in-memory contract cases. An aborted atomic
-write test is not a power-loss or process-death certification.
-
-## Tests remain removable
-
-All new test code, fixtures and instructions are under `testing/settings/`.
-`core/build.gradle.kts` references `core/` and `junit/` from its test source set;
-`app/build.gradle.kts` references `android/` and shared `core/` only from androidTest.
-Use `-PsettingsTests=false` to disable those four references and
-`-PaudioTests=false` for PR3 audio tests. The release builds with the test tree
-physically absent, without deleting production settings sources. Source-set separation is not a substitute for inspecting a real
-release APK/AAB and dependency graph. Coordinate with the editor/test-runner draft
-without changing its branch or creating another runner.
-
-## Remaining implementation gates
-
-1. Verify the current revision's Android build/lint/instrumentation; extend full-dialog
-   rotation/process-restoration, 200% font/RTL/TalkBack and per-theme contrast coverage.
-   The small-window sheet regressions and real AtomicFile adapter cases now exist.
-2. Version Editor/JobSpec/JobCodec for persistent origins, an accurate override-count
-   chip, preset preservation and source/capability-dependent effective-route details.
-3. Connect AndroidPowerMonitor to PowerPolicy and TranscodeService/RunCoordinator:
-   explicit resume, deduplicated warnings, monotonic recovery timers, combined reasons,
-   safe cancel/wait/restart, service/wake-lock lifetime and process death. Test a size
-   overshoot waiting before another attempt. Only then enable power controls.
-4. Integrate native upload-size defaults and the automatic hardware/fallback executor
-   with the existing planner/prepare/byte-verification contract and acceleration work.
-   Qualify actual phone components, full duration, output decoding and strict bytes.
-5. Implement remaining deferred media, appearance, queue, storage/privacy and preview
-   consumers independently, with per-row behavior tests and release artifact isolation.
-
-[1] https://developer.android.com/reference/android/util/AtomicFile
-
-[2] https://developer.android.com/studio/test/command-line
+Fresh local host, native-enabled debug/release build/lint, APK payload/alignment
+and release isolation evidence is recorded by the implementing session. Local
+compilation of instrumentation does **not** count as executing its device tests.
+The parent session owns phone installation and qualification of this exact head,
+including the new provenance/retention tests, notification privacy/channel behavior,
+visible screen-awake lifecycle, real native power cancellation and service limits.
+Earlier device reports do not qualify these changes automatically. Full process
+death recovery of the whole unsaved source/audio editor, broad accessibility and
+other-vendor codec qualification remain separate gates.

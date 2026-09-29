@@ -9,7 +9,7 @@ class SettingsContractTest(@Suppress("UNUSED_PARAMETER") name: String, private v
     @Test fun contract() = assertion()
     companion object {
         @JvmStatic @Parameterized.Parameters(name="{0}")
-        fun cases(): List<Array<Any>> = (SettingsChecks.cases + NativePreferenceChecks.cases + SettingsStoreChecks.cases)
+        fun cases(): List<Array<Any>> = (SettingsChecks.cases + ConsumerChecks.cases + ProvenanceChecks.cases + NativePreferenceChecks.cases + SettingsStoreChecks.cases)
             .map { arrayOf<Any>(it.first, it.second) }
     }
 }

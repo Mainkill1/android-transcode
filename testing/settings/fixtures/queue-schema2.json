@@ -1,0 +1,101 @@
+{
+  "schema": 2,
+  "jobs": [
+    {
+      "id": "a66d2dd7-8f84-40bb-a96f-aa93ac6bcbd4",
+      "state": "QUEUED",
+      "message": "Legacy preserved",
+      "source": {
+        "uri": "content://documents/clip",
+        "name": "../clip.mp4",
+        "durationMs": 30000,
+        "width": 1920,
+        "height": 1080,
+        "videoTracks": 1,
+        "audioTracks": 2,
+        "hdr": true,
+        "bytes": 987654,
+        "audioStreams": [
+          {
+            "streamIndex": 2,
+            "sampleRateHz": 44100,
+            "channels": 2,
+            "layout": "stereo",
+            "sampleFormat": "s16",
+            "durationUs": 30000000,
+            "codecDelaySamples": 1024,
+            "paddingSamples": 512,
+            "totalSamples": 1323000,
+            "codec": "aac",
+            "language": "eng",
+            "title": "Main",
+            "timelineOffsetUs": 12000
+          }
+        ]
+      },
+      "trim": {
+        "startMs": 5000,
+        "endMs": 15000
+      },
+      "settings": {
+        "container": "MKV",
+        "video": "H265_HW",
+        "rateControl": "BITRATE",
+        "crf": 19,
+        "videoKbps": 4000,
+        "maxHeight": 1000,
+        "fps": 33,
+        "audio": "AAC",
+        "audioKbps": 384,
+        "audioTrack": 1,
+        "stereo": true,
+        "denoise": true,
+        "deinterlace": true,
+        "keepMetadata": true,
+        "audioEdit": {
+          "schema": 1,
+          "nodes": [
+            {
+              "id": "gain",
+              "type": "gain",
+              "version": 1,
+              "enabled": true,
+              "parameters": {
+                "gainDb": -6.0,
+                "muted": false
+              }
+            },
+            {
+              "id": "future",
+              "type": "vendor-filter",
+              "version": 4,
+              "enabled": false,
+              "parameters": {
+                "keep": 17
+              },
+              "futureField": {
+                "keep": 42
+              }
+            }
+          ],
+          "rate": {
+            "numerator": 3,
+            "denominator": 2
+          },
+          "output": {
+            "channels": "MONO",
+            "sampleRateHz": 44100,
+            "maxBytes": 9000000,
+            "normalization": {
+              "mode": "OFF",
+              "peakDb": -1.0,
+              "integratedLufs": -18.0,
+              "truePeakDb": -1.5,
+              "preserveDynamics": true
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -152,13 +152,17 @@ import kotlin.math.ceil
                             }
                             item(key = "audio-editor") { dev.forma.app.ui.audio.AudioEditorPanel(ui, onAction) }
                             item(key = "simple-options") { SimpleOptions(ui.editor, onAction) }
+                            item(key = "override-summary") {
+                                if(ui.editor.preferences.overrideCount>0) AssistChip(onClick={settingsScope="job"},
+                                    label={Text("${ui.editor.preferences.overrideCount} overrides")}, modifier=Modifier.testTag("overrides-summary"))
+                            }
                             item(key = "advanced-toggle") {
                                 OutlinedButton(onClick = { onAction(UiAction.ToggleAdvanced) }, modifier = Modifier.fillMaxWidth().testTag("mode-toggle")) {
                                     Text(if (ui.editor.advanced) "Hide advanced settings" else "Advanced settings")
                                 }
                             }
                             if (ui.editor.advanced) item(key = "advanced-controls") { Column {
-                                TextButton(onClick = { settingsScope = "job" }, modifier = Modifier.testTag("job-settings")) { Text("Defaults & overrides") }
+                                TextButton(onClick = { settingsScope = "job" }, modifier = Modifier.testTag("job-settings")) { Text("Defaults & overrides · ${ui.editor.preferences.overrideCount}") }
                                 AdvancedControls(ui, onAction)
                             } }
 
@@ -208,7 +212,12 @@ import kotlin.math.ceil
                 val problems = ui.sources.flatMap { Planner.validate(it.source, it.trim, settings) }.distinct()
                 require(problems.isEmpty()) { problems.joinToString("\n") }
                 onAction(UiAction.ChangeSettings(settings))
-            }, onDismiss = { settingsScope = null })
+            }, onDismiss = { settingsScope = null }, preferences=ui.editor.preferences,
+            onApplyPreferences={ settings,preferences ->
+                val problems=ui.sources.flatMap { Planner.validate(it.source,it.trim,settings) }.distinct()
+                require(problems.isEmpty()) { problems.joinToString("\n") }
+                onAction(UiAction.ChangeSettings(settings,preferences))
+            })
     }
 }
 
@@ -229,13 +238,30 @@ import kotlin.math.ceil
     }
 }
 @Composable private fun SimpleOptions(editor: Editor, action: (UiAction) -> Unit) {
+    var pending by remember { mutableStateOf<UiAction.Preset?>(null) }
+    fun select(value: UiAction.Preset) { if(editor.preferences.overrideCount>0) pending=value else action(value) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Choice("Convert to", editor.goal, Goal.entries, { it.label }) { action(UiAction.Preset(it, editor.quality)) }
+        Choice("Convert to", editor.goal, Goal.entries, { it.label }) { select(UiAction.Preset(it, editor.quality)) }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Quality.entries.forEach { q -> FilterChip(modifier = Modifier.formaTouchTarget(), selected = editor.quality == q && !editor.custom,
-                onClick = { action(UiAction.Preset(editor.goal, q)) }, label = { Text(q.label) }) }
+                onClick = { select(UiAction.Preset(editor.goal, q)) }, label = { Text(q.label) }) }
         }
         if (editor.custom) Text("Custom settings", style = MaterialTheme.typography.labelSmall)
+    }
+    pending?.let { value ->
+        AlertDialog(onDismissRequest={pending=null},title={Text("Apply preset?")},
+            text={Column {
+                Text("${value.goal.label} · ${value.quality.label}")
+                val preset=dev.forma.app.audio.AudioEditorSettings.preset(editor.settings,value.goal,value.quality)
+                val before=dev.forma.core.settings.NativePreferences.capture(editor.settings)
+                val after=dev.forma.core.settings.NativePreferences.capture(preset)
+                after.entries.filter { (id,v) -> before[id]!=v }.forEach { (id,v) ->
+                    val spec=dev.forma.core.settings.SettingCatalog[id]
+                    Text("${spec.label}: ${spec.display(v)}",style=MaterialTheme.typography.bodySmall)
+                }
+                Text("${editor.preferences.overrideCount} job overrides can be kept or replaced.")
+            }}, confirmButton={TextButton(onClick={pending=null;action(value.copy(keepOverrides=true))}) {Text("Keep my overrides")}},
+            dismissButton={TextButton(onClick={pending=null;action(value)}) {Text("Replace overrides")}})
     }
 }
 @Composable private fun QueueCard(entry: QueueEntry, action: (UiAction) -> Unit) {
@@ -244,6 +270,15 @@ import kotlin.math.ceil
         Text(entry.spec.source.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(stateLabel(entry.state), style = MaterialTheme.typography.labelLarge)
         Text("${entry.spec.settings.container.name} · ${mediaTime(Planner.duration(entry.spec.source, entry.spec.trim))}", style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick={details=!details}) { Text(if(details) "Hide settings" else "Settings snapshot") }
+        if(details) {
+            Text("Defaults revision ${entry.spec.preferences.app.revision} · ${entry.spec.preferences.overrideCount} overrides",style=MaterialTheme.typography.labelSmall)
+            entry.spec.preferences.presetName?.let { Text(it,style=MaterialTheme.typography.bodySmall) }
+            entry.spec.preferences.resolve().filterKeys { it in dev.forma.core.settings.NativePreferences.boundIds }.forEach { (id,value) ->
+                val spec=dev.forma.core.settings.SettingCatalog[id]
+                Text("${spec.label}: ${spec.display(value.value)} · ${value.origin.name.lowercase()}",style=MaterialTheme.typography.bodySmall)
+            }
+        }
         if (entry.state == JobState.FAILED || entry.state == JobState.INTERRUPTED) {
             TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Show details") }
             if (details) Text(entry.message.take(1200), style = MaterialTheme.typography.bodySmall)

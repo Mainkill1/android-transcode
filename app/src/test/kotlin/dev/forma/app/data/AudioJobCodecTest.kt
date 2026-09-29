@@ -18,7 +18,7 @@ class AudioJobCodecTest {
         val legacy = root.toString()
         assertEquals(listOf(oldEntry), JobCodec.decode(legacy))
         val upgraded = JSONObject(JobCodec.encode(JobCodec.decode(legacy)))
-        assertEquals(2, upgraded.getInt("schema"))
+        assertEquals(3, upgraded.getInt("schema"))
         assertTrue(upgraded.getJSONArray("jobs").getJSONObject(0).getJSONObject("settings").has("audioEdit"))
     }
     @Test fun orderedEditsAndOutputPolicySurviveQueueRoundTrip() {

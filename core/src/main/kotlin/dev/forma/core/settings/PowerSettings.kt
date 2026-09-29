@@ -45,7 +45,7 @@ object PowerSettings {
 }
 
 /** Existing native bindings and live worker policies are both implemented controls. */
-val SettingSpec.implemented: Boolean get() = wired || id in PowerSettings.boundIds
+val SettingSpec.implemented: Boolean get() = wired || id in PowerSettings.boundIds || id in ConsumerSettings.boundIds
 
 /** Replace stale design copy without changing the frozen 64-key registry shape. */
 val SettingSpec.effectiveHelp: String get() = when (id) {
@@ -57,6 +57,13 @@ val SettingSpec.effectiveHelp: String get() = when (id) {
     "power.unplug_action" -> "Applied when eligible charging stops; Continue still obeys low-battery and charging-only gates."
     "power.thermal_action" -> "Uses Android thermal severity. Critical or higher always cancels and blocks new attempts."
     "power.thermal_threshold" -> "Android severity, not an invented CPU temperature. Thermal telemetry is available on API 29 and newer."
+    "queue.auto_start_added" -> "Add to queue waits by default. Automatic starts only after an explicit Add while the run slot is idle; Convert always requests a start."
+    "queue.on_error" -> "Wait for review after a failed item, or continue remaining jobs. Stop/cancellation never counts as a failure."
+    "queue.interrupted_prompt" -> "Offers review on next launch without starting work or resuming a partial output."
+    "queue.notification_detail" -> "Minimal notifications hide source names. Details explicitly permits filenames; Android still controls visibility and notification permission."
+    "queue.completion_sound" -> "Off is silent. Follow channel uses a separate completion channel; Android channel preferences and DND remain authoritative."
+    "queue.keep_screen_on" -> "While encoding keeps only a visible Activity awake. Preview playback integration remains unavailable."
+    "privacy.history_days" -> "At next process launch, prune only completed jobs with known completion dates and their app-managed output. Active/interrupted jobs and legacy jobs without dates are kept."
     else -> help
 }
 

@@ -59,3 +59,23 @@ adb shell am instrument -w -r -e class dev.forma.app.settings.SettingsScreenTest
 The scenario runner does **not** encode media or enforce battery/thermal actions on the running service. Its JSON says `nativeExecution=false` and `powerInputs=synthetic`. The storage tests use the actual Android adapter but an aborted `AtomicFile` write is not a power-loss certification. Real unplug/replug, screen-off execution, native output qualification, all-font-scale/accessibility/rotation testing and release-artifact exclusion remain separate gates. No test-selection argument can activate a Planned control in production.
 
 Primary command reference: https://developer.android.com/studio/test/command-line
+
+## Current provenance/queue integration
+
+The status above retains the original foundation scenario counts. Current `all`
+adds `ProvenanceChecks` and `ConsumerChecks`; require the fresh report's dynamic
+selected/passed counts. New allowlisted pure cases are `provenance` and
+`queue_privacy`. `SettingsProvenanceUiTest` and `SettingsQueueStorageTest` are
+separate device classes; the latter uses disposable directories and verifies real
+queue persistence, interrupted recovery, retention and active-file preservation.
+They do not replace actual service/native reader qualification.
+
+Host settings tests also reference `app/` and `fixtures/` from test-only source and
+resource sets. Fixed queue schema-1/schema-2 files include legacy planner values,
+required hardware, all source facts, rational rate and opaque future effect data.
+The tests verify migration to schema 3 and strict separation from app preferences.
+`settingsTests=false` disables these additional references as well.
+
+Current implemented consumers and Planned boundaries are listed in
+[implementation status](../../docs/advanced-settings-implementation.md). No ADB
+or install action is performed by a host check.

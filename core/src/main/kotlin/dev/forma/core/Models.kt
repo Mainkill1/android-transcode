@@ -1,5 +1,6 @@
 package dev.forma.core
 
+import dev.forma.core.settings.MediaPreferences
 import dev.forma.core.audio.AudioEdit
 import dev.forma.core.audio.SourceAudioFacts
 
@@ -65,11 +66,13 @@ data class Editor(
     val advanced: Boolean = false,
     val custom: Boolean = false,
     val goal: Goal = Goal.SHARE,
-    val quality: Quality = Quality.BALANCED
+    val quality: Quality = Quality.BALANCED,
+    val preferences: MediaPreferences = MediaPreferences.legacy(settings)
 )
-data class JobSpec(val id: String, val source: Source, val trim: Trim, val settings: Settings)
+data class JobSpec(val id: String, val source: Source, val trim: Trim, val settings: Settings,
+    val preferences: MediaPreferences = MediaPreferences.legacy(settings))
 enum class JobState { QUEUED, PREPARING, RUNNING, VERIFYING, COMPLETED, FAILED, CANCELLED, INTERRUPTED }
-data class QueueEntry(val spec: JobSpec, val state: JobState = JobState.QUEUED, val message: String = "")
+data class QueueEntry(val spec: JobSpec, val state: JobState = JobState.QUEUED, val message: String = "", val completedAtMs: Long? = null)
 data class Capabilities(
     val available: Boolean = false,
     val reason: String = "Native FFmpeg is not included in this build.",
