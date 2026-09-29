@@ -20,12 +20,9 @@ internal class KitNextBridge : FfmpegBridge {
             return session.getOutput().orEmpty()
         }
         // Compiled wrapper availability is separate from per-job Android configuration support.
-        val encoders = Regex("(?m)^\\s*[VAS][A-Z.]{5}\\s+(\\S+)").findAll(listing("-encoders"))
-            .map { it.groupValues[1] }.toSet()
-        val muxers = Regex("(?m)^\\s*E\\s+(\\S+)").findAll(listing("-muxers"))
-            .flatMap { it.groupValues[1].split(',').asSequence() }.toSet()
-        val filters = Regex("(?m)^\\s*[TSC.]{3}\\s+(\\S+)").findAll(listing("-filters"))
-            .map { it.groupValues[1] }.toSet()
+        val encoders = FfmpegListing.encoders(listing("-encoders"))
+        val muxers = FfmpegListing.muxers(listing("-muxers"))
+        val filters = FfmpegListing.filters(listing("-filters"))
         Capabilities(true, "Device encoding requires a compatible Android component and checked bitrate plan.", encoders, muxers, filters,
             "FFmpegKitNext 9.0.0 · ${FFmpegKitConfig.getFFmpegVersion()}")
     }

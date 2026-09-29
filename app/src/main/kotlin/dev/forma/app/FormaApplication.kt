@@ -28,6 +28,7 @@ class AppGraph(application: Application) {
             if (!initialized) {
                 queue.load()
                 files.cleanupWork()
+                files.cleanupImports(queue.entries.value.map { it.spec.source.uri }.toSet())
                 initialized = true
             }
         }

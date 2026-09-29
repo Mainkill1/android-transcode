@@ -34,7 +34,7 @@ import kotlin.math.roundToLong
                     enabled = { if (it.hardware) ui.capabilities.available && it.ffmpeg in ui.capabilities.encoders else !ui.capabilities.available || it.ffmpeg in ui.capabilities.encoders }) {
                     update(if (it.hardware) s.copy(video = it, rateControl = RateControl.BITRATE, fps = if (s.fps == 0) 30 else s.fps) else s.copy(video = it))
                 }
-                if (s.video.hardware) Text("Device encoding uses bitrate mode. The actual device component is checked for this file before export; support is not guaranteed.", style = MaterialTheme.typography.bodySmall)
+                if (s.video.hardware) Text("Device encoder checked before conversion", style = MaterialTheme.typography.bodySmall)
                 Choice("Rate control", s.rateControl, if (s.video.hardware) listOf(RateControl.BITRATE) else RateControl.entries,
                     { if (it == RateControl.QUALITY) "Constant quality" else "Average bitrate" }) { update(s.copy(rateControl = it)) }
                 if (s.rateControl == RateControl.QUALITY) {
@@ -42,7 +42,6 @@ import kotlin.math.roundToLong
                     Text("Quality: ${s.crf} · lower keeps more detail")
                     Slider(value = s.crf.toFloat().coerceIn(0f, upper), onValueChange = { update(s.copy(crf = it.roundToInt())) },
                         valueRange = 0f..upper, steps = upper.toInt() - 1, modifier = Modifier.semantics { contentDescription = "Constant quality" })
-                    Text("This controls quality, not a guaranteed file size.", style = MaterialTheme.typography.bodySmall)
                 } else Choice("Video bitrate", s.videoKbps, listOf(500, 1000, 2000, 4000, 8000, 12000, 20000, 40000), { "$it kb/s" }) { update(s.copy(videoKbps = it)) }
                 Choice("Frame rate", s.fps, if (s.video.hardware) listOf(24, 25, 30, 50, 60, 120) else listOf(0, 24, 25, 30, 50, 60, 120),
                     { if (it == 0) "Same as source" else "$it fps" }) { update(s.copy(fps = it)) }
@@ -50,7 +49,7 @@ import kotlin.math.roundToLong
         }
         if (s.container != Container.M4A) Section("Picture & filters") {
             Choice("Maximum height", s.maxHeight, listOf(0, 480, 720, 1080, 1440, 2160, 4320), { if (it == 0) "Same as source" else "$it pixels" }) { update(s.copy(maxHeight = it)) }
-            Text("Aspect ratio is kept. Smaller sources are not upscaled.", style = MaterialTheme.typography.bodySmall)
+            Text("Keeps proportions · No upscaling", style = MaterialTheme.typography.bodySmall)
             Toggle("Deinterlace", s.deinterlace) { update(s.copy(deinterlace = it)) }
             Toggle("Reduce noise", s.denoise) { update(s.copy(denoise = it)) }
         }
@@ -70,7 +69,7 @@ import kotlin.math.roundToLong
                 valueRange = 0f..edit.source.durationMs.toFloat(),
                 startThumb = { Text("[", Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).wrapContentSize(), fontSize = 32.sp) },
                 endThumb = { Text("]", Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).wrapContentSize(), fontSize = 32.sp) })
-            Text("The highlighted section is kept. The full filmstrip editor is a separate native-port milestone.", style = MaterialTheme.typography.bodySmall)
+            Text("Keep the selected range", style = MaterialTheme.typography.bodySmall)
             FlowRow {
                 TextButton(onClick = { action(UiAction.ChangeTrim(edit.source.uri, Trim((edit.trim.startMs - 100).coerceAtLeast(0), edit.trim.endMs))) }) { Text("Start −0.1s") }
                 TextButton(onClick = { action(UiAction.ChangeTrim(edit.source.uri, Trim((edit.trim.startMs + 100).coerceAtMost((edit.trim.endMs ?: edit.source.durationMs) - 50).coerceAtLeast(0), edit.trim.endMs))) }) { Text("Start +0.1s") }
@@ -79,7 +78,7 @@ import kotlin.math.roundToLong
         } }
         Section("Output details") {
             Toggle("Keep source metadata", s.keepMetadata) { update(s.copy(keepMetadata = it)) }
-            Text("This native slice exports one selected audio track. Subtitles, attachments and chapters are not copied.", style = MaterialTheme.typography.bodySmall)
+            Text("One audio track · No subtitles", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

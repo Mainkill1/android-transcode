@@ -14,8 +14,11 @@ import dev.forma.core.*
 import java.util.UUID
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class FileTask(val label: String, val fraction: Float? = null, val cancelling: Boolean = false)
+data class WorkspaceRequest(val id: Int, val showQueue: Boolean)
 data class TranscodeUiState(
     val editor: Editor = Editor(),
     val sources: List<SourceEdit> = emptyList(),
@@ -66,6 +69,9 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     val runState = graph.runs.state
     private var fileJob: Job? = null
     private var initialization: Job? = null
+    private val sharedImports = Mutex()
+    var receivedInitialIntent = false
+    private var settingsChosen = false
     private data class ValidationKey(val sources: List<SourceEdit>, val settings: Settings, val caps: Capabilities)
     private fun key(ui: TranscodeUiState) = ValidationKey(ui.sources, ui.editor.settings, ui.capabilities)
 
@@ -107,9 +113,15 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     fun act(action: UiAction) {
         when (action) {
             UiAction.ToggleAdvanced -> mutable.update { it.copy(editor = it.editor.copy(advanced = !it.editor.advanced)) }
-            is UiAction.Preset -> edit { it.copy(validating = true, editor = it.editor.copy(goal = action.goal, quality = action.quality,
-                settings = Planner.preset(action.goal, action.quality), custom = false)) }
-            is UiAction.ChangeSettings -> edit { it.copy(validating = true, editor = it.editor.copy(settings = action.settings, custom = true)) }
+            is UiAction.Preset -> {
+                settingsChosen = true
+                edit { it.copy(validating = true, editor = it.editor.copy(goal = action.goal, quality = action.quality,
+                    settings = Planner.preset(action.goal, action.quality), custom = false)) }
+            }
+            is UiAction.ChangeSettings -> {
+                settingsChosen = true
+                edit { it.copy(validating = true, editor = it.editor.copy(settings = action.settings, custom = true)) }
+            }
             is UiAction.Select -> mutable.update { it.copy(selectedUri = action.uri) }
             is UiAction.RemoveSource -> edit { it.copy(validating = true, sources = it.sources.filterNot { e -> e.source.uri == action.uri }) }
             is UiAction.ChangeTrim -> edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(trim = action.trim) else e }) }
@@ -147,7 +159,22 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun importSources(uris: List<Uri>) {
+    fun showImportError(message: String) { mutable.update { it.copy(message = message) } }
+    fun importSharedSources(uris: List<Uri>) {
+        val request = uris.toList()
+        viewModelScope.launch {
+            sharedImports.withLock {
+                // A cold share can arrive before queue/capability initialization completes.
+                initialization?.join()
+                if (!mutable.value.ready) return@withLock
+                fileJob?.join()
+                importSources(request, shared = true)
+                fileJob?.join()
+            }
+        }
+    }
+    fun importSources(uris: List<Uri>) = importSources(uris, shared = false)
+    private fun importSources(uris: List<Uri>, shared: Boolean) {
         if (uris.isEmpty()) return
         runFileTask("Reading selected media…") {
             require(uris.size + mutable.value.sources.size <= 200) { "Choose at most 200 files at a time." }
@@ -156,11 +183,13 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                 currentCoroutineContext().ensureActive()
                 mutable.update { it.copy(fileTask = FileTask("Reading file ${index + 1} of ${uris.size}")) }
                 try {
-                    val imported = SourceEdit(graph.files.inspect(uri))
+                    val imported = SourceEdit(if (shared) graph.files.importShared(uri) else graph.files.inspect(uri))
                     // Publish completed files incrementally. Cancelling preserves already imported sources.
                     edit { old -> old.copy(validating = true,
+                        editor = if (shared && old.sources.isEmpty() && !settingsChosen && imported.source.videoTracks == 0)
+                            old.editor.copy(goal = Goal.AUDIO, settings = Planner.preset(Goal.AUDIO, old.editor.quality)) else old.editor,
                         sources = (old.sources + imported).distinctBy { it.source.uri },
-                        selectedUri = old.selectedUri ?: imported.source.uri) }
+                        selectedUri = if (shared && index == 0) imported.source.uri else old.selectedUri ?: imported.source.uri) }
                 } catch (cancel: CancellationException) { throw cancel }
                 catch (error: Exception) { errors += error.message ?: "A selected file could not be inspected." }
             }
@@ -175,7 +204,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             if (gate.accept(id)) mutable.update { old -> if (old.fileTask?.cancelling == true) old else
                 old.copy(fileTask = FileTask("Saving a copy…", WorkPolicy.fraction(bytes, total))) }
         }
-        mutable.update { it.copy(message = "Copy saved. Your verified original output is still available in the queue.") }
+        mutable.update { it.copy(message = "Copy saved.") }
     }
     private fun enqueue(start: Boolean) {
         val draft = mutable.value // immutable request snapshot; later edits cannot rewrite it
@@ -187,7 +216,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             require(problems.isEmpty()) { problems.joinToString("\n") }
             graph.queue.add(draft.sources.map { JobSpec(UUID.randomUUID().toString(), it.source, it.trim, draft.editor.settings) })
             if (start) startQueue()
-            else mutable.update { it.copy(message = "${draft.sources.size} job(s) added. You can keep editing; queued settings are independent.") }
+            else mutable.update { it.copy(message = "${draft.sources.size} file(s) added to queue.") }
         }
     }
     private suspend fun startQueue() {
