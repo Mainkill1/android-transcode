@@ -2,6 +2,7 @@ package dev.forma.app.settings
 
 import android.content.Intent
 import android.os.BatteryManager
+import androidx.core.content.ContextCompat
 import dev.forma.core.settings.ChargeState
 import org.junit.Test
 
@@ -41,5 +42,9 @@ class AndroidPowerMonitorTest {
         check(sample.percent == 50)
         check(sample.thermal == 3)
         check(sample.batterySaver)
+    }
+
+    @Test fun monitorUsesSystemBroadcastRegistrationMode() {
+        check(POWER_RECEIVER_FLAGS == ContextCompat.RECEIVER_EXPORTED)
     }
 }

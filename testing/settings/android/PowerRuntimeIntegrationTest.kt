@@ -1,6 +1,13 @@
 package dev.forma.app.settings
 
+import dev.forma.app.work.RunState
 import dev.forma.core.settings.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.runBlocking
 import org.junit.Test
 
 class PowerRuntimeIntegrationTest {
@@ -34,5 +41,28 @@ class PowerRuntimeIntegrationTest {
             activeAttempt = false, nowMs = 0)
         check(blocked.blockingMessage.contains("waiting", ignoreCase = true))
         check(!blocked.blockingMessage.contains("resume at", ignoreCase = true))
+    }
+
+    @Test fun synchronousRefreshUsesJustLoadedPolicyBeforeFirstQueueClaim() = runBlocking {
+        val settings = MutableStateFlow(SettingsLoadState(SettingsDocument()))
+        val samples = MutableStateFlow(PowerSample(90, ChargeState.DISCHARGING, thermal = 0))
+        val runs = MutableStateFlow(RunState())
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try {
+            val runtime = PowerRuntime(settings, samples, runs, scope) { 100L }
+            settings.value = SettingsLoadState(SettingsDocument(
+                revision = 7,
+                values = PreferenceValues.of(mapOf("power.charging_only" to SettingValue.Flag(true)))
+            ))
+
+            // Do not yield to Flow collectors. The worker must be able to synchronously
+            // evaluate the durable document it just loaded before claiming job one.
+            val current = runtime.refresh()
+            check(current.settingsRevision == 7L)
+            check(!current.decision.canStart)
+            check("charging_required" in current.decision.reasons)
+        } finally {
+            scope.cancel()
+        }
     }
 }
