@@ -22,12 +22,12 @@ result is copied with `adb exec-out run-as`.
 | Trial matrix | Uncapped jobs: up to three components with NV12/YUV420P and VBR/CBR, at most twelve device attempts plus one Automatic software attempt. Capped jobs share four total attempts across codec and size retries and reserve an Automatic software fallback. |
 | Size intent | Default 10 MB before import; decimal-byte presets/custom limit or No size limit. Each queued job freezes its own limit. Fully decoded candidates must be strictly smaller; oversized files are deleted and retried from the original at lower rates. |
 | Error handling | Only recognized encoder-local create/configure/start failures and explicitly rejected encoded outputs can advance to another route. Cancellation, I/O, invalid input, unknown native errors, and programming exceptions stop. |
-| Validation | A zero FFmpeg return code is followed by a nonempty-file check, full decode, track, duration, geometry, and SDR validation. |
+| Validation | A zero FFmpeg return code is followed by a nonempty-file check, full decode, per-stream timing/frame-count, track, geometry, and SDR validation. |
 | Evidence | Normal jobs write private acceleration sidecars. Device tests write run-ID-specific JSON files under the target app's private `files/acceleration` directory. |
 | Test isolation | JVM, app, and Android instrumentation tests live under `testing/acceleration`; none are included in a release main source set. |
 
 Queue schema 2 writes the optional byte limit and reads legacy schema 1 as uncapped.
-Unknown editor keys and future schemas are rejected with the original queue preserved.
+Unknown nested fields, fractional/coerced integers, missing required trim/limit intent and future schemas are rejected with the original queue preserved. Schema 2 emits an explicit null for a manual limit; a missing field is corrupt. Schema 1 accepts only its original uncapped payload.
 Other editor/settings draft branches also extend their queues: their version numbers
 must be unified when those branches are combined; an equal schema number does not
 make their payloads interchangeable.
@@ -208,57 +208,27 @@ process death, or a codec call that never returns.
 
 ## Qualification checkpoint
 
-Native build, JVM suites and lint pass using the pinned source-built FFmpeg n9.0.1
-bundle. No-native debug compilation and the complete host JUnit suites also pass;
-no-native builds expose an unavailable bridge rather than pretend to transcode. Host suites contain 27 JUnit tests with zero failures/skips, plus the
-standalone codec/retry/output policy checks. Native filter-list parsing accepts the
-pinned build's two-flag rows and the older three-flag form; Espresso 3.7.0 supports
-the target API 36 input path. Optional `graphicsPathRepo` accepts the source-rebuilt
-16 KB Compose native dependency without changing the FFmpeg licensing/source pins.
+Final review qualification (2026-09-29) uses the pinned source-built FFmpeg n9.0.1 bundle. **41 JVM tests**, native app/test builds and lint pass. Fourteen real desktop stream-completeness cases pass, including rejection of decodable truncated video hidden behind full-length audio, shortened audio, shifted streams and wrong CFR counts. WAV/FLAC inputs lacking declared start clocks use measured packet/frame timestamps; unknown clocks remain unknown.
 
 On the attached **OnePlus 9 Pro LE2125**, API 36, arm64, 4096-byte pages:
 
-- The explicit native full instrumentation suite passed all 12 tests, including
-  advertised inventory, runtime hardware encoding, production byte-fit retries,
-  cancellation cleanup and Compose controls.
-- Four separate real native choices passed: H264_AUTO, H264_HW, H265_AUTO, H265_HW;
-  actual Qualcomm AVC/HEVC components and verified selected layouts/rate modes were
-  recorded. VP9_HW and AV1_HW failed explicitly as unavailable rather than becoming
-  software.
-- The downloaded Sintel source remained SHA-256
-  `b670602fa00934ca27c4351bb0efe7ea7a07fae57284e44226025eeed7c51254`.
-  A five-second 640×360/30 capped export produced **76,894 bytes < 250,000 bytes**
-  with all 150 video frames and retained 48 kHz stereo AAC; host full decode passed.
-  The first native MP4 was deliberately padded with inert trailing bytes to force a
-  verified size retry. This is fault injection, not a simulated encode. The actual
-  hardware outputs measured 434,581 and 414,068 bytes at 261 and 100 kb/s requests,
-  revealing this device's bitrate floor. The third attempt used same-codec libx264
-  from the original at the minimum budget and fit. No duration, geometry, FPS or
-  tracks were removed. A cancellation at final verification left no output.
-- Private qualification debug builds use `-PformaLab=true` to keep a distinct
-  application ID. Release retains the normal application ID.
+- All **15 physical-device instrumentation tests pass with no skips**, using UUID `b710ebff-f1c4-42d6-84e9-6ec52bc15d0c`. This includes actual video and clockless WAV foreground-service jobs, byte-exact queue preservation, inventory, runtime encoding, cancellation, failed durable completion and Compose controls.
+- The H264_AUTO runtime job used `c2.qti.avc.encoder`, YUV420P/VBR, reported as actual MediaCodec hardware. Earlier separate H264_HW/H265_AUTO/H265_HW cases also passed; VP9_HW/AV1_HW explicitly failed unavailable. These are short phone-specific results.
+- Downloaded Sintel SHA-256 remained `b670602fa00934ca27c4351bb0efe7ea7a07fae57284e44226025eeed7c51254`. Its five-second capped export is **76,894 bytes < 250,000**, with **150 frames at 640×360/30** and 48 kHz stereo AAC. Independent strict full decode passed. The first real native MP4 receives inert trailing padding to force a size retry; reports separate padding from native encoded bytes. Hardware measured 434,581/414,068 bytes at 261/100 kb/s requests; the third same-codec libx264 attempt fit. Every attempt starts from the original.
+- Stop before publication and a failing durable Completed callback both leave no published output. Stop after successful durable completion retains the completed file.
+- `-PformaLab=true` uses `dev.forma.transcode.lab.codec`, with an empty isolated queue for service tests. Production release retains its normal ID.
 
-The final compact size-control hints passed both targeted Compose/device tests.
-A minified native release passed with the external acceleration testing directory
-physically absent and `accelerationTests=false`. Release DEX excludes all three lab
-classes, runner and opt-in argument strings. Final debug and release native payload,
-16 KB ELF and APK ZIP alignment checks passed; this is packaging verification, not
-an assertion of testing on a 16 KB page-size phone.
+The minified native release built with `testing/acceleration` physically absent and `accelerationTests=false`. DEX excludes qualification classes, runner and opt-in arguments. Debug/release native payload, 16 KB ELF and APK ZIP alignment checks pass; the attached phone has 4 KB pages.
 
 Final artifact SHA-256:
 
 ```text
-debug    8f454f76f51b46ee7d297c756094049b352eaa91a33576b27c62fc479bffe7c4
-test     8949b88f62df7b64c3a08f0be765bf5e54308c396e261f4ee270996d04533e23
-release  05b46d32edc0d8b6cadba49847ec16aa4af0fd1e2c398711ad1a8a9aaea4aa91
+debug    acd55fd2b5ea90a9ed780f1c4af420552a4aa9fd19a9f39e604bbe5305be91d1
+test     a9af3e9d7dab11f423b1d0c4974f76833608b5017f64c4f172ab9bd424558809
+release  1cb66286d8b07527fb2e617868c5057fe307774c737e99916db5941a82a77e23
 ```
 
-The exact private raw reports use fresh UUIDs; a short generated export is not
-frame/quality/sustained-performance certification. The downloaded-source byte-fit
-check is one deterministic case, not a guarantee every limit is achievable.
-Unknown native errors remain fatal, and Java cannot contain SIGSEGV or an indefinitely
-hung codec call. Required-device mode still fails if no requested hardware result
-fits; Automatic mode never changes the requested codec family.
+Private reports carry fresh run IDs and installed-artifact identities. These deterministic cases do not certify broad-device support, every VFR timeline, perceptual quality, A/V sync or sustained thermal performance. Unknown native errors remain fatal; SIGSEGV and indefinitely hung codec calls are not contained by Java. Required-device mode never switches to software, and Automatic mode retains the codec family.
 
 ## Direct ADB: production byte-cap qualification
 
@@ -266,24 +236,39 @@ Build matching lab APKs using `-PformaLab=true`. Copy an expendable downloaded s
 into the lab package (not the user's app) before running this opt-in test:
 
 ```bash
-adb -s "$SERIAL" shell run-as dev.forma.transcode.lab mkdir -p files/outputs
-adb -s "$SERIAL" shell run-as dev.forma.transcode.lab sh -c \
+adb -s "$SERIAL" shell run-as dev.forma.transcode.lab.codec mkdir -p files/outputs
+adb -s "$SERIAL" shell run-as dev.forma.transcode.lab.codec sh -c \
   "'cat > files/outputs/cap-original.mp4'" < sample.mp4
 adb -s "$SERIAL" shell am instrument -w -r \
   -e class dev.forma.app.NativeByteCapTest \
   -e formaNative true -e formaByteCapTests true -e formaRunId "$RUN_ID" \
-  dev.forma.transcode.lab.test/androidx.test.runner.AndroidJUnitRunner
-adb -s "$SERIAL" exec-out run-as dev.forma.transcode.lab \
+  dev.forma.transcode.lab.codec.test/androidx.test.runner.AndroidJUnitRunner
+adb -s "$SERIAL" exec-out run-as dev.forma.transcode.lab.codec \
   cat "files/acceleration/cap-$RUN_ID.json" > "cap-$RUN_ID.json"
 ```
 
 Require `OK (1 test)`, a matching fresh canonical UUID, `passed: true`, strict
 `outputBytes < targetBytes`, original hash matches on every preparation, successful
-full output decode and `cancellationLeftNoOutput: true`. The fixture contract is a
+full output decode and `cancellationLeftNoOutput: true` and `publicationFailureLeftNoOutput: true`. The fixture contract is a
 video/audio source long enough for 5–10 seconds. It intentionally forces one valid
 candidate oversize; its report exposes native bytes separately from added padding.
 It uses the actual production staging/exporter/verifier and contains no release
 receiver/server. `-PaccelerationTests=false` removes external test source references.
+
+## Direct ADB: foreground service and queue preservation
+
+After installing matching `-PformaLab=true` native APKs, run:
+
+```bash
+adb -s "$SERIAL" shell am instrument -w -r \
+  -e class dev.forma.app.CodecServiceTest -e formaCodecService true \
+  dev.forma.transcode.lab.codec.test/androidx.test.runner.AndroidJUnitRunner
+adb -s "$SERIAL" shell am instrument -w -r \
+  -e class dev.forma.app.QueuePreservationTest \
+  dev.forma.transcode.lab.codec.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+Service tests refuse nonempty or active queues, generate their own video/WAV sources, start the real foreground service, check durable Completed outputs, wait for idle native ownership and restore their empty queue snapshot. Queue-preservation tests use a separate context directory and compare exact bytes after rejected loads. Default emulator CI intentionally skips opt-in native tests.
 
 ## Remaining qualification and integration limits
 
