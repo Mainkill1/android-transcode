@@ -1,6 +1,6 @@
 # Advanced settings: consumers and qualification boundaries
 
-Updated 2026-09-29. The native registry has **64 typed rows: 33 implemented,
+Updated 2026-09-29 for reviewed head `a113131`. The native registry has **64 typed rows: 33 implemented,
 31 Planned**. Implementation means there is a production consumer, not that every
 codec, device, accessibility configuration or physical safety episode is qualified.
 The original [catalog](advanced-settings-catalog.md), [design](superpowers/specs/2026-09-29-advanced-settings-design.md)
@@ -46,7 +46,13 @@ Preset selection previews changed fields and offers Keep my overrides or Replace
 overrides. Audio undo/redo restores channel inheritance alongside the graph.
 Settings dialog layers/drafts are saveable through Activity recreation.
 
-Queue schema **3** stores these layers plus an optional completion timestamp.
+Queue schema **3** stores these layers plus a nullable completion timestamp.
+Its decoder requires all saved writer fields, distinguishing an absent key from
+explicit null, and rejects fractional/coerced integers, wrong primitive types and
+unknown queue fields before any rewrite. Known saved audio nodes require their
+complete parameter sets and EQ-band fields; sparse external recipes retain their
+separate defaulting behavior. Future audio nodes/fields remain opaque and block
+active processing until explicit bypass/removal.
 Schema 1 preserves its concrete settings with a neutral audio graph; schema 2
 preserves PR3 graph, unknown effect payloads, source stream facts and rational
 timing. Both become explicit legacy snapshots, including H264_HW/H265_HW required
@@ -77,6 +83,20 @@ Unreadable app preferences skip history pruning. Source display names never form
 working paths: managed paths require exact UUIDs; revoked content grants fail with
 reselection guidance; existing job outputs are never overwritten.
 
+Export verification checks each retained audio/video stream's start and end,
+intended offsets and decoded video frame count after strict full decode. Explicit
+CFR counts allow floor/ceiling only for fractional frame windows; format duration
+alone cannot certify a complete video track. Clockless WAV origins are observed
+from native packet timestamps. The existing audio DSP/rate/sample-count and
+normalization verification remains in force.
+
+Publication waits for durable Completed state after renaming a verified new
+artifact. Any failed/cancelled completion callback removes that new output;
+Stop after durable completion keeps it. Save copy checks that the destination
+is observably empty before opening it for writing or deleting it on failure.
+Nonempty originals/aliases and unreadable destinations are rejected, including
+after Share has staged a private source copy.
+
 There is no persistent product diagnostic-log collector or shared report exporter
 on this branch. `diagnostics.level`, `diagnostics.retention_days` and
 `diagnostics.include_filenames` remain Planned, so a Debug setting cannot persist
@@ -101,9 +121,15 @@ checks. `settingsTests=false` removes all external settings source/resource
 references; `audioTests=false` removes the PR3 instrumentation reference.
 See [test commands and boundaries](../testing/settings/README.md).
 
-Fresh local host, native-enabled debug/release build/lint, APK payload/alignment
-and release isolation evidence is recorded by the implementing session. Local
-compilation of instrumentation does **not** count as executing its device tests.
+At `a113131`, **163 JVM tests passed** (core 98, engine 20, app 45), with
+native-enabled debug/test assembly, lint, pinned-native API compilation and both
+debug APK payload/16 KB alignment checks. Fourteen desktop media cases cover
+per-stream truncation, CFR counts, offsets, trims, Matroska and real WAV exports.
+The parent also built the unsigned minified release with `testing/` physically
+absent and both test references disabled; native packaging and structural DEX
+exclusion checks passed. Exact artifacts are recorded in
+[device validation](advanced-settings-device-validation.md). Local compilation
+of instrumentation does **not** count as executing its device tests.
 The parent session owns phone installation and qualification of this exact head,
 including the new provenance/retention tests, notification privacy/channel behavior,
 visible screen-awake lifecycle, real native power cancellation and service limits.
@@ -132,10 +158,10 @@ wrapper/no-native unit/build/lint/emulator gates; `cf87fc2` workflow `3657251110
 reproduced the unreadable-policy failure before its fix. These are separate from
 this session's source-built native packaging and the parent phone qualification.
 
-Local merged-head gate record: 142 JVM tests passed, core CLI39, settings/consumer/
-provenance and power CLI suites passed, readiness13 Python and UX ownership/race
-checks passed. Native-enabled debug/release build/lint and Android-test assembly
-passed. Both APKs pass arm64 payload/16 KiB alignment checks. With the external
-test tree physically absent and both test references disabled, release rebuild
-and structural DEX exclusion checks passed. Device tests for this head remain
-owned by the parent session; no local device execution is claimed here.
+The earlier merged-head gate recorded 142 JVM tests plus core CLI39,
+settings/consumer/provenance/power suites, readiness13 Python and UX ownership/
+race checks. That historical count is superseded by the 163-test checkpoint
+above. Settings scenario reports use synthetic power samples and explicitly
+report `nativeExecution=false`; their passing assertions do not certify physical
+battery/thermal events or native encoder execution. Final phone tests for
+`a113131` remain pending in the parent session.
