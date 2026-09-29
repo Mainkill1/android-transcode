@@ -9,11 +9,14 @@ import org.junit.Test
 
 class ByteCapExportTest {
     private val source = Source("content://original", "original", 3000, 320, 240, 1, 1)
+    private fun facts()=OutputFacts(0,listOf(StreamFacts(StreamKind.VIDEO,0,3_000_000,90,320,240),
+        StreamFacts(StreamKind.AUDIO,0,3_000_000,sampleRate=48000)))
     private val settings = Settings(video = VideoEncoder.X264, fps = 30, maxHeight = 240)
-    private class Bridge(val directory: File, val sizes: List<Int>) : FfmpegBridge {
+    private inner class Bridge(val directory: File, val sizes: List<Int>) : FfmpegBridge {
         val prepared = mutableListOf<Pair<String, Settings>>()
         var exports = 0
         var decodeFailure = false
+        override suspend fun inspectStreams(localPath:String,countFrames:Boolean)=facts()
         override suspend fun capabilities() = Capabilities(true)
         override suspend fun probe(localPath: String) = Source(localPath, "output", 3000, 320, 240, 1, 1)
         override suspend fun prepare(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<String> {
@@ -60,6 +63,7 @@ class ByteCapExportTest {
             val routes=CodecTrials.plan(request,AccelerationMode.AUTO,setOf("h264_mediacodec","libx264"),listOf(candidate))
             var calls=0
             val bridge=object:FfmpegBridge {
+                override suspend fun inspectStreams(localPath:String,countFrames:Boolean)=facts()
                 override suspend fun capabilities()=Capabilities(true)
                 override suspend fun probe(localPath:String)=source
                 override suspend fun prepareAttempts(source:Source,trim:Trim,settings:Settings,input:String,output:String)=
@@ -85,7 +89,8 @@ class ByteCapExportTest {
                 val routes=CodecTrials.plan(request,mode,setOf("h264_mediacodec","libx264"),listOf(candidate))
                 var calls=0
                 val bridge=object:FfmpegBridge {
-                    override suspend fun capabilities()=Capabilities(true)
+                    override suspend fun inspectStreams(localPath:String,countFrames:Boolean)=facts()
+                override suspend fun capabilities()=Capabilities(true)
                     override suspend fun probe(localPath:String)=source
                     override suspend fun prepareAttempts(source:Source,trim:Trim,settings:Settings,input:String,output:String)=
                         routes.map { PreparedAttempt(listOf("-n","-i",input,"-c:v",it.encoder!!,output),it) }
