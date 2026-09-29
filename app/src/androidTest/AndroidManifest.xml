@@ -2,6 +2,18 @@
     <permission android:name="${applicationId}.READ_MEDIA" android:protectionLevel="signature" />
     <uses-permission android:name="${applicationId}.READ_MEDIA" />
     <application>
-            android:exported="true" android:grantUriPermissions="true" />
         <provider android:name="dev.forma.app.WritableExportTestProvider"
             android:authorities="${applicationId}.writable-export"
+            android:exported="true" android:grantUriPermissions="true" />
+        <provider android:name="dev.forma.app.WritableImageExportTestProvider"
+            android:authorities="${applicationId}.writable-image-export"
+            android:exported="true" android:grantUriPermissions="true" />
+        <!-- Only serves generated test tones; never exposes user files. -->
+        <provider android:name="dev.forma.app.SharedMediaTestProvider"
+            android:authorities="${applicationId}.shared-media"
+            android:readPermission="${applicationId}.READ_MEDIA"
+            android:exported="true" android:grantUriPermissions="true" />
+        <activity android:name="dev.forma.app.SharedMediaSenderActivity"
+            android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    </application>
+</manifest>
