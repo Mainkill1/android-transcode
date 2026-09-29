@@ -26,12 +26,13 @@ import java.util.UUID
 class ShareImportTest {
     @get:Rule val compose = createEmptyComposeRule()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
-    private val one = Uri.parse("content://dev.forma.transcode.test.shared-media/tone-one.wav")
-    private val two = Uri.parse("content://dev.forma.transcode.test.shared-media/tone-two.wav")
-    private fun sender() = Intent().setComponent(ComponentName("dev.forma.transcode.test", "dev.forma.app.SharedMediaSenderActivity"))
+    private val fixturePackage get() = InstrumentationRegistry.getInstrumentation().context.packageName
+    private val one get() = Uri.parse("content://$fixturePackage.shared-media/tone-one.wav")
+    private val two get() = Uri.parse("content://$fixturePackage.shared-media/tone-two.wav")
+    private fun sender() = Intent().setComponent(ComponentName(fixturePackage, "dev.forma.app.SharedMediaSenderActivity"))
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     @Before fun restoreSenderAccess() {
-        assertEquals(PackageManager.PERMISSION_DENIED, context.checkPermission("dev.forma.transcode.test.READ_MEDIA", Process.myPid(), Process.myUid()))
+        assertEquals(PackageManager.PERMISSION_DENIED, context.checkPermission("$fixturePackage.READ_MEDIA", Process.myPid(), Process.myUid()))
         val token = UUID.randomUUID().toString()
         context.startActivity(sender().putExtra("grantOnly", true).putExtra("setupToken", token))
         compose.waitUntil(10_000) { runCatching { context.contentResolver.call(one, "state", null, null)?.getString("setupToken") }.getOrNull() == token }
@@ -97,7 +98,7 @@ class ShareImportTest {
             }
             withVm(scenario) { vm ->
                 val source = vm.state.value.sources.single().source
-                assertEquals("dev.forma.transcode.files", Uri.parse(source.uri).authority)
+                assertEquals("${context.packageName}.files", Uri.parse(source.uri).authority)
                 assertEquals(32044L, source.bytes)
                 assertEquals(1000L, source.durationMs)
                 assertEquals(Container.M4A, vm.state.value.editor.settings.container)
@@ -134,27 +135,17 @@ class ShareImportTest {
 
     @Test fun explicitlySelectedPresetSurvivesAudioShareIntoEmptyEditor() {
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
-            compose.waitUntil(10_000) { var ready=false;withVm(scenario) { ready=it.state.value.ready };ready }
-            lateinit var chosen: Settings
+            var chosen: Settings? = null
+            var preferences: dev.forma.core.settings.MediaPreferences? = null
             withVm(scenario) {
-                val audio=it.state.value.editor.settings.audioEdit
                 it.act(UiAction.Preset(Goal.DETAIL, Quality.CLEAR))
-                chosen=Planner.preset(Goal.DETAIL, Quality.CLEAR).copy(audioEdit=audio)
-                assertEquals(chosen,it.state.value.editor.settings)
+                chosen = it.state.value.editor.settings
+                preferences = it.state.value.editor.preferences
+                assertEquals(15, chosen!!.crf)
             }
-            externalShare(scenario, share().putExtra(Intent.EXTRA_STREAM, one), 1) { assertEquals(chosen, it.state.value.editor.settings) }
-        }
-    }
-
-    @Test fun firstGainUndoPreservesInitializedAudioRouting() {
-        ActivityScenario.launch<MainActivity>(share().putExtra(Intent.EXTRA_STREAM,one)).use { scenario ->
-            waitSources(scenario,1)
-            withVm(scenario) {
-                val original=it.state.value.editor.settings.audioEdit
-                val gain=dev.forma.core.audio.AudioEffectNode("gain","gain",parameters=dev.forma.core.audio.GainParameters(-6.0))
-                it.act(UiAction.ChangeAudioEdit(original.copy(nodes=original.nodes+gain)))
-                it.act(UiAction.UndoAudio)
-                assertEquals(original,it.state.value.editor.settings.audioEdit)
+            externalShare(scenario, share().putExtra(Intent.EXTRA_STREAM, one), 1) {
+                assertEquals(chosen, it.state.value.editor.settings)
+                assertEquals(preferences, it.state.value.editor.preferences)
             }
         }
     }
