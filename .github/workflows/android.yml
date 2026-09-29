@@ -66,7 +66,7 @@ jobs:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
-      - run: sdkmanager 'platforms;android-34' 'platforms;android-36' 'build-tools;35.0.0'
+      - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'platforms;android-34'
       - name: Compile upstream Kotlin API only (no native binaries)
         run: ./gradlew -p vendor/ffmpeg-kit-next/android :ffmpeg-kit-next-android-lib:assembleRelease --stacktrace
       - name: Stage API-only Maven artifact for compile checking
@@ -85,7 +85,9 @@ jobs:
         run: ./gradlew -PffmpegEnabled=true -PffmpegRepo="$PWD/local-native" :engine-ffmpeg:compileDebugKotlin :app:compileDebugKotlin --stacktrace
       # Never upload this API-only AAR/APK as a usable encoder.
   compose-device:
-    if: github.event_name == 'workflow_dispatch' && inputs.run_device_tests
+    # UI regressions must execute, not merely compile, on normal code updates.
+    # Manual workflow runs retain an explicit opt-out for API/build-only checks.
+    if: github.event_name != 'workflow_dispatch' || inputs.run_device_tests
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:

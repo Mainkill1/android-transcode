@@ -59,7 +59,7 @@ import kotlinx.coroutines.launch
                 navigationIcon = { TextButton(onClick = { scope.launch { drawer.open() } }, modifier = Modifier.testTag("open-shelf").semantics { contentDescription = "Open navigation" }) { Text("Menu") } },
                 actions = { if (page != "queue" && jobs.isNotEmpty()) TextButton(onClick = { page = "queue" }) { Text("Queue ($waiting)") } }) },
             bottomBar = {
-                Column(Modifier.imePadding()) {
+                Column(Modifier.imePadding().navigationBarsPadding()) {
                     if (running || active != null) Surface(tonalElevation = 4.dp) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -76,7 +76,7 @@ import kotlinx.coroutines.launch
                         }
                     }
                     if (page == "home" && ui.sources.isNotEmpty()) Surface(tonalElevation = 3.dp) {
-                        Column(Modifier.navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("${ui.sources.size} file(s) · ${ui.editor.settings.container.name} · originals unchanged", style = MaterialTheme.typography.labelMedium)
                             val queueable = ui.ready && !ui.busy && !ui.validating && ui.problems.isEmpty()
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -137,7 +137,7 @@ import kotlinx.coroutines.launch
                             item(key = "simple-options") { SimpleOptions(ui.editor, onAction) }
                             item(key = "advanced-toggle") { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (ui.editor.custom) "Custom settings are active" else "Need more control?", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                                TextButton(onClick = { onAction(UiAction.ToggleAdvanced) }, modifier = Modifier.testTag("mode-toggle")) { Text(if (ui.editor.advanced) "Less settings" else "More settings") }
+                                TextButton(onClick = { onAction(UiAction.ToggleAdvanced) }, modifier = Modifier.testTag("mode-toggle")) { Text(if (ui.editor.advanced) "Fewer settings" else "More settings") }
                             } }
                             if (ui.editor.advanced) item(key = "advanced-controls") { AdvancedControls(ui, onAction) }
                             item(key = "output-plan") { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
