@@ -49,7 +49,7 @@ data class ImagePlan(val spec:ImageJobSpec,val attempt:ImageAttempt,val geometry
         when(attempt.format){
             ImageFormat.PNG->args+=listOf("-pix_fmt","rgba","-compression_level",p.pngCompression.toString())
             ImageFormat.JPEG->args+=listOf("-pix_fmt","yuvj444p","-q:v",(2+(100-attempt.quality)*29/99).toString())
-            ImageFormat.WEBP->args+=listOf("-pix_fmt",if(p.lossless)"bgra" else if(expectedAlpha==ImageAlpha.PRESENT)"yuva420p" else "yuv420p","-quality",attempt.quality.toString(),"-lossless",if(p.lossless)"1" else "0")
+            ImageFormat.WEBP->args+=listOf("-pix_fmt","bgra","-quality",attempt.quality.toString(),"-lossless",if(p.lossless)"1" else "0")
             ImageFormat.AUTO->error("Unresolved format")
         }
         args+=listOf("-f","image2","-update","1",output)
@@ -84,7 +84,7 @@ object ImagePlanner {
         val requiredPixels=buildSet {
             if(attempt.format==ImageFormat.PNG)add("rgba")
             if(attempt.format==ImageFormat.JPEG)add("yuvj444p")
-            if(attempt.format==ImageFormat.WEBP)add(if(spec.document.output.lossless)"bgra" else if(hasAlpha(info,g,spec.document.output))"yuva420p" else "yuv420p")
+            if(attempt.format==ImageFormat.WEBP)add("bgra")
             if(effects.filters.isNotEmpty())add("gbrap")
             if("premultiply" in needed)add("gbrapf32le")
         }

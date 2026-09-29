@@ -44,6 +44,11 @@ class ImagePlannerTest {
     @Test fun videoNativePayloadWithoutImageDecoderIsUnavailable() {
         try {ImagePlanner.plan(info,job,ImageAttempt(0,ImageFormat.PNG,90),caps.copy(decoders=emptySet()));fail()}catch(e:ImageFailure){assertEquals("CAPABILITY_UNAVAILABLE",e.code)}
     }
+    @Test fun lossyWebpUsesBgraToRetainEightBitAlpha() {
+        val args=ImagePlanner.plan(info,job,ImageAttempt(0,ImageFormat.WEBP,80),caps.copy(pixelFormats=caps.pixelFormats-setOf("yuva420p","yuv420p"))).arguments("source","out")
+        assertEquals("bgra",args[args.indexOf("-pix_fmt")+1])
+        assertEquals("0",args[args.indexOf("-lossless")+1])
+    }
     @Test fun losslessWebpAcceptsRenderedBgraWithoutChromaSubsampling() {
         val lossless=ImageJobSpec("lossless",job.document.copy(output=job.document.output.copy(lossless=true)))
         val args=ImagePlanner.plan(info,lossless,ImageAttempt(0,ImageFormat.WEBP,80),caps).arguments("source","out")
