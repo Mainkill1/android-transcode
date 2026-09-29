@@ -65,6 +65,7 @@ dependencies {
         androidTestImplementation(libs.compose.test)
         androidTestImplementation(libs.androidx.test)
         androidTestImplementation(libs.androidx.runner)
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     }
 }
 
