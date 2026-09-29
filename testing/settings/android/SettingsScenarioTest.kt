@@ -2,6 +2,7 @@ package dev.forma.app.settings
 
 import android.os.Build
 import android.os.Bundle
+import android.util.AtomicFile
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forma.core.settings.*
 import java.io.File
@@ -10,44 +11,70 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Test
 
-/** Test APK only. No production receiver, exported endpoint, external command or arbitrary input path. */
+/** Test APK only: invoke with am instrument directly; there is no host wrapper or production endpoint. */
 class SettingsScenarioTest {
     @Test fun runRequestedCase() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val args = InstrumentationRegistry.getArguments()
-        val name = args.getString("formaSettingsCase") ?: "catalog"
-        val selections = mapOf(
-            "catalog" to "catalog", "overrides" to "explicit auto", "battery_low" to "battery boundary",
-            "charging_exception" to "charging must not", "thermal_wait" to "thermal recovery",
-            "storage_roundtrip" to "store loads"
-        )
+        val name = args.getString("formaSettingsCase") ?: "all"
         val requestedId = args.getString("formaSettingsRunId")
-        val runId = requestedId?.let { UUID.fromString(it).toString() } ?: UUID.randomUUID().toString()
-        val report = JSONObject().put("schema",1).put("runId",runId)
-            .put("case",name).put("appRevision",args.getString("formaAppRevision") ?: "unrecorded")
-            .put("device",Build.MODEL).put("osFingerprint",Build.FINGERPRINT)
-            .put("abi",Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown")
-            .put("nativeExecution",false).put("powerInputs","synthetic")
+        val runId = requestedId?.let {
+            val canonical = UUID.fromString(it).toString()
+            require(canonical.equals(it, ignoreCase=true)) { "Use a complete UUID for formaSettingsRunId" }
+            canonical
+        } ?: UUID.randomUUID().toString()
+        val directory = File(instrumentation.targetContext.filesDir, "settings-tests").apply {
+            check(isDirectory || mkdirs()) { "Could not create the test report directory in the target sandbox" }
+        }
+        // Read exactly this run's report, never a previous last-result.json.
+        val resultFile = File(directory, "$runId.json")
+        check(!resultFile.exists()) { "Run ID already used; supply a fresh UUID: $runId" }
+        val report = JSONObject().put("schema", 2).put("runId", runId).put("case", name)
+            .put("callerReportedAppRevision", args.getString("formaAppRevision") ?: JSONObject.NULL)
+            .put("device", Build.MODEL).put("osFingerprint", Build.FINGERPRINT)
+            .put("abi", Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown")
+            .put("nativeExecution", false).put("powerInputs", "synthetic")
+            .put("reportPath", "files/settings-tests/$runId.json")
         var failure: Throwable? = null
         try {
-            val filter = requireNotNull(selections[name]) { "Unknown or unimplemented scenario: $name" }
-            val checks = (SettingsChecks.cases + NativePreferenceChecks.cases + SettingsStoreChecks.cases).filter { filter in it.first }
+            val all = SettingsChecks.cases + NativePreferenceChecks.cases + SettingsStoreChecks.cases + PowerRegressionChecks.cases
+            val checks = when (name) {
+                "all" -> all + AndroidSettingsStorageChecks.cases
+                "catalog" -> all.filter { "catalog" in it.first }
+                "overrides" -> all.filter { "explicit auto" in it.first || "reset removes" in it.first || "preset precedence" in it.first }
+                "battery_low" -> all.filter { "battery boundary" in it.first || "battery recovery" in it.first }
+                "charging_exception" -> all.filter { "charging must not" in it.first || "unknown charging" in it.first }
+                "thermal_wait" -> all.filter { "thermal" in it.first }
+                "storage_memory" -> SettingsStoreChecks.cases
+                "storage_roundtrip" -> AndroidSettingsStorageChecks.cases
+                else -> throw IllegalArgumentException("Unknown or unimplemented scenario: $name")
+            }
             check(checks.isNotEmpty()) { "No checks discovered for $name" }
-            checks.forEach { it.second() }
-            report.put("result","PASS").put("checks",JSONArray(checks.map { it.first }))
+            val passed = JSONArray()
+            report.put("passedChecks", passed).put("selectedCount", checks.size)
+            checks.forEach { (label, assertion) ->
+                report.put("currentCheck", label)
+                assertion()
+                passed.put(label)
+            }
+            report.remove("currentCheck")
+            report.put("result", "PASS").put("passedCount", passed.length())
+                .put("androidStorage", name in setOf("all", "storage_roundtrip"))
         } catch (error: Throwable) {
             failure = error
-            report.put("result","FAIL").put("reason",error.message ?: error.javaClass.simpleName)
+            report.put("result", "FAIL").put("reason", error.message ?: error.javaClass.simpleName)
         }
-        // Instrumentation runs as the target application's UID, not the test APK's UID.
-        // Keep this test-only report separate from preferences, queue state and media files.
-        val directory = File(instrumentation.targetContext.filesDir,"settings-tests").apply {
-            check(isDirectory || mkdirs()) { "Could not create the test report directory in the target app sandbox." }
+        val atomic = AtomicFile(resultFile)
+        val bytes = report.toString(2).toByteArray(Charsets.UTF_8)
+        try {
+            val output = atomic.startWrite()
+            try { output.write(bytes); atomic.finishWrite(output) }
+            catch (error: Throwable) { atomic.failWrite(output); throw error }
+            check(atomic.openRead().use { it.readBytes().contentEquals(bytes) }) { "Report did not round trip" }
+        } catch (error: Throwable) {
+            failure?.let(error::addSuppressed)
+            throw error // No PASS stream when the result could not be stored and read back.
         }
-        val resultFile = File(directory,"last-result.json")
-        val encoded = report.toString(2)
-        resultFile.writeText(encoded)
-        check(resultFile.readText() == encoded) { "The instrumentation report did not round trip." }
         instrumentation.sendStatus(0, Bundle().apply { putString("stream", report.toString()) })
         failure?.let { throw it }
     }
