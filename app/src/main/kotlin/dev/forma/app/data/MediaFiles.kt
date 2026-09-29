@@ -9,24 +9,61 @@ import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import dev.forma.core.*
+import dev.forma.core.audio.SourceAudioFacts
 import java.io.File
 import java.io.IOException
+import java.util.UUID
 import kotlinx.coroutines.*
 
 class MediaFiles(private val context: Context) {
     private val resolver get() = context.contentResolver
     private val workRoot get() = File(context.filesDir, "work").apply { mkdirs() }
     private val outputRoot get() = File(context.filesDir, "outputs").apply { mkdirs() }
+    private val importRoot get() = File(context.filesDir, "imports").apply { mkdirs() }
+    private fun importedUri(file: File) = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
     fun workDir(spec: JobSpec) = File(workRoot, spec.id).apply { mkdirs() }
     fun output(spec: JobSpec) = File(outputRoot, "${spec.id}.${spec.settings.container.extension}")
     fun outputUri(spec: JobSpec): Uri = FileProvider.getUriForFile(context, "${context.packageName}.files", output(spec))
     fun exportName(spec: JobSpec) = spec.source.name.substringBeforeLast('.').replace(Regex("[/\\\\\\x00]"), "_").take(100) + "_forma." + spec.settings.container.extension
     fun cleanupWork() { workRoot.listFiles()?.forEach { it.deleteRecursively() } }
+    // Editor-only copies expire on the next process start; every persisted job keeps its source.
+    fun cleanupImports(referencedUris: Set<String>) {
+        importRoot.listFiles()?.forEach { directory ->
+            val referenced = directory.listFiles().orEmpty().any { importedUri(it).toString() in referencedUris }
+            if (!referenced) directory.deleteRecursively()
+        }
+    }
 
-    suspend fun inspect(uri: Uri): Source = withContext(Dispatchers.IO) {
-        require(uri.scheme == "content") { "Choose a file through the system document picker." }
-        currentCoroutineContext().ensureActive()
-        resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    suspend fun importShared(uri: Uri): Source = withContext(Dispatchers.IO) {
+        require(uri.scheme == "content") { "The sender must share a readable media file." }
+        val (name, bytes) = metadata(uri)
+        val directory = File(importRoot, UUID.randomUUID().toString()).apply { check(mkdir()) { "Could not prepare private storage." } }
+        val extension = name.substringAfterLast('.', "media").lowercase().takeIf { it.matches(Regex("[a-z0-9]{1,10}")) } ?: "media"
+        val target = File(directory, "source.$extension")
+        val reserve = 64L * 1024 * 1024
+        try {
+            require(bytes < 0 || bytes < directory.usableSpace - reserve) { "Not enough private storage to keep the shared media." }
+            resolver.openInputStream(uri)?.use { input ->
+                target.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        require(directory.usableSpace > reserve + read) { "Not enough private storage to keep the shared media." }
+                        output.write(buffer, 0, read)
+                    }
+                }
+            } ?: throw IOException("The sender's media could not be opened. Share it again from Gallery or Files.")
+            require(bytes < 0 || target.length() == bytes) { "The shared media changed while copying. Share it again." }
+            inspect(importedUri(target), persistPermission = false).copy(name = name)
+        } catch (error: Exception) {
+            directory.deleteRecursively()
+            throw error
+        }
+    }
+
+    private fun metadata(uri: Uri): Pair<String, Long> {
         var name = "Media file"
         var bytes = -1L
         resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
@@ -37,10 +74,19 @@ class MediaFiles(private val context: Context) {
                 if (b >= 0 && !c.isNull(b)) bytes = c.getLong(b)
             }
         }
+        return name to bytes
+    }
+
+    suspend fun inspect(uri: Uri, persistPermission: Boolean = true): Source = withContext(Dispatchers.IO) {
+        require(uri.scheme == "content") { "Choose a file through the system document picker." }
+        currentCoroutineContext().ensureActive()
+        if (persistPermission) resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val (name, bytes) = metadata(uri)
         currentCoroutineContext().ensureActive()
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(context, uri, null)
+            val audioFacts=mutableListOf<SourceAudioFacts>()
             var video = 0; var audio = 0; var width = 0; var height = 0; var duration = 0L; var hdr = false
             repeat(extractor.trackCount) { index ->
                 currentCoroutineContext().ensureActive()
@@ -56,10 +102,16 @@ class MediaFiles(private val context: Context) {
                     }
                     video++
                 }
-                if (mime.startsWith("audio/")) audio++
+                if (mime.startsWith("audio/")) {
+                    audio++
+                    audioFacts+=SourceAudioFacts(index,
+                        if(f.containsKey(MediaFormat.KEY_SAMPLE_RATE)) f.getInteger(MediaFormat.KEY_SAMPLE_RATE) else null,
+                        if(f.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) f.getInteger(MediaFormat.KEY_CHANNEL_COUNT) else null,
+                        durationUs=if(f.containsKey(MediaFormat.KEY_DURATION)) f.getLong(MediaFormat.KEY_DURATION) else 0)
+                }
             }
             require(video + audio > 0 && duration > 0) { "Android could not inspect this source. Broader FFprobe import support is the next integration step." }
-            Source(uri.toString(), name, duration, width, height, video, audio, hdr, bytes)
+            Source(uri.toString(), name, duration, width, height, video, audio, hdr, bytes, audioFacts.toList())
         } finally { extractor.release() }
     }
 

@@ -11,13 +11,21 @@ import androidx.lifecycle.viewModelScope
 import dev.forma.app.service.TranscodeService
 import dev.forma.app.work.ProgressGate
 import dev.forma.core.*
+import dev.forma.core.audio.*
+import dev.forma.app.audio.*
+import dev.forma.ffmpeg.audio.*
+import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class FileTask(val label: String, val fraction: Float? = null, val cancelling: Boolean = false)
+data class WorkspaceRequest(val id: Int, val showQueue: Boolean)
 data class TranscodeUiState(
     val editor: Editor = Editor(),
+    val audioEditor: AudioEditorState = AudioEditorState(),
     val sources: List<SourceEdit> = emptyList(),
     val selectedUri: String? = null,
     val capabilities: Capabilities = Capabilities(reason = "Checking the encoder build…"),
@@ -33,6 +41,12 @@ data class TranscodeUiState(
 }
 
 sealed interface UiAction {
+    data object ToggleAudioEditor : UiAction
+    data object RenderAudioPreview : UiAction
+    data object CancelAudioPreview : UiAction
+    data object UndoAudio : UiAction
+    data object RedoAudio : UiAction
+    data class ChangeAudioEdit(val edit: AudioEdit, val commit: Boolean = true) : UiAction
     data object Import : UiAction
     data object ToggleAdvanced : UiAction
     data object Queue : UiAction
@@ -66,6 +80,10 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     val runState = graph.runs.state
     private var fileJob: Job? = null
     private var initialization: Job? = null
+    private val sharedImports = Mutex()
+    var receivedInitialIntent = false
+    private var settingsChosen = false
+    private val audioHistory = AudioEditHistory()
     private data class ValidationKey(val sources: List<SourceEdit>, val settings: Settings, val caps: Capabilities)
     private fun key(ui: TranscodeUiState) = ValidationKey(ui.sources, ui.editor.settings, ui.capabilities)
 
@@ -102,15 +120,31 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     }
     private fun edit(change: (TranscodeUiState) -> TranscodeUiState) = mutable.update { old ->
         val next = change(old)
-        next.copy(validating = if (key(next) != key(old)) true else old.validating)
+        val previewChanged = AudioEditorSettings.previewKey(old.selected,old.editor.settings) != AudioEditorSettings.previewKey(next.selected,next.editor.settings)
+        if (previewChanged) graph.previews.invalidate()
+        val audio = if (previewChanged) next.audioEditor.copy(revision=old.audioEditor.revision+1,
+            preview=next.audioEditor.preview.copy(identity="",status=if(next.audioEditor.preview.result!=null) "Stale" else "Not rendered",error=null)) else next.audioEditor
+        next.copy(audioEditor=audio, validating = if (key(next) != key(old)) true else old.validating)
     }
     fun act(action: UiAction) {
         when (action) {
+            UiAction.ToggleAudioEditor -> mutable.update { it.copy(audioEditor=it.audioEditor.copy(open=!it.audioEditor.open)) }
+            UiAction.RenderAudioPreview -> renderAudioPreview()
+            UiAction.CancelAudioPreview -> { graph.previews.invalidate();mutable.update { it.copy(audioEditor=it.audioEditor.copy(preview=it.audioEditor.preview.copy(identity="",status="Not rendered"))) } }
+            UiAction.UndoAudio -> changeAudio(audioHistory.undo(),record=false)
+            UiAction.RedoAudio -> changeAudio(audioHistory.redo(),record=false)
+            is UiAction.ChangeAudioEdit -> changeAudio(action.edit,action.commit)
             UiAction.ToggleAdvanced -> mutable.update { it.copy(editor = it.editor.copy(advanced = !it.editor.advanced)) }
-            is UiAction.Preset -> edit { it.copy(validating = true, editor = it.editor.copy(goal = action.goal, quality = action.quality,
-                settings = Planner.preset(action.goal, action.quality), custom = false)) }
-            is UiAction.ChangeSettings -> edit { it.copy(validating = true, editor = it.editor.copy(settings = action.settings, custom = true)) }
-            is UiAction.Select -> mutable.update { it.copy(selectedUri = action.uri) }
+            is UiAction.Preset -> {
+                settingsChosen = true
+                edit { it.copy(validating = true, editor = it.editor.copy(goal = action.goal, quality = action.quality,
+                    settings = AudioEditorSettings.preset(it.editor.settings, action.goal, action.quality), custom = false)) }
+            }
+            is UiAction.ChangeSettings -> {
+                settingsChosen = true
+                edit { it.copy(validating = true, editor = it.editor.copy(settings = action.settings, custom = true)) }
+            }
+            is UiAction.Select -> edit { it.copy(selectedUri = action.uri) }
             is UiAction.RemoveSource -> edit { it.copy(validating = true, sources = it.sources.filterNot { e -> e.source.uri == action.uri }) }
             is UiAction.ChangeTrim -> edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(trim = action.trim) else e }) }
             UiAction.Queue -> enqueue(false)
@@ -147,7 +181,53 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun importSources(uris: List<Uri>) {
+    private fun changeAudio(value: AudioEdit, commit: Boolean = true, record: Boolean = true) {
+        if(record)audioHistory.update(value,commit)
+        settingsChosen=true
+        edit { it.copy(editor=it.editor.copy(settings=it.editor.settings.copy(audioEdit=value),custom=true),
+            audioEditor=it.audioEditor.copy(canUndo=audioHistory.canUndo,canRedo=audioHistory.canRedo)) }
+    }
+    private fun renderAudioPreview() {
+        val draft=mutable.value;val selected=draft.selected ?: return
+        if(!draft.capabilities.available) { mutable.update { it.copy(message=draft.capabilities.reason) };return }
+        if(graph.runs.state.value.mode!=dev.forma.app.work.RunMode.IDLE) { mutable.update { it.copy(message="Preview is available after conversion finishes.") };return }
+        val token="${selected.source.uri}:${draft.audioEditor.revision}:${draft.editor.settings.audioTrack}"
+        mutable.update { it.copy(audioEditor=it.audioEditor.copy(preview=AudioPreviewState(identity=token,status="Updating"))) }
+        graph.previews.request(render={
+            val root=File(getApplication<Application>().cacheDir,"audio-preview").apply { mkdirs() }
+            root.listFiles()?.forEach { it.deleteRecursively() }
+            val spec=JobSpec(UUID.randomUUID().toString(),selected.source,selected.trim,draft.editor.settings)
+            val directory=File(root,spec.id).apply { mkdirs() }
+            try {
+                val input=graph.files.stage(spec)
+                val source=graph.bridge.probe(input.path)
+                val identity=AudioAnalysisIdentity.create(AudioAnalysisIdentity.fingerprint(input),draft.capabilities.build,source,selected.trim,draft.editor.settings)
+                val result=AudioPreviewRenderer(graph.bridge).render(AudioPreviewRequest(identity,input,source,selected.trim,draft.editor.settings,directory))
+                currentCoroutineContext().ensureActive()
+                result.copy(identity=token)
+            } catch(e:Throwable) { directory.deleteRecursively();throw e }
+            finally { graph.files.workDir(spec).deleteRecursively() }
+        },onResult={ result ->
+            mutable.update { old -> if(old.audioEditor.preview.identity==result.identity) old.copy(audioEditor=old.audioEditor.copy(
+                preview=old.audioEditor.preview.accept(result.identity,result.rendered.path).copy(result=result))) else old }
+        },onError={ message -> mutable.update { old -> if(old.audioEditor.preview.identity==token) old.copy(audioEditor=old.audioEditor.copy(preview=old.audioEditor.preview.copy(status="Unavailable",error=message))) else old } })
+    }
+    fun showImportError(message: String) { mutable.update { it.copy(message = message) } }
+    fun importSharedSources(uris: List<Uri>) {
+        val request = uris.toList()
+        viewModelScope.launch {
+            sharedImports.withLock {
+                // A cold share can arrive before queue/capability initialization completes.
+                initialization?.join()
+                if (!mutable.value.ready) return@withLock
+                fileJob?.join()
+                importSources(request, shared = true)
+                fileJob?.join()
+            }
+        }
+    }
+    fun importSources(uris: List<Uri>) = importSources(uris, shared = false)
+    private fun importSources(uris: List<Uri>, shared: Boolean) {
         if (uris.isEmpty()) return
         runFileTask("Reading selected media…") {
             require(uris.size + mutable.value.sources.size <= 200) { "Choose at most 200 files at a time." }
@@ -156,11 +236,13 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                 currentCoroutineContext().ensureActive()
                 mutable.update { it.copy(fileTask = FileTask("Reading file ${index + 1} of ${uris.size}")) }
                 try {
-                    val imported = SourceEdit(graph.files.inspect(uri))
+                    val imported = SourceEdit(if (shared) graph.files.importShared(uri) else graph.files.inspect(uri))
                     // Publish completed files incrementally. Cancelling preserves already imported sources.
                     edit { old -> old.copy(validating = true,
+                        editor = if (old.sources.isEmpty() && !settingsChosen && imported.source.videoTracks == 0)
+                            old.editor.copy(goal = Goal.AUDIO, settings = Planner.preset(Goal.AUDIO, old.editor.quality)) else old.editor,
                         sources = (old.sources + imported).distinctBy { it.source.uri },
-                        selectedUri = old.selectedUri ?: imported.source.uri) }
+                        selectedUri = if (shared && index == 0) imported.source.uri else old.selectedUri ?: imported.source.uri) }
                 } catch (cancel: CancellationException) { throw cancel }
                 catch (error: Exception) { errors += error.message ?: "A selected file could not be inspected." }
             }
@@ -175,7 +257,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             if (gate.accept(id)) mutable.update { old -> if (old.fileTask?.cancelling == true) old else
                 old.copy(fileTask = FileTask("Saving a copy…", WorkPolicy.fraction(bytes, total))) }
         }
-        mutable.update { it.copy(message = "Copy saved. Your verified original output is still available in the queue.") }
+        mutable.update { it.copy(message = "Copy saved.") }
     }
     private fun enqueue(start: Boolean) {
         val draft = mutable.value // immutable request snapshot; later edits cannot rewrite it
@@ -187,10 +269,11 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             require(problems.isEmpty()) { problems.joinToString("\n") }
             graph.queue.add(draft.sources.map { JobSpec(UUID.randomUUID().toString(), it.source, it.trim, draft.editor.settings) })
             if (start) startQueue()
-            else mutable.update { it.copy(message = "${draft.sources.size} job(s) added. You can keep editing; queued settings are independent.") }
+            else mutable.update { it.copy(message = "${draft.sources.size} file(s) added to queue.") }
         }
     }
     private suspend fun startQueue() {
+        graph.previews.cancelAndJoin()
         if (runState.value.mode != dev.forma.app.work.RunMode.IDLE) return // adding during conversion is allowed
         val caps = mutable.value.capabilities
         require(caps.available) { caps.reason }

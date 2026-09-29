@@ -6,6 +6,8 @@ import com.arthenica.ffmpegkit.FFmpegSession
 import com.arthenica.ffmpegkit.FFprobeKit
 import com.arthenica.ffmpegkit.ReturnCode
 import dev.forma.core.*
+import dev.forma.core.audio.SourceAudioFacts
+import dev.forma.core.audio.AudioGraphPlanner
 import java.io.File
 import kotlinx.coroutines.*
 import org.json.JSONObject
@@ -20,12 +22,9 @@ internal class KitNextBridge : FfmpegBridge {
             return session.getOutput().orEmpty()
         }
         // Compiled wrapper availability is separate from per-job Android configuration support.
-        val encoders = Regex("(?m)^\\s*[VAS][A-Z.]{5}\\s+(\\S+)").findAll(listing("-encoders"))
-            .map { it.groupValues[1] }.toSet()
-        val muxers = Regex("(?m)^\\s*E\\s+(\\S+)").findAll(listing("-muxers"))
-            .flatMap { it.groupValues[1].split(',').asSequence() }.toSet()
-        val filters = Regex("(?m)^\\s*[TSC.]{3}\\s+(\\S+)").findAll(listing("-filters"))
-            .map { it.groupValues[1] }.toSet()
+        val encoders = FfmpegListing.encoders(listing("-encoders"))
+        val muxers = FfmpegListing.muxers(listing("-muxers"))
+        val filters = FfmpegListing.filters(listing("-filters"))
         Capabilities(true, "Device encoding requires a compatible Android component and checked bitrate plan.", encoders, muxers, filters,
             "FFmpegKitNext 9.0.0 · ${FFmpegKitConfig.getFFmpegVersion()}")
     }
@@ -39,7 +38,8 @@ internal class KitNextBridge : FfmpegBridge {
     override suspend fun probe(localPath: String): Source = withContext(Dispatchers.IO) {
         val root = probeJson(localPath)
         val streams = root.getJSONArray("streams")
-        val video = (0 until streams.length()).map { streams.getJSONObject(it) }.filter { it.optString("codec_type") == "video" }
+        val video = (0 until streams.length()).map { streams.getJSONObject(it) }.filter {
+            it.optString("codec_type") == "video" && it.optJSONObject("disposition")?.optInt("attached_pic") != 1 }
         val audio = (0 until streams.length()).map { streams.getJSONObject(it) }.filter { it.optString("codec_type") == "audio" }
         val v = video.firstOrNull()
         val duration = root.optJSONObject("format")?.optString("duration")?.toDoubleOrNull()
@@ -48,13 +48,31 @@ internal class KitNextBridge : FfmpegBridge {
         Source(localPath, File(localPath).name, (duration * 1000).toLong(), v?.optInt("width") ?: 0,
             v?.optInt("height") ?: 0, video.size, audio.size,
             v != null && ColorRules.needsQualifiedPipeline(pixelFormat, v.optString("color_transfer"), v.optInt("bits_per_raw_sample")),
-            File(localPath).length())
+            File(localPath).length(), audio.map { stream ->
+                val sampleRate = stream.optString("sample_rate").toIntOrNull()?.takeIf { it > 0 }
+                val ticks = stream.optString("duration_ts").toLongOrNull()?.takeIf { it >= 0 }
+                val base = stream.optString("time_base").split('/').map { it.toLongOrNull() }
+                val us = if (ticks != null && base.size == 2 && base[0] != null && base[1]?.let { it > 0 } == true)
+                    AudioGraphPlanner.roundRatio(ticks, base[0]!! * 1000000, base[1]!!)
+                else ((stream.optString("duration").toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 } ?: duration) * 1000000).toLong()
+                val codec = stream.optString("codec_name")
+                val total = if ((codec.startsWith("pcm_") || codec == "flac") && ticks != null && sampleRate != null &&
+                    base.size == 2 && base[0] != null && base[1]?.let { it > 0 } == true)
+                    AudioGraphPlanner.roundRatio(ticks, base[0]!! * sampleRate, base[1]!!) else null
+                val tags = stream.optJSONObject("tags")
+                SourceAudioFacts(stream.optInt("index"), sampleRate, stream.optInt("channels").takeIf { it > 0 },
+                    stream.optString("channel_layout").takeIf { it.isNotEmpty() }, stream.optString("sample_fmt").takeIf { it.isNotEmpty() },
+                    us, totalSamples = total, codec = codec, language = tags?.optString("language")?.takeIf { it.isNotEmpty() },
+                    title = tags?.optString("title")?.takeIf { it.isNotEmpty() },
+                    timelineOffsetUs = stream.optString("start_time").toDoubleOrNull()?.takeIf { it.isFinite() }?.let {
+                        ((it - (v?.optString("start_time")?.toDoubleOrNull() ?: 0.0)) * 1000000).toLong() })
+            })
     }
 
     override suspend fun prepare(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<String> =
         withContext(Dispatchers.IO) {
             val arguments = Planner.arguments(source, trim, settings, input, output)
-            if (!settings.video.hardware || settings.container == Container.M4A) return@withContext arguments
+            if (!settings.video.hardware || settings.container.audioOnly) return@withContext arguments
             require(settings.fps > 0) { "Choose an explicit output frame rate for device encoding; source-rate/VFR needs separate qualification." }
             val root = probeJson(input)
             val streams = root.getJSONArray("streams")

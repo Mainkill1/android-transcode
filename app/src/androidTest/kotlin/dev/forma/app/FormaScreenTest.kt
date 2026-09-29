@@ -59,6 +59,15 @@ class FormaScreenTest {
         compose.runOnIdle { assertEquals(initial, ownerCompositions) }
         compose.onNodeWithTag("live-progress").assertExists()
     }
+    @Test fun progressDisplaysCompactPercentageSpeedEtaAndBatteryLabels() {
+        val job = QueueEntry(JobSpec("active", source, Trim(), Settings()), JobState.RUNNING)
+        compose.setContent { FormaTheme { ProgressView(job, LiveProgress("active", Progress(2500, 2.0))) } }
+        compose.onNodeWithText("25%").assertExists()
+        compose.onNodeWithText("2.0×").assertExists()
+        compose.onNodeWithText("~0:04").assertExists()
+        compose.onNodeWithText("ETA").assertExists()
+        compose.onNodeWithText("Battery draw").assertExists()
+    }
     @Test fun noNativeBuildCannotConvertSelectedMedia() {
         compose.setContent { FormaTheme { FormaScreen(TranscodeUiState(ready = true, sources = listOf(SourceEdit(source))), emptyList(), null, {}) } }
         compose.onNodeWithTag("convert").assertIsNotEnabled()
@@ -68,6 +77,6 @@ class FormaScreenTest {
         compose.onNodeWithTag("open-shelf").performClick()
         compose.onNodeWithText("Queue · 0").performClick()
         compose.onNodeWithText("Your queue").assertIsDisplayed()
-        compose.onNodeWithText("No jobs yet. Select media to prepare your first conversion.").assertExists()
+        compose.onNodeWithText("No queued files").assertExists()
     }
 }

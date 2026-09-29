@@ -15,6 +15,9 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
+    if (providers.gradleProperty("audioTests").orNull != "false") {
+        sourceSets.getByName("androidTest").java.srcDir("../testing/android")
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -35,6 +38,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.compose)
     implementation(libs.androidx.lifecycle.viewmodel)
     implementation(libs.coroutines)
+    implementation(libs.media3.exoplayer)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.foundation)
@@ -48,6 +52,8 @@ dependencies {
     androidTestImplementation(libs.compose.test)
     androidTestImplementation(libs.androidx.test)
     androidTestImplementation(libs.androidx.runner)
+    // Compose's transitive Espresso 3.5.0 uses InputManager reflection removed on API 36.
+    androidTestImplementation(libs.espresso.core)
 }
 
 // UI-only debug builds remain useful, but cannot be promoted to a release by accident.
