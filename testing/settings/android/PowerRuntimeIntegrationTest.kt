@@ -65,4 +65,24 @@ class PowerRuntimeIntegrationTest {
             scope.cancel()
         }
     }
+
+    @Test fun unreadableSavedPolicyFailsClosedInsteadOfApplyingFactoryPowerDefaults() = runBlocking {
+        val settings = MutableStateFlow(SettingsLoadState(
+            document = null,
+            error = "Preferences could not be read. Existing data was not replaced."
+        ))
+        val samples = MutableStateFlow(PowerSample(100, ChargeState.CHARGING, thermal = 0))
+        val runs = MutableStateFlow(RunState())
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try {
+            val runtime = PowerRuntime(settings, samples, runs, scope) { 100L }
+            val current = runtime.refresh()
+            check(!current.decision.canStart)
+            check("settings_unavailable" in current.decision.reasons)
+            check(current.instruction == PowerWorkerInstruction.BLOCK_START)
+            check(current.blockingMessage.contains("settings", ignoreCase = true))
+        } finally {
+            scope.cancel()
+        }
+    }
 }
