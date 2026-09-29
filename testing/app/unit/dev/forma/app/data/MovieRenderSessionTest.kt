@@ -16,7 +16,7 @@ class MovieRenderSessionTest {
         val prepared = mutableListOf<List<String>>()
         var renders = 0
         override suspend fun capabilities() = Capabilities(true, "", setOf("libx264", "aac"), setOf("mp4"),
-            setOf("scale", "trim", "setpts", "concat", "atrim", "asetpts", "aresample", "aformat", "apad", "setsar", "fps", "tpad", "format", "settb", "pad", "anullsrc"))
+            setOf("scale", "trim", "setpts", "concat", "atrim", "asetpts", "aresample", "aformat", "apad", "setsar", "fps", "tpad", "format", "settb", "pad", "anullsrc", "color", "overlay"))
         override suspend fun probe(localPath: String) = source.copy(uri = localPath)
         override suspend fun prepare(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<String> {
             return Planner.arguments(source, trim, settings, input, output).also { prepared += it }
@@ -65,5 +65,54 @@ class MovieRenderSessionTest {
         val b=source.copy(uri="content://b")
         val job=MovieProject(sequence=SequenceSpec(EditTimeline(listOf(TimelineClip("a",source),TimelineClip("b",b))))).toJob("id")
         assertTrue("The second original must be protected", b.uri in JobPlans.sourceUris(job))
+    }
+    @Test fun orderedMovieUsesOnePreparedGraphForEveryOriginal(): Unit = runBlocking {
+        val dir=directory(); val a=File(dir,"a").apply { writeText("original A") }; val b=File(dir,"b").apply { writeText("original B") }; val out=File(dir,"out.mp4")
+        try {
+            val timeline=EditTimeline(listOf(TimelineClip("a",source,Trim(0,500)),TimelineClip("b",source.copy(uri="content://b"),Trim(0,500))))
+            val job=MovieProject(sequence=SequenceSpec(timeline,CanvasSpec(64,64)),targetBytes=null).toJob("id")
+            val attempts=mutableListOf<RenderAttempt>(); val bridge=Recorder(source,listOf(100))
+            FfmpegRenderSession(bridge).render(job,listOf(a,b),out,{},attempts::add)
+            val argv=attempts.single().arguments
+            assertEquals(listOf(a.canonicalPath,b.canonicalPath),argv.indices.filter { argv[it]=="-i" }.map { argv[it+1] })
+            assertTrue(argv.contains("-filter_complex")); assertEquals(1,bridge.renders)
+            assertEquals("original A",a.readText()); assertEquals("original B",b.readText())
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun acceptedCallbackFailureAndRenameFailureCleanOnlyOwnedCandidates(): Unit = runBlocking {
+        for (blockRename in listOf(false,true)) {
+            val dir=directory(); val input=File(dir,"source").apply { writeText("original") }; val output=File(dir,"out.mp4")
+            try {
+                val failure=runCatching { FfmpegRenderSession(Recorder(source,listOf(100))).render(
+                    JobSpec("id",source,Trim(),Settings()),listOf(input),output,{}, {
+                        if(blockRename) { check(output.mkdir());File(output,"foreign").writeText("retained") }
+                        else error("Observer failed at the accepted attempt")
+                    }) }
+                assertTrue(failure.isFailure);assertEquals("original",input.readText())
+                assertTrue(dir.listFiles()!!.none { it.name.startsWith("attempt-") })
+                if(blockRename) assertEquals("retained",File(output,"foreign").readText()) else assertFalse(output.exists())
+            } finally { dir.deleteRecursively() }
+        }
+    }
+    @Test fun publicationFailureCannotLeaveAShareableOrOverwriteExistingOutput(): Unit = runBlocking {
+        val dir=directory(); val encoded=File(dir,"encoded").apply { writeText("verified") }; val output=File(dir,"published")
+        try {
+            val failed=runCatching { FfmpegPublication.publish(encoded,output) { error("Queue commit failed") } }
+            assertTrue(failed.isFailure);assertFalse(output.exists())
+            encoded.writeText("verified retry");output.writeText("foreign existing output")
+            val conflict=runCatching { FfmpegPublication.publish(encoded,output) {} }
+            assertTrue(conflict.isFailure);assertEquals("foreign existing output",output.readText());assertTrue(encoded.exists())
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun stopDuringDurablePublicationRetainsCompletedOutput(): Unit = runBlocking {
+        val dir=directory(); val encoded=File(dir,"encoded").apply { writeText("verified") }; val output=File(dir,"published")
+        var committed=false
+        try {
+            val worker=launch(start=CoroutineStart.LAZY) {
+                FfmpegPublication.publish(encoded,output) { this@launch.cancel("Stop during publication");committed=true }
+            }
+            worker.start();worker.join()
+            assertTrue(worker.isCancelled);assertTrue(committed);assertEquals("verified",output.readText())
+        } finally { dir.deleteRecursively() }
     }
 }

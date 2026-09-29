@@ -29,7 +29,7 @@ import dev.forma.core.*
         }
         if (open) Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(edit.source.name, style = MaterialTheme.typography.titleSmall)
-            Text("Edits apply to this file only and survive preset changes. Open original does not preview these effects; inspect the exported result.", style = MaterialTheme.typography.bodySmall)
+            Text("Edits apply to this selected clip and survive preset changes. Open original does not preview these effects; inspect the exported result.", style = MaterialTheme.typography.bodySmall)
             val duration = runCatching { EditPipeline.duration(edit.source, edit.trim, e) }.getOrNull()
             duration?.let { Text("Edited duration: ${mediaTime(it)}", style = MaterialTheme.typography.labelLarge) }
             Choice("Speed (pitch preserved)", e.speedPercent, listOf(25, 50, 75, 100, 125, 150, 200, 400), { "$it%" }) { change(e.copy(speedPercent = it)) }

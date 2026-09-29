@@ -3,6 +3,7 @@ package dev.forma.app.data
 import dev.forma.core.*
 import dev.forma.ffmpeg.FfmpegBridge
 import dev.forma.ffmpeg.FfmpegRenderSession
+import dev.forma.ffmpeg.FfmpegPublication
 import dev.forma.ffmpeg.RenderAttempt
 import java.io.File
 import kotlinx.coroutines.*
@@ -18,15 +19,10 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
         try {
             val inputs = files.stageInputs(spec)
             onState(JobState.RUNNING)
-            FfmpegRenderSession(bridge).render(spec, inputs, temporary, onProgress, onAttempt)
-            currentCoroutineContext().ensureActive()
-            onState(JobState.VERIFYING)
+            FfmpegRenderSession(bridge).render(spec, inputs, temporary, onProgress, onAttempt, { onState(JobState.VERIFYING) })
             currentCoroutineContext().ensureActive()
             // Publication and its durable notification retain the existing cancellation transaction.
-            withContext(NonCancellable) {
-                check(temporary.renameTo(published)) { "The verified output could not be published." }
-                onState(JobState.COMPLETED)
-            }
+            FfmpegPublication.publish(temporary, published) { onState(JobState.COMPLETED) }
         } finally { directory.deleteRecursively() }
     }
 }

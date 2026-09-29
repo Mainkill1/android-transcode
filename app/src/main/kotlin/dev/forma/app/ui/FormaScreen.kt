@@ -50,6 +50,7 @@ import kotlinx.coroutines.launch
         ModalDrawerSheet(Modifier.widthIn(max = 320.dp)) {
             Text("Forma", Modifier.padding(24.dp), style = MaterialTheme.typography.headlineMedium)
             NavigationDrawerItem(label = { Text("Convert media") }, selected = page == "home", onClick = { page = "home"; scope.launch { drawer.close() } })
+            NavigationDrawerItem(label = { Text("Make a movie") }, selected = page == "movie", onClick = { page = "movie"; scope.launch { drawer.close() } })
             NavigationDrawerItem(label = { Text("Queue · ${jobs.size}") }, selected = page == "queue", onClick = { page = "queue"; scope.launch { drawer.close() } })
             NavigationDrawerItem(label = { Text("Advanced controls") }, selected = page == "home" && ui.editor.advanced,
                 onClick = { page = "home"; if (!ui.editor.advanced) onAction(UiAction.ToggleAdvanced); scope.launch { drawer.close() } })
@@ -58,7 +59,7 @@ import kotlinx.coroutines.launch
         }
     }) {
         Scaffold(
-            topBar = { TopAppBar(title = { Text(if (page == "queue") "Your queue" else if (page == "engine") "Engine & background work" else "Forma") },
+            topBar = { TopAppBar(title = { Text(if (page == "queue") "Your queue" else if (page == "engine") "Engine & background work" else if (page == "movie") "Your movie" else "Forma") },
                 navigationIcon = { TextButton(onClick = { scope.launch { drawer.open() } }, modifier = Modifier.testTag("open-shelf").semantics { contentDescription = "Open navigation" }) { Text("Menu") } },
                 actions = { if (page != "queue" && jobs.isNotEmpty()) TextButton(onClick = { page = "queue" }) { Text("Queue ($waiting)") } }) },
             bottomBar = {
@@ -137,6 +138,7 @@ import kotlinx.coroutines.launch
                             items(ui.sources, key = { "source:${it.source.uri}" }, contentType = { "source" }) { source ->
                                 SourceCard(source, ui.selected?.source?.uri == source.source.uri, onAction)
                             }
+                            item(key = "movie-entry") { OutlinedButton(onClick = { page = "movie" }, modifier = Modifier.fillMaxWidth().testTag("open-movie")) { Text("Make a movie") } }
                             item(key = "simple-options") { SimpleOptions(ui.editor, onAction) }
                             item(key = "advanced-toggle") { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (ui.editor.custom) "Custom settings are active" else "Need more control?", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
@@ -153,6 +155,9 @@ import kotlinx.coroutines.launch
                                 Text("Save or share after the output has been checked.", style = MaterialTheme.typography.bodySmall)
                             } } }
                         }
+                    }
+                    "movie" -> {
+                        item(key = "movie-controls") { MovieControls(ui, jobs, run, onAction) }
                     }
                     "queue" -> {
                         item(key = "queue-heading") {
@@ -174,7 +179,7 @@ import kotlinx.coroutines.launch
                             Text(if (ui.capabilities.available) ui.capabilities.build else ui.capabilities.reason)
                             Text("Conversions use a foreground task with a notification. You can leave this screen; do not force-stop the app. Android may stop work when its processing allowance expires.")
                             Text("Stop cancels the active file. Finish current lets that file complete and leaves the rest waiting. Interrupted files restart as new jobs, not from a partial output.")
-                            Text("The native size-goal, media-URL, image and full timeline ports remain separate milestones. No unsupported controls are presented as working.", style = MaterialTheme.typography.bodySmall)
+                            Text("Native movies support ordered video clips, canvas fitting, transitions and verified size goals. Media-URL input, still-image clips and multitrack editing remain separate milestones.", style = MaterialTheme.typography.bodySmall)
                             TextButton(onClick = { onAction(UiAction.RetryInitialization) }) { Text("Check engine again") }
                         }
                     }
@@ -200,6 +205,9 @@ import kotlinx.coroutines.launch
 }
 @Composable private fun SimpleOptions(editor: Editor, action: (UiAction) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Choice("Upload limit", editor.targetBytes, listOf(10_000_000L, 25_000_000L, 50_000_000L, 100_000_000L, null),
+            { if (it == null) "Manual · no byte limit" else "${it / 1_000_000} MB · verified below ${it} bytes" }) { action(UiAction.ChangeTarget(it)) }
+        if (editor.targetBytes != null) Text("Forma adjusts bitrates for this limit and verifies final bytes. Choose Manual to use encoder quality settings directly.", style = MaterialTheme.typography.bodySmall)
         Text("What would you like to do?", style = MaterialTheme.typography.titleMedium)
         Choice("Result", editor.goal, Goal.entries, { it.label }) { action(UiAction.Preset(it, editor.quality)) }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -214,7 +222,7 @@ import kotlinx.coroutines.launch
     OutlinedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(entry.spec.source.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(stateLabel(entry.state), style = MaterialTheme.typography.labelLarge)
-        Text("${entry.spec.settings.container.name} · ${mediaTime(Planner.outputDuration(entry.spec.source, entry.spec.trim, entry.spec.settings))}", style = MaterialTheme.typography.bodySmall)
+        Text("${entry.spec.settings.container.name} · ${mediaTime(JobPlans.duration(entry.spec))}", style = MaterialTheme.typography.bodySmall)
         if (entry.state == JobState.FAILED || entry.state == JobState.INTERRUPTED) {
             Text("This job needs attention. Other queued files are kept.", style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Show details") }
@@ -235,7 +243,7 @@ import kotlinx.coroutines.launch
     } }
 }
 @Composable fun ProgressView(entry: QueueEntry, live: LiveProgress?) {
-    val fraction = if (live?.id == entry.spec.id) WorkPolicy.fraction(live.progress.processedMs, Planner.outputDuration(entry.spec.source, entry.spec.trim, entry.spec.settings)) else null
+    val fraction = if (live?.id == entry.spec.id) WorkPolicy.fraction(live.progress.processedMs, JobPlans.duration(entry.spec)) else null
     Column(Modifier.testTag("live-progress")) {
         if (fraction == null) LinearProgressIndicator(Modifier.fillMaxWidth())
         else LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())

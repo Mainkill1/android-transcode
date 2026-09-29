@@ -17,8 +17,19 @@ class EditorPersistenceTest {
     }
     @Test fun legacyJobsGetNeutralEdits() {
         val root = JSONObject(JobCodec.encode(listOf(job))).put("schema", 1)
-        root.getJSONArray("jobs").getJSONObject(0).getJSONObject("settings").remove("effects")
+        val oldJob = root.getJSONArray("jobs").getJSONObject(0)
+        oldJob.remove("sequence"); oldJob.remove("targetBytes")
+        oldJob.getJSONObject("settings").remove("effects")
         assertEquals(ClipEffects(), JobCodec.decode(root.toString()).single().spec.settings.effects)
+    }
+    @Test fun legacySchemaCannotSilentlyDiscardNewerRenderFields() {
+        for(schema in listOf(1,2)) {
+            val root=JSONObject(JobCodec.encode(listOf(job))).put("schema",schema)
+            val old=root.getJSONArray("jobs").getJSONObject(0)
+            assertThrows(Exception::class.java) { JobCodec.decode(root.toString()) }
+            old.remove("sequence");old.remove("targetBytes")
+            if(schema==1) assertThrows(Exception::class.java) { JobCodec.decode(root.toString()) }
+        }
     }
     @Test fun futureSchemaIsNotSilentlyLoaded() {
         assertThrows(IllegalArgumentException::class.java) { JobCodec.decode("{\"schema\":999}") }

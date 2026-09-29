@@ -54,7 +54,7 @@ object JobCodec {
     }
     private fun readSettings(j: JSONObject, schema: Long): Settings {
         fields(j, setOf("container", "video", "rateControl", "crf", "videoKbps", "maxHeight", "fps", "audio", "audioKbps",
-            "audioTrack", "stereo", "denoise", "deinterlace", "keepMetadata", "effects"))
+            "audioTrack", "stereo", "denoise", "deinterlace", "keepMetadata") + if(schema >= 2) setOf("effects") else emptySet())
         return Settings(Container.valueOf(j.getString("container")), VideoEncoder.valueOf(j.getString("video")),
             RateControl.valueOf(j.getString("rateControl")), int(j,"crf"), int(j,"videoKbps"), int(j,"maxHeight"), int(j,"fps"),
             AudioEncoder.valueOf(j.getString("audio")), int(j,"audioKbps"), int(j,"audioTrack"), bool(j,"stereo"),
@@ -82,7 +82,7 @@ object JobCodec {
         require(jobs.length() <= 200) { "The saved queue exceeds its supported size." }
         return (0 until jobs.length()).map { i ->
             val j = jobs.getJSONObject(i)
-            fields(j, setOf("id", "state", "message", "source", "trim", "settings", "sequence", "targetBytes"))
+            fields(j, setOf("id", "state", "message", "source", "trim", "settings") + if (schema == 3L) setOf("sequence", "targetBytes") else emptySet())
             val id = j.getString("id")
             require(UUID.fromString(id).toString() == id) { "Invalid job identifier." }
             if (schema == 3L) require(j.has("sequence") && j.has("targetBytes")) { "A saved render request is incomplete." }

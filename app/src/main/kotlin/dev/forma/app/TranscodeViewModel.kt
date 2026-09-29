@@ -27,12 +27,30 @@ data class TranscodeUiState(
     val fileTask: FileTask? = null,
     val validating: Boolean = false,
     val problems: List<String> = emptyList(),
-    val runtimeProblems: List<String> = emptyList()
+    val runtimeProblems: List<String> = emptyList(),
+    val movie: MovieProject = MovieProject(),
+    val movieCanUndo: Boolean = false,
+    val movieCanRedo: Boolean = false,
+    val movieRevision: Long = 0,
+    val selectedMovieClipId: String? = null,
+    val moviePreviewJobId: String? = null,
+    val moviePreviewRevision: Long? = null
 ) {
     val selected: SourceEdit? get() = sources.firstOrNull { it.source.uri == selectedUri } ?: sources.firstOrNull()
 }
 
 sealed interface UiAction {
+    data object MovieAppendSelected : UiAction
+    data object MovieUndo : UiAction
+    data object MovieRedo : UiAction
+    data object MoviePreview : UiAction
+    data object MovieExport : UiAction
+    data object MovieQueue : UiAction
+    data object OpenMoviePreview : UiAction
+    data class MovieEdit(val command: TimelineCommand) : UiAction
+    data class MovieChange(val project: MovieProject) : UiAction
+    data class MovieSelect(val id: String) : UiAction
+    data class ChangeTarget(val bytes: Long?) : UiAction
     data object Import : UiAction
     data object ToggleAdvanced : UiAction
     data object Queue : UiAction
@@ -65,10 +83,11 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     val jobs = graph.queue.entries
     val progress = graph.queue.progress.asStateFlow()
     val runState = graph.runs.state
+    private val movieHistory = ProjectHistory()
     private var fileJob: Job? = null
     private var initialization: Job? = null
-    private data class ValidationKey(val sources: List<SourceEdit>, val settings: Settings, val caps: Capabilities)
-    private fun key(ui: TranscodeUiState) = ValidationKey(ui.sources, ui.editor.settings, ui.capabilities)
+    private data class ValidationKey(val sources: List<SourceEdit>, val settings: Settings, val caps: Capabilities, val targetBytes: Long?)
+    private fun key(ui: TranscodeUiState) = ValidationKey(ui.sources, ui.editor.settings, ui.capabilities, ui.editor.targetBytes)
 
     init {
         initialize()
@@ -76,10 +95,10 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             mutable.map(::key).distinctUntilChanged().collectLatest { input ->
                 mutable.update { it.copy(validating = true) }
                 val results = withContext(Dispatchers.Default) {
-                    val base = input.sources.flatMap { e -> ensureActive(); Planner.validate(e.source, e.trim, e.snapshot(input.settings)).map { "${e.source.name}: $it" } }.distinct()
+                    val base = input.sources.flatMap { e -> ensureActive(); JobPlans.validate(JobSpec("draft", e.source, e.trim, e.snapshot(input.settings), targetBytes = input.targetBytes)).map { "${e.source.name}: $it" } }.distinct()
                     val native = if (input.caps.available) input.sources.flatMap { e ->
                         ensureActive()
-                        Planner.validate(e.source, e.trim, e.snapshot(input.settings), input.caps).map { "${e.source.name}: $it" }
+                        JobPlans.validate(JobSpec("draft", e.source, e.trim, e.snapshot(input.settings), targetBytes = input.targetBytes), input.caps).map { "${e.source.name}: $it" }
                     }.distinct() else emptyList()
                     base to native
                 }
@@ -107,6 +126,28 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun act(action: UiAction) {
         when (action) {
+            UiAction.MovieAppendSelected -> changeMovie {
+                val draft = mutable.value
+                val selected = draft.selected ?: error("Select a source first.")
+                require(it.sequence.timeline.clips.size < SequencePlanner.MAX_RENDER_CLIPS) { "A movie supports at most ${SequencePlanner.MAX_RENDER_CLIPS} clips." }
+                val settings = selected.snapshot(draft.editor.settings)
+                val next = it.edit(TimelineCommand.Append(TimelineClip(UUID.randomUUID().toString(), selected.source, selected.trim, settings)))
+                mutable.update { ui -> ui.copy(selectedMovieClipId = next.sequence.timeline.clips.last().id) }
+                next
+            }
+            is UiAction.MovieEdit -> changeMovie { it.edit(action.command) }
+            is UiAction.MovieChange -> changeMovie { action.project }
+            is UiAction.MovieSelect -> mutable.update { it.copy(selectedMovieClipId = action.id) }
+            UiAction.MovieUndo -> { movieHistory.undo(); publishMovie() }
+            UiAction.MovieRedo -> { movieHistory.redo(); publishMovie() }
+            UiAction.MoviePreview -> enqueueMovie(preview = true, start = true)
+            UiAction.MovieExport -> enqueueMovie(preview = false, start = true)
+            UiAction.MovieQueue -> enqueueMovie(preview = false, start = false)
+            UiAction.OpenMoviePreview -> mutable.value.moviePreviewJobId?.let { id -> launchRead { outputIntent(id, false) } }
+            is UiAction.ChangeTarget -> {
+                action.bytes?.let(UploadFit::validateTarget)
+                mutable.update { it.copy(editor = it.editor.copy(targetBytes = action.bytes)) }
+            }
             UiAction.ToggleAdvanced -> mutable.update { it.copy(editor = it.editor.copy(advanced = !it.editor.advanced)) }
             is UiAction.Preset -> edit { it.copy(validating = true, editor = it.editor.copy(goal = action.goal, quality = action.quality,
                 settings = Planner.preset(action.goal, action.quality), custom = false)) }
@@ -184,12 +225,40 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         runOperation {
             require(draft.sources.isNotEmpty()) { "Choose media first." }
             val problems = withContext(Dispatchers.Default) { draft.sources.flatMap { e ->
-                Planner.validate(e.source, e.trim, e.snapshot(draft.editor.settings), if (start) draft.capabilities else null).map { "${e.source.name}: $it" }
+                JobPlans.validate(JobSpec(UUID.randomUUID().toString(), e.source, e.trim, e.snapshot(draft.editor.settings), targetBytes = draft.editor.targetBytes), if (start) draft.capabilities else null).map { "${e.source.name}: $it" }
             } }
             require(problems.isEmpty()) { problems.joinToString("\n") }
-            graph.queue.add(draft.sources.map { JobSpec(UUID.randomUUID().toString(), it.source, it.trim, it.snapshot(draft.editor.settings)) })
+            graph.queue.add(draft.sources.map { JobSpec(UUID.randomUUID().toString(), it.source, it.trim, it.snapshot(draft.editor.settings), targetBytes = draft.editor.targetBytes) })
             if (start) startQueue()
             else mutable.update { it.copy(message = "${draft.sources.size} job(s) added. You can keep editing; queued settings are independent.") }
+        }
+    }
+    private fun changeMovie(change: (MovieProject) -> MovieProject) {
+        try { movieHistory.replace(change(movieHistory.current)); publishMovie() }
+        catch (error: IllegalArgumentException) { mutable.update { it.copy(message = error.message ?: "This movie edit is invalid.") } }
+        catch (error: IllegalStateException) { mutable.update { it.copy(message = error.message ?: "This movie edit is unavailable.") } }
+    }
+    private fun publishMovie() {
+        mutable.update { ui ->
+            val current = movieHistory.current
+            ui.copy(movie = current, movieCanUndo = movieHistory.canUndo, movieCanRedo = movieHistory.canRedo,
+                movieRevision = if (current == ui.movie) ui.movieRevision else ui.movieRevision + 1,
+                selectedMovieClipId = ui.selectedMovieClipId?.takeIf { id -> current.sequence.timeline.clips.any { it.id == id } }
+                    ?: current.sequence.timeline.clips.firstOrNull()?.id)
+        }
+    }
+    private fun enqueueMovie(preview: Boolean, start: Boolean) {
+        val draft = mutable.value
+        runOperation {
+            val id = UUID.randomUUID().toString()
+            val job = if (preview) draft.movie.previewJob(id) else draft.movie.toJob(id)
+            val problems = withContext(Dispatchers.Default) { JobPlans.validate(job, if (start) draft.capabilities else null) }
+            require(problems.isEmpty()) { problems.joinToString("\n") }
+            graph.queue.add(listOf(job))
+            if (preview) mutable.update { it.copy(moviePreviewJobId = id, moviePreviewRevision = draft.movieRevision,
+                message = "Rendered preview is queued. Open it after verification in the movie controls or queue.") }
+            else mutable.update { it.copy(message = "Movie queued with an independent snapshot and verified size limit.") }
+            if (start) startQueue()
         }
     }
     private suspend fun startQueue() {
@@ -199,7 +268,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         val waiting = jobs.value.filter { it.state == JobState.QUEUED }
         require(waiting.isNotEmpty()) { "There are no waiting jobs." }
         val problems = withContext(Dispatchers.Default) { waiting.flatMap { e ->
-            Planner.validate(e.spec.source, e.spec.trim, e.spec.settings, caps).map { "${e.spec.source.name}: $it" }
+            JobPlans.validate(e.spec, caps).map { "${e.spec.source.name}: $it" }
         } }
         require(problems.isEmpty()) { problems.joinToString("\n") }
         ContextCompat.startForegroundService(getApplication(), Intent(getApplication(), TranscodeService::class.java).setAction(TranscodeService.START))
