@@ -15,7 +15,7 @@ Current reviewed product head: `a113131`, with **64 catalog rows: 33 implemented
 
 ## Current reviewed checkpoint, 2026-09-29
 
-At `a113131`, **163 JVM tests passed**: core 98, engine 20, app 45. Native-enabled debug app/test assembly, pinned-native API compilation and lint passed. Fourteen desktop media cases cover retained-track truncation, CFR counts, offsets, trims, Matroska and real WAV-to-M4A/FLAC exports. Both debug APKs passed native payload and 16 KB ELF/ZIP alignment checks.
+At `a113131`, **163 JVM tests passed**: core 98, engine 20, app 45. The test-only `036ba12` follow-up passed **164** (98/20/46). It reproduces a worker-completed/callback-pending ordering and waits for published coordinator state rather than assuming `join()` waits for callback completion; production and all qualified APK hashes are unchanged. Native-enabled debug app/test assembly, pinned-native API compilation and lint passed. Fourteen desktop media cases cover retained-track truncation, CFR counts, offsets, trims, Matroska and real WAV-to-M4A/FLAC exports. Both debug APKs passed native payload and 16 KB ELF/ZIP alignment checks.
 
 The parent built the unsigned minified release with `testing/` physically absent and both `audioTests=false` / `settingsTests=false`. Native payload/alignment and structural DEX exclusion checks passed: no runner, audio/settings/Share/Save fixtures or test commands remain. The release was statically checked, not installed.
 
