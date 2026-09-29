@@ -26,6 +26,12 @@ private class DesktopMovieBridge : FfmpegBridge {
         return Source(localPath,File(localPath).name,(duration*1000).toLong(),video["width"]?.toInt()?:0,video["height"]?.toInt()?:0,
             videos.size,facts.count { it.startsWith("codec_type=audio") },bytes=File(localPath).length())
     }
+    override suspend fun inspectStreams(localPath: String, countFrames: Boolean): OutputFacts {
+        val rows=command(*(listOf("ffprobe","-v","error") + (if(countFrames) listOf("-count_frames") else emptyList()) +
+            listOf("-show_entries","format=start_time:stream=codec_type,start_time,start_pts,duration,duration_ts,time_base,nb_read_frames,width,height,pix_fmt,color_transfer,bits_per_raw_sample,sample_rate:stream_tags=DURATION","-of","compact=p=0",localPath)).toTypedArray()).lineSequence().filter { it.isNotBlank() }.toList()
+        fun fields(row:String)=row.split('|').associate { it.substringBefore('=') to it.substringAfter('=') }
+        return OutputFactsReader.read(rows.lastOrNull { !it.contains("codec_type=") }?.let { fields(it)["start_time"] }, rows.filter { it.contains("codec_type=") }.map(::fields))
+    }
     override suspend fun execute(arguments: List<String>,onProgress:(Progress)->Unit): NativeResult {
         val process=ProcessBuilder(listOf("ffmpeg")+arguments).redirectErrorStream(true).start()
         val diagnostics=process.inputStream.bufferedReader().readText()
@@ -52,7 +58,9 @@ fun main(args: Array<String>)=runBlocking {
             TimelineClip("b",sb,Trim(0,2000)))),CanvasSpec(320,180,30),transition),
         settings=Settings(container=if(audio) Container.M4A else Container.MP4),targetBytes=cap)
     val cases=listOf("movie-cut" to project(),"movie-crossfade" to project(transition=500),"movie-speed" to project(speed=200),
-        "movie-audio" to project(audio=true),"movie-budget" to project(cap=150000),"movie-preview" to project(),
+        "movie-audio" to project(audio=true),
+        "movie-webm" to project().copy(settings=Settings(container=Container.WEBM,video=VideoEncoder.VP9,audio=AudioEncoder.OPUS)),
+        "movie-mkv" to project().copy(settings=Settings(container=Container.MKV)),"movie-budget" to project(cap=150000),"movie-preview" to project(),
         "movie-video-delay" to project().copy(sequence=project().sequence.copy(timeline=EditTimeline(listOf(TimelineClip("a",sc,Trim(0,2000)),TimelineClip("b",sb,Trim(0,2000)))))))
     val rows=mutableListOf<String>()
     for((name,doc) in cases) {

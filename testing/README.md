@@ -111,3 +111,11 @@ Build/lint normal debug, lab and their test APKs; run JVM persistence tests; ins
 Run `dev.forma.app.MovieControlsTest` separately for native action/accessibility checks. Review the Movie inspector on narrow/wide screens and with TalkBack; perform listening and A/V review on actual devices.
 
 The desktop command `python3 testing/run_host.py --exports` now compiles the actual `FfmpegRenderSession`/managed bridge alongside core. It generates deterministic movie fixtures and verifies frame counts plus independent audio/pixel oracles. Its desktop bridge and fixtures are entirely under testing and do not enter release runtime. JVM lifecycle tests in `testing/app/unit/dev/forma/app/data/MovieRenderSessionTest.kt` use a command recorder to exercise failure/retry/cancel paths; those tests are policy evidence, separately from desktop or Android native execution.
+
+To qualify the real movie foreground service separately from direct renderer commands, instrument the matching isolated lab APK with:
+
+```sh
+adb shell am instrument -w -e class dev.forma.app.MovieServiceTest -e formaMovieService true dev.forma.transcode.lab.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+This opt-in test requires an idle empty lab queue and a native build. It generates its own fixture, starts the production service while the lab activity is foreground, requires a durable Completed output, waits for native ownership to end, then restores only its empty queue snapshot and removes its own media. It refuses foreign queue entries. Ordinary UI suites skip this native test unless explicitly requested.

@@ -113,7 +113,7 @@ def main() -> int:
                     ROOT / "testing/shared/dev/forma/testing/EditorCases.kt"]
         sources += [ROOT / "testing/host/MovieMain.kt"]
         sources += [ROOT / "engine-ffmpeg/src/main/kotlin/dev/forma/ffmpeg" / (name + ".kt") for name in
-                    ("FfmpegBridge", "ManagedFfmpegBridge", "FfmpegRenderSession", "FfmpegListing")]
+                    ("FfmpegBridge", "ManagedFfmpegBridge", "FfmpegRenderSession", "MovieOutputValidation", "FfmpegListing")]
         kotlin_home = Path(shutil.which("kotlinc")).resolve().parents[1]
         coroutines = kotlin_home / "lib/kotlinx-coroutines-core-jvm.jar"
         if not coroutines.is_file():

@@ -20,6 +20,14 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MovieControlsTest {
     @get:Rule val compose = createComposeRule()
+    private fun tapVisible(tag: String) {
+        val button = compose.onNodeWithTag(tag).performScrollTo().assertIsDisplayed().assertIsEnabled()
+        val bounds = button.getUnclippedBoundsInRoot()
+        val viewport = compose.onRoot().getUnclippedBoundsInRoot()
+        assertTrue("$tag bounds $bounds must be inside viewport $viewport", bounds.left >= viewport.left &&
+            bounds.top >= viewport.top && bounds.right <= viewport.right && bounds.bottom <= viewport.bottom)
+        button.performClick()
+    }
     @Test fun movieControlsAreAccessibleAndNeverClaimMissingNativePreview() {
         val source=Source("content://a","A.mp4",6000,640,360,1,1)
         val actions=mutableListOf<UiAction>()
@@ -46,15 +54,15 @@ class MovieControlsTest {
         compose.onAllNodesWithText("Remove clip")[0].performScrollTo().performClick()
         compose.onNodeWithTag("movie-split").performScrollTo().performClick()
         compose.onNodeWithText("Apply").performClick()
-        compose.onNodeWithTag("movie-undo").performScrollTo().performClick()
-        compose.onNodeWithTag("movie-redo").performClick()
-        compose.onNodeWithTag("movie-preview").performScrollTo().assertIsEnabled().performClick()
-        compose.onNodeWithTag("movie-export").assertIsEnabled().performClick()
+        tapVisible("movie-undo")
+        tapVisible("movie-redo")
+        tapVisible("movie-preview")
+        tapVisible("movie-export")
         compose.runOnIdle {
             assertTrue(actions.contains(UiAction.MovieEdit(TimelineCommand.Move("a",1))))
             assertTrue(actions.contains(UiAction.MovieEdit(TimelineCommand.Remove("a"))))
             assertTrue(actions.any { it is UiAction.MovieEdit && it.command is TimelineCommand.Split })
-            assertTrue(actions.containsAll(listOf(UiAction.MovieUndo,UiAction.MovieRedo,UiAction.MoviePreview,UiAction.MovieExport)))
+            assertTrue("Expected undo, redo, preview and export; captured $actions", actions.containsAll(listOf(UiAction.MovieUndo,UiAction.MovieRedo,UiAction.MoviePreview,UiAction.MovieExport)))
         }
     }
 }

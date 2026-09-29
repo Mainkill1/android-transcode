@@ -33,6 +33,10 @@ object CoreChecks {
         "reject HDR until real color pipeline exists" to { rejects(src = source.copy(hdr = true)) },
         "missing runtime blocks execution" to { check(Planner.validate(source, Trim(), defaults, Capabilities()).isNotEmpty()) },
         "missing encoder is not inferred from decoder" to { check(Planner.validate(source, Trim(), defaults, Capabilities(true, "", setOf("aac"), setOf("mp4"), setOf("scale"))).isNotEmpty()) },
+        "explicit frame grid requires fps capability" to {
+            val caps=Capabilities(true,"",setOf("libx264","aac"),setOf("mp4"),setOf("scale"))
+            check(Planner.validate(source,Trim(),defaults.copy(fps=30),caps).any { "fps" in it })
+        },
         "presets do not carry trim or source" to { val edit = SourceEdit(source, Trim(1000, 5000)); Planner.preset(Goal.SMALLER, Quality.SMALL); check(edit.trim.startMs == 1000L) },
         "advanced mode does not change settings" to { val e = Editor(defaults.copy(crf = 18), custom = true); check(e.copy(advanced = true).copy(advanced = false).settings == e.settings) },
         "queued configuration is a snapshot" to { var s = defaults; val j = JobSpec("1", source, Trim(), s); s = s.copy(crf = 12); check(j.settings.crf == 23 && s.crf == 12) },

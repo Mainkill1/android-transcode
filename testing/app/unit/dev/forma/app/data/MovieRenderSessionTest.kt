@@ -21,6 +21,10 @@ class MovieRenderSessionTest {
         override suspend fun prepare(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<String> {
             return Planner.arguments(source, trim, settings, input, output).also { prepared += it }
         }
+        override suspend fun inspectStreams(localPath: String, countFrames: Boolean): OutputFacts {
+            val fps=prepared.lastOrNull()?.let { if("-r" in it) it[it.indexOf("-r")+1].toInt() else 30 } ?: 30
+            return OutputFacts(0, listOf(StreamFacts(StreamKind.VIDEO,0,source.durationMs*1000,source.durationMs*fps/1000), StreamFacts(StreamKind.AUDIO,0,source.durationMs*1000)))
+        }
         override suspend fun execute(arguments: List<String>, onProgress: (Progress) -> Unit): NativeResult {
             if (arguments.last() == "-") return NativeResult(if (decodeFails) 1 else 0, "decode result")
             File(arguments.last()).writeBytes(ByteArray(sizes[minOf(renders++, sizes.lastIndex)]) { 7 })

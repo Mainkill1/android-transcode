@@ -209,13 +209,10 @@ class EditorCommandTest {
                 check(abs(facts.durationMs-JobPlans.duration(saved))<=100)
                 saved.targetBytes?.let { check(UploadFit.fits(output.length(),it)) }
                 if(saved.settings.container!=Container.M4A) {
-                    val counted=graph.bridge.execute(listOf("-hide_banner","-nostdin","-v","info","-i",output.absolutePath,
-                        "-map","0:v:0","-vf","showinfo","-an","-f","null","-")) {}
-                    check(counted.exitCode==0)
-                    val frames=Regex("""n:\s*(\d+)""").findAll(counted.diagnostics).map { it.groupValues[1].toLong() }.lastOrNull()?.plus(1)
+                    val frames=graph.bridge.inspectStreams(output.absolutePath,countFrames=true).streams.single { it.kind==dev.forma.ffmpeg.StreamKind.VIDEO }.decodedFrames
                     val sequence=requireNotNull(saved.sequence)
                     val expected=SequencePlanner.frames(sequence).sum()-SequencePlanner.overlapFrames(sequence)*(sequence.timeline.clips.size-1)
-                    check(frames==expected) { "Decoded frame count $frames != $expected. ${counted.diagnostics}" }
+                    check(frames==expected) { "Decoded frame count $frames != $expected." }
                     result.put("decodedFrames",frames)
                 }
                 check(sha256(a)==ah && sha256(b)==bh && sha256(c)==ch) { "An original changed." }

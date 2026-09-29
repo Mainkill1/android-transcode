@@ -27,10 +27,22 @@ internal class KitNextBridge : FfmpegBridge {
             "FFmpegKitNext 9.0.0 · ${FFmpegKitConfig.getFFmpegVersion()}")
     }
 
-    private fun probeJson(localPath: String): JSONObject {
-        val session = FFprobeKit.executeWithArguments(arrayOf("-v", "error", "-show_streams", "-show_format", "-of", "json", localPath))
+    private fun probeJson(localPath: String, countFrames: Boolean = false): JSONObject {
+        val session = FFprobeKit.executeWithArguments((listOf("-v", "error") + (if(countFrames) listOf("-count_frames") else emptyList()) + listOf("-show_streams", "-show_format", "-of", "json", localPath)).toTypedArray())
         check(ReturnCode.isSuccess(session.getReturnCode())) { "FFprobe could not inspect this media file." }
         return JSONObject(session.getOutput().orEmpty())
+    }
+
+    override suspend fun inspectStreams(localPath: String, countFrames: Boolean): OutputFacts = withContext(Dispatchers.IO) {
+        // Synchronous FFprobe finishes its native worker before withContext can deliver cancellation.
+        val root=probeJson(localPath,countFrames)
+        val streams=root.getJSONArray("streams")
+        val fields=(0 until streams.length()).map { i ->
+            val stream=streams.getJSONObject(i)
+            stream.keys().asSequence().associateWith { stream.optString(it) } +
+                mapOf("tag:DURATION" to stream.optJSONObject("tags")?.optString("DURATION").orEmpty())
+        }
+        OutputFactsReader.read(root.optJSONObject("format")?.optString("start_time"),fields)
     }
 
     override suspend fun probe(localPath: String): Source = withContext(Dispatchers.IO) {

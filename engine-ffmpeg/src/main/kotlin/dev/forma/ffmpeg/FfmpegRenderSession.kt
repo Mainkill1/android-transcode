@@ -44,6 +44,7 @@ class FfmpegRenderSession(private val bridge: FfmpegBridge) {
                 }
                 val problems = JobPlans.validate(actual, caps)
                 require(problems.isEmpty()) { problems.joinToString("\n") }
+                val originalClocks = if(actual.sequence == null) listOf(bridge.inspectStreams(paths.single().absolutePath)) else emptyList()
                 var settings = JobPlans.settings(actual)
                 val expectedDuration = JobPlans.duration(actual)
                 val expectedVideo = if (settings.container == Container.M4A) 0 else 1
@@ -81,6 +82,7 @@ class FfmpegRenderSession(private val bridge: FfmpegBridge) {
                         val decoded = bridge.execute(listOf("-hide_banner", "-loglevel", "error", "-nostdin", "-xerror", "-i", candidate.absolutePath,
                             "-map", "0:v:0?", "-map", "0:a:0?", "-f", "null", "-")) {}
                         check(decoded.exitCode == 0) { "Output failed full decode verification. ${decoded.diagnostics}" }
+                        verifyMovieStreams(actual, settings, originalClocks, bridge.inspectStreams(candidate.absolutePath, countFrames = true))
                         currentCoroutineContext().ensureActive()
                         val bytes = candidate.length()
                         val accepted = limit == null || UploadFit.fits(bytes, limit)

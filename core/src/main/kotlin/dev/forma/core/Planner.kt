@@ -57,6 +57,7 @@ object Planner {
                 if (settings.container.muxer !in caps.muxers) add("Output format ${settings.container.muxer} is unavailable.")
                 if (video) {
                     if ("scale" !in caps.filters) add("The scale filter is unavailable.")
+                    if (settings.fps > 0 && "fps" !in caps.filters) add("The fps filter is unavailable.")
                     if (settings.denoise && "hqdn3d" !in caps.filters) add("The denoise filter is unavailable.")
                     if (settings.deinterlace && "yadif" !in caps.filters) add("The deinterlace filter is unavailable.")
                 }
@@ -81,6 +82,9 @@ object Planner {
                     addAll(EditPipeline.videoFilters(source, trim, settings))
                     val h = if (settings.maxHeight == 0) "ih" else "min(ih,${settings.maxHeight})"
                     add("scale=-2:'trunc($h/2)*2'")
+                    // Materialize the edited frame grid before output CFR scheduling; -r alone
+                    // can append a terminal duplicate after a speed-adjusted setpts pipeline.
+                    if (settings.fps > 0) add("fps=${settings.fps}")
                 }
                 addAll(listOf("-vf", filters.joinToString(",")))
             }

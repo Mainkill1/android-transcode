@@ -16,6 +16,9 @@ class ManagedFfmpegBridge(
     override suspend fun capabilities(): Capabilities = withContext(Dispatchers.IO) {
         cached ?: native.withLock { cached ?: delegate.capabilities().also { cached = it } }
     }
+    override suspend fun inspectStreams(localPath: String, countFrames: Boolean): OutputFacts = withContext(Dispatchers.IO) {
+        native.withLock { delegate.inspectStreams(localPath, countFrames) }
+    }
     override suspend fun probe(localPath: String): Source = withContext(Dispatchers.IO) {
         native.withLock { delegate.probe(localPath) }
     }
