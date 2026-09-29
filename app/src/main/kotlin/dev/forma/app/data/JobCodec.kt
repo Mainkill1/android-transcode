@@ -50,16 +50,24 @@ object JobCodec {
     }
     private fun readTrim(j: JSONObject): Trim {
         fields(j, setOf("startMs", "endMs"))
+        require(j.has("endMs")) { "A saved trim is incomplete. The original queue is preserved." }
         return Trim(long(j,"startMs"), if (j.isNull("endMs")) null else long(j,"endMs"))
     }
     private fun readSettings(j: JSONObject, schema: Long): Settings {
         fields(j, setOf("container", "video", "rateControl", "crf", "videoKbps", "maxHeight", "fps", "audio", "audioKbps",
             "audioTrack", "stereo", "denoise", "deinterlace", "keepMetadata") + if(schema >= 2) setOf("effects") else emptySet())
+        val effects = if (schema == 1L) ClipEffects() else {
+            val saved = j.getJSONObject("effects")
+            require(saved.keys().asSequence().toSet() == ClipEffectsCodec.encode(ClipEffects()).keys().asSequence().toSet()) {
+                "A saved clip edit is incomplete or unsupported. The original queue is preserved."
+            }
+            ClipEffectsCodec.decode(saved)
+        }
         return Settings(Container.valueOf(j.getString("container")), VideoEncoder.valueOf(j.getString("video")),
             RateControl.valueOf(j.getString("rateControl")), int(j,"crf"), int(j,"videoKbps"), int(j,"maxHeight"), int(j,"fps"),
             AudioEncoder.valueOf(j.getString("audio")), int(j,"audioKbps"), int(j,"audioTrack"), bool(j,"stereo"),
             bool(j,"denoise"), bool(j,"deinterlace"), bool(j,"keepMetadata"),
-            if (schema == 1L) ClipEffects() else ClipEffectsCodec.decode(j.getJSONObject("effects")))
+            effects)
     }
     private fun readSequence(j: JSONObject): SequenceSpec {
         fields(j, setOf("clips", "canvas", "transitionMs"))

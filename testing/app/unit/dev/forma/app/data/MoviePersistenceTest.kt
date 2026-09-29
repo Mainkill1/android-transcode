@@ -36,4 +36,13 @@ class MoviePersistenceTest {
         job.getJSONObject("sequence").put("rawFilter", "unsafe")
         assertThrows(Exception::class.java) { JobCodec.decode(root.toString()) }
     }
+    @Test fun incompleteSequenceClipIntentNeverBecomesAnotherMovie() {
+        for(kind in listOf("trim","effects")) {
+            val root=JSONObject(JobCodec.encode(listOf(entry)))
+            val clip=root.getJSONArray("jobs").getJSONObject(0).getJSONObject("sequence").getJSONArray("clips").getJSONObject(0)
+            if(kind=="trim") clip.getJSONObject("trim").remove("endMs")
+            else clip.getJSONObject("settings").getJSONObject("effects").remove("volumePercent")
+            assertThrows("Missing clip $kind must preserve the original queue",Exception::class.java) { JobCodec.decode(root.toString()) }
+        }
+    }
 }

@@ -59,4 +59,24 @@ class EditorPersistenceTest {
         assertEquals(ClipEffects(), ClipEffectsCodec.decode(JSONObject()))
         assertEquals(effects, ClipEffectsCodec.decode(ClipEffectsCodec.encode(effects)))
     }
+    @Test fun missingSavedTrimEndNeverExpandsTheRange() {
+        for(schema in listOf(1,2,3)) {
+            val root=JSONObject(JobCodec.encode(listOf(job))).put("schema",schema)
+            val row=root.getJSONArray("jobs").getJSONObject(0)
+            if(schema<3) { row.remove("sequence");row.remove("targetBytes") }
+            if(schema==1) row.getJSONObject("settings").remove("effects")
+            row.getJSONObject("trim").remove("endMs")
+            assertThrows("Schema $schema must preserve explicit trim intent",Exception::class.java) { JobCodec.decode(root.toString()) }
+        }
+    }
+    @Test fun missingSavedEffectFieldsCannotResetEdits() {
+        val required=ClipEffectsCodec.encode(effects).keys().asSequence().toList()
+        for(schema in listOf(2,3)) for(field in required) {
+            val root=JSONObject(JobCodec.encode(listOf(job))).put("schema",schema)
+            val row=root.getJSONArray("jobs").getJSONObject(0)
+            if(schema==2) { row.remove("sequence");row.remove("targetBytes") }
+            row.getJSONObject("settings").getJSONObject("effects").remove(field)
+            assertThrows("Schema $schema missing $field must not reset an edit",Exception::class.java) { JobCodec.decode(root.toString()) }
+        }
+    }
 }
