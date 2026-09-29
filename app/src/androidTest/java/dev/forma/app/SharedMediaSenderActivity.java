@@ -11,14 +11,14 @@ import java.util.ArrayList;
 public class SharedMediaSenderActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        Uri one = Uri.parse("content://dev.forma.transcode.test.shared-media/tone-one.wav");
+        Uri one = Uri.parse("content://" + getPackageName() + ".shared-media/tone-one.wav");
         getContentResolver().call(one, "reset", null, null);
         if (getIntent().getBooleanExtra("grantOnly", false)) {
-            revokeUriPermission(Uri.parse("content://dev.forma.transcode.test.shared-media"), Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            grantUriPermission("dev.forma.transcode", one, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            revokeUriPermission(Uri.parse("content://" + getPackageName() + ".shared-media"), Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            grantUriPermission(getPackageName().replaceFirst("\\.test$", ""), one, Intent.FLAG_GRANT_READ_URI_PERMISSION);
             getContentResolver().call(one, "setup", getIntent().getStringExtra("setupToken"), null);
         } else if (getIntent().getBooleanExtra("revokeOnly", false)) {
-            revokeUriPermission(Uri.parse("content://dev.forma.transcode.test.shared-media"), Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            revokeUriPermission(Uri.parse("content://" + getPackageName() + ".shared-media"), Intent.FLAG_GRANT_READ_URI_PERMISSION);
         } else {
             Intent shared = getIntent().getParcelableExtra("shared");
             if (shared != null) {

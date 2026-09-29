@@ -19,6 +19,9 @@ class ManagedFfmpegBridge(
     override suspend fun probe(localPath: String): Source = withContext(Dispatchers.IO) {
         native.withLock { delegate.probe(localPath) }
     }
+    override suspend fun inspectStreams(localPath: String, countFrames: Boolean): OutputFacts = withContext(Dispatchers.IO) {
+        native.withLock { delegate.inspectStreams(localPath, countFrames) }
+    }
     override suspend fun prepare(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<String> =
         withContext(Dispatchers.IO) {
             native.withLock { WorkPolicy.withThreadBudget(delegate.prepare(source, trim, settings, input, output), processors) }

@@ -19,6 +19,9 @@ android {
         sourceSets.getByName("androidTest").java.srcDir("../testing/android")
     }
     buildTypes {
+        getByName("debug") {
+            if (providers.gradleProperty("formaLab").orNull == "true") applicationIdSuffix = ".lab.audio"
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
