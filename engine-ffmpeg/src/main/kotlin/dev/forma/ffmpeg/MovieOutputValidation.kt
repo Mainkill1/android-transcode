@@ -37,8 +37,10 @@ internal fun verifyMovieStreams(job: JobSpec, settings: Settings, originals: Lis
         check(abs(start - expected.first) <= tolerance && abs(start + length - expected.second) <= tolerance) {
             "$kind stream timing does not match the selected movie: $start..${start+length}, expected ${expected.first}..${expected.second}."
         }
-        if(kind == StreamKind.VIDEO && settings.fps > 0) {
+        if(kind == StreamKind.VIDEO) {
             val frames = requireNotNull(stream.decodedFrames) { "Decoded video frame count is unknown." }
+            check(frames > 0) { "Decoded video frame count is empty." }
+            if(settings.fps == 0) return@forEach
             val count = if(sequence != null) {
                 (SequencePlanner.frames(sequence).sum() - SequencePlanner.overlapFrames(sequence)*(sequence.timeline.clips.size-1)).toDouble()
             } else (expected.second-expected.first) * settings.fps / 1_000_000.0

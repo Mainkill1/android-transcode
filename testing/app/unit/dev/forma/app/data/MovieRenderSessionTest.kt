@@ -12,7 +12,7 @@ import org.junit.Test
 class MovieRenderSessionTest {
     private val source = Source("content://a", "a.mp4", 1000, 64, 64, 1, 1)
     private fun directory() = File("build/movie-runtime/${UUID.randomUUID()}").apply { check(mkdirs()) }
-    private class Recorder(val source: Source, val sizes: List<Int>, val decodeFails: Boolean = false) : FfmpegBridge {
+    private class Recorder(val source: Source, val sizes: List<Int>, val decodeFails: Boolean = false, val missingFrames: Boolean = false, val emptyFrames: Boolean = false) : FfmpegBridge {
         val prepared = mutableListOf<List<String>>()
         var renders = 0
         override suspend fun capabilities() = Capabilities(true, "", setOf("libx264", "aac"), setOf("mp4"),
@@ -23,7 +23,7 @@ class MovieRenderSessionTest {
         }
         override suspend fun inspectStreams(localPath: String, countFrames: Boolean): OutputFacts {
             val fps=prepared.lastOrNull()?.let { if("-r" in it) it[it.indexOf("-r")+1].toInt() else 30 } ?: 30
-            return OutputFacts(0, listOf(StreamFacts(StreamKind.VIDEO,0,source.durationMs*1000,source.durationMs*fps/1000), StreamFacts(StreamKind.AUDIO,0,source.durationMs*1000)))
+            return OutputFacts(0, listOf(StreamFacts(StreamKind.VIDEO,0,source.durationMs*1000,if(missingFrames) null else if(emptyFrames) 0 else source.durationMs*fps/1000), StreamFacts(StreamKind.AUDIO,0,source.durationMs*1000)))
         }
         override suspend fun execute(arguments: List<String>, onProgress: (Progress) -> Unit): NativeResult {
             if (arguments.last() == "-") return NativeResult(if (decodeFails) 1 else 0, "decode result")
@@ -119,4 +119,16 @@ class MovieRenderSessionTest {
             assertTrue(worker.isCancelled);assertTrue(committed);assertEquals("verified",output.readText())
         } finally { dir.deleteRecursively() }
     }
+    @Test fun sourceRateVideoRequiresPositiveDecodedFrames(): Unit = runBlocking {
+        for(missing in listOf(true,false)) {
+            val dir=directory();val input=File(dir,"source").apply { writeText("original") };val output=File(dir,"out.mp4")
+            try {
+                val bridge=Recorder(source,listOf(100),missingFrames=missing,emptyFrames=!missing)
+                val result=runCatching { FfmpegRenderSession(bridge).render(JobSpec("source-rate",source,Trim(),Settings(fps=0)),listOf(input),output,{}) }
+                assertTrue("Source-rate output cannot have missing or zero decoded frame evidence",result.isFailure)
+                assertFalse(output.exists());assertEquals(listOf("source"),dir.list()!!.toList())
+            } finally { dir.deleteRecursively() }
+        }
+    }
+
 }

@@ -28,9 +28,19 @@ private class DesktopMovieBridge : FfmpegBridge {
     }
     override suspend fun inspectStreams(localPath: String, countFrames: Boolean): OutputFacts {
         val rows=command(*(listOf("ffprobe","-v","error") + (if(countFrames) listOf("-count_frames") else emptyList()) +
-            listOf("-show_entries","format=start_time:stream=codec_type,start_time,start_pts,duration,duration_ts,time_base,nb_read_frames,width,height,pix_fmt,color_transfer,bits_per_raw_sample,sample_rate:stream_tags=DURATION","-of","compact=p=0",localPath)).toTypedArray()).lineSequence().filter { it.isNotBlank() }.toList()
+            listOf("-show_entries","format=start_time:stream=index,codec_type,start_time,start_pts,duration,duration_ts,time_base,nb_read_frames,width,height,pix_fmt,color_transfer,bits_per_raw_sample,sample_rate:stream_tags=DURATION","-of","compact=p=0",localPath)).toTypedArray()).lineSequence().filter { it.isNotBlank() }.toList()
         fun fields(row:String)=row.split('|').associate { it.substringBefore('=') to it.substringAfter('=') }
-        return OutputFactsReader.read(rows.lastOrNull { !it.contains("codec_type=") }?.let { fields(it)["start_time"] }, rows.filter { it.contains("codec_type=") }.map(::fields))
+        val origin=rows.lastOrNull { !it.contains("codec_type=") }?.let { fields(it)["start_time"] }
+        val streams=rows.filter { it.contains("codec_type=") }.map(::fields)
+        val first=OutputFactsReader.read(origin,streams)
+        val measured=streams.mapIndexed { i,stream ->
+            if(first.streams[i].kind!=StreamKind.OTHER && first.streams[i].startUs==null) {
+                val packet=command("ffprobe","-v","error","-select_streams",requireNotNull(stream["index"]),"-read_intervals","%+#1",
+                    "-show_packets","-show_entries","packet=pts,pts_time","-of","compact=p=0",localPath).lineSequence().firstOrNull { "pts=" in it }?.let(::fields).orEmpty()
+                stream + mapOf("observed_start_pts" to packet["pts"].orEmpty(),"observed_start_time" to packet["pts_time"].orEmpty())
+            } else stream
+        }
+        return OutputFactsReader.read(origin,measured)
     }
     override suspend fun execute(arguments: List<String>,onProgress:(Progress)->Unit): NativeResult {
         val process=ProcessBuilder(listOf("ffmpeg")+arguments).redirectErrorStream(true).start()
@@ -52,6 +62,9 @@ fun main(args: Array<String>)=runBlocking {
     desktop.command("ffmpeg","-v","error","-nostdin","-n","-itsoffset","0.3","-f","lavfi","-i","color=red:size=640x360:rate=30:duration=3",
         "-f","lavfi","-i","sine=frequency=440:sample_rate=48000:duration=3",
         "-c:v","libx264","-threads:v","2","-pix_fmt","yuv420p","-fps_mode","passthrough","-c:a","aac",c.path)
+    val wav=File(directory,"source-clockless.wav")
+    desktop.command("ffmpeg","-v","error","-nostdin","-n","-f","lavfi","-i","sine=sample_rate=44100:duration=3","-c:a","pcm_s16le",wav.path)
+    val wh=hash(wav);val sw=bridge.probe(wav.path)
     val ah=hash(a);val bh=hash(b);val ch=hash(c);val sa=bridge.probe(a.path);val sb=bridge.probe(b.path);val sc=bridge.probe(c.path)
     fun project(speed: Int=100,transition: Long=0,audio: Boolean=false,cap: Long?=null)=MovieProject(
         sequence=SequenceSpec(EditTimeline(listOf(TimelineClip("a",sa,Trim(0,2000),Settings(effects=ClipEffects(speedPercent=speed))),
@@ -60,7 +73,10 @@ fun main(args: Array<String>)=runBlocking {
     val cases=listOf("movie-cut" to project(),"movie-crossfade" to project(transition=500),"movie-speed" to project(speed=200),
         "movie-audio" to project(audio=true),
         "movie-webm" to project().copy(settings=Settings(container=Container.WEBM,video=VideoEncoder.VP9,audio=AudioEncoder.OPUS)),
-        "movie-mkv" to project().copy(settings=Settings(container=Container.MKV)),"movie-budget" to project(cap=150000),"movie-preview" to project(),
+        "movie-mkv" to project().copy(settings=Settings(container=Container.MKV)),
+        "movie-wav-silent" to MovieProject(sequence=SequenceSpec(EditTimeline(listOf(
+            TimelineClip("wav",sw,Trim(500,2000),Settings(container=Container.M4A)),TimelineClip("silent",sb,Trim(0,2000)))),CanvasSpec(320,180,30)),
+            settings=Settings(container=Container.M4A),targetBytes=null),"movie-budget" to project(cap=150000),"movie-preview" to project(),
         "movie-video-delay" to project().copy(sequence=project().sequence.copy(timeline=EditTimeline(listOf(TimelineClip("a",sc,Trim(0,2000)),TimelineClip("b",sb,Trim(0,2000)))))))
     val rows=mutableListOf<String>()
     for((name,doc) in cases) {
@@ -76,7 +92,7 @@ fun main(args: Array<String>)=runBlocking {
             check(frames==SequencePlanner.frames(sequence).sum()-SequencePlanner.overlapFrames(sequence)*(sequence.timeline.clips.size-1)) { "Wrong final frame count" }
         }
         job.targetBytes?.let { check(UploadFit.fits(output.length(),it)) }
-        check(hash(a)==ah && hash(b)==bh && hash(c)==ch)
+        check(hash(a)==ah && hash(b)==bh && hash(c)==ch && hash(wav)==wh)
         attempts.forEach { attempt -> File(directory,"$name-${attempt.index}.argv").writeText(attempt.arguments.joinToString("\u0000")) }
         rows += listOf(name,output.name,facts.durationMs,frames,output.length(),attempts.size,hash(File(requireNotNull(job.sequence).timeline.clips.first().source.uri)),bh).joinToString("\t")
         println("PASS desktop production session/$name: ${facts.durationMs} ms, $frames frames, ${output.length()} bytes")
