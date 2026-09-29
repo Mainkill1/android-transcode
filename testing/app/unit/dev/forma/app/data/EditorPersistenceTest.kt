@@ -13,7 +13,7 @@ class EditorPersistenceTest {
 
     @Test fun everyEditSurvivesQueueRoundTrip() {
         assertEquals(listOf(job), JobCodec.decode(JobCodec.encode(listOf(job))))
-        assertEquals(2, JSONObject(JobCodec.encode(listOf(job))).getInt("schema"))
+        assertEquals(3, JSONObject(JobCodec.encode(listOf(job))).getInt("schema"))
     }
     @Test fun legacyJobsGetNeutralEdits() {
         val root = JSONObject(JobCodec.encode(listOf(job))).put("schema", 1)
