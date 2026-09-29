@@ -56,7 +56,16 @@ class RunCoordinator(private val scope: CoroutineScope) {
     /** A stale service may only stop its own ticket. Cancellation is not slot release. */
     @Synchronized fun stop(id: Long? = null, reason: StopReason = StopReason.USER) {
         val ticket = current ?: return
-        if (id != null && ticket.id != id || ticket.stopReason != null) return
+        if (id != null && ticket.id != id) return
+        val existing = ticket.stopReason
+        if (existing != null) {
+            // Explicit user intent wins over a recoverable power wait while native cleanup
+            // still owns the slot. System/service signals never replace a user cancellation.
+            if (existing == StopReason.POWER_POLICY && reason == StopReason.USER) {
+                ticket.stopReason = StopReason.USER
+            }
+            return
+        }
         ticket.stopReason = reason
         mutable.value = RunState(RunMode.STOPPING, ticket.id)
         ticket.job.cancel()
