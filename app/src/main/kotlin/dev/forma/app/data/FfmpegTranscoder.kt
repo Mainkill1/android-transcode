@@ -38,6 +38,12 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
                 check(output.width > 0 && output.height > 0 && output.width % 2 == 0 && output.height % 2 == 0) { "The output dimensions are invalid." }
                 check(spec.settings.maxHeight == 0 || output.height <= spec.settings.maxHeight) { "The output exceeded the requested height." }
             }
+            // Readable container headers do not prove that the encoded packets are usable.
+            // execute awaits native cancellation cleanup before this work directory is removed.
+            val decoded = bridge.execute(listOf("-hide_banner", "-nostdin", "-v", "error", "-xerror",
+                "-err_detect", "explode", "-i", temporary.absolutePath,
+                "-map", "0:v:0?", "-map", "0:a:0?", "-f", "null", "-")) {}
+            check(decoded.exitCode == 0) { "The encoded output could not be fully decoded. ${decoded.diagnostics}" }
             currentCoroutineContext().ensureActive()
             // Keep publication and its durable state notification together across cancellation.
             // Process death between filesystem rename and queue fsync still needs startup recovery.

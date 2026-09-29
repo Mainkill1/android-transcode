@@ -141,7 +141,7 @@ class HardwareAccelerationLabTest {
                         val log = native(command)
                         val elapsed = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000.0
                         row.put("encodeAndMuxMs", elapsed).put("thermalAfter", thermal(context)).put("pssKiBAfter", Debug.getPss())
-                        check("has not been used for any stream" !in log) { "FFmpeg ignored a requested option; this is not a valid experiment." }
+                        LabDiagnostics.validate(if (label == "SOFTWARE") null else LabMode.valueOf(label), chosenSettings.video.ffmpeg, log)
                         if (label in setOf("DECODE_BUFFER", "SURFACE")) row.put("decoderComponent", observedDecoder(log))
                         if (label == "SURFACE") {
                             val surface = Regex("Using surface (0x[0-9a-fA-F]+)").find(log)?.groupValues?.get(1)

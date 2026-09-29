@@ -15,3 +15,4 @@ kotlinc "$ROOT"/core/src/main/kotlin/dev/forma/core/*.kt \
   -include-runtime -d "$TMP/acceleration.jar"
 java -jar "$TMP/acceleration.jar"
 python3 -m unittest discover -s "$ROOT/testing/acceleration/host" -v
+bash "$ROOT/tools/check-transcode-verification.sh"

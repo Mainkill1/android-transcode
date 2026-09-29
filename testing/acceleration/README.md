@@ -114,6 +114,8 @@ also supports the buffer baseline. It does not test surface-only encoders or GPU
 editing. It requires a non-null surface log and checks output frames; that is not
 proof of driver-internal physical zero-copy. Missing decoder-identity diagnostics
 fail the test rather than fabricating a hardware badge.
+An NDK_ASYNC request also fails if the selected encoder logs a fallback to
+synchronous operation. A successful synchronous encode is not an async sample.
 
 The native timeout is 20 minutes; host default is 25 minutes to allow reporting.
 Cancellation waits for native cleanup. A hung vendor/native call may outlive the
@@ -128,8 +130,10 @@ while diagnostics stay. No originals or user-selected files are touched.
 bash tools/check-acceleration.sh
 ```
 
-This executes dependency-free Kotlin policy/command/PTS checks and Python report
-validation tests. Gradle `:core:test` also references the Kotlin tests. Test sources
+This executes Kotlin policy/command/PTS checks, Python report validation tests,
+and the real production transcoder's decode-before-publication and cancellation
+checks with host-only storage/native fixtures. The last checks need Kotlin's
+coroutines library. Gradle `:core:test` also references the policy tests. Test sources
 are external to `src/main`; the native diagnostic dependency is test-only and the
 same pinned version as the app engine.
 

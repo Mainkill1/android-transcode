@@ -52,5 +52,17 @@ fun accelerationLabChecks() {
     rejects("Bad timestamps detected") { FrameSequence.verify(pts.toMutableList().apply { this[20] = Double.NaN }, fixture) }
     rejects("Playback rate change detected") { FrameSequence.verify(pts.map { it * 2 }, fixture) }
     expect(LabCommands.optionNames("  -ndk_codec <boolean> E..\n -ndk_async <boolean> E..").containsAll(setOf("ndk_codec", "ndk_async")), "Runtime help parsing")
+    val fallback = "[h264_mediacodec @ 0x123] Try MediaCodec async mode failed, external error, switch to sync mode\n"
+    rejects("A requested async experiment cannot pass after a native synchronous fallback") {
+        LabDiagnostics.validate(LabMode.NDK_ASYNC, "h264_mediacodec", fallback)
+    }
+    rejects("Thread-prefixed async fallback diagnostics cannot pass either") {
+        LabDiagnostics.validate(LabMode.NDK_ASYNC, "h264_mediacodec", fallback.replace("[h264_mediacodec", "[vost#0:0/h264_mediacodec"))
+    }
+    LabDiagnostics.validate(LabMode.NDK_ASYNC, "h264_mediacodec", "[h264_mediacodec @ 0x123] Encoder started\n")
+    LabDiagnostics.validate(LabMode.NDK_ASYNC, "hevc_mediacodec", fallback) // Evidence belongs to the selected wrapper.
+    rejects("A requested option ignored by FFmpeg is not a valid experiment") {
+        LabDiagnostics.validate(LabMode.NDK, "h264_mediacodec", "Codec AVOption ndk_codec has not been used for any stream")
+    }
     println("$count acceleration lab checks passed")
 }
