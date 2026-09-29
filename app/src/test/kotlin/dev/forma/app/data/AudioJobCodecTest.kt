@@ -56,4 +56,12 @@ class AudioJobCodecTest {
         val saved = JSONObject(JobCodec.encode(listOf(loaded))).getJSONArray("jobs").getJSONObject(0).getJSONObject("settings").getJSONObject("audioEdit")
         assertEquals(17, saved.getJSONObject("future").getInt("keep"))
     }
+    @Test fun selectedStreamFactsAndRationalTimingSurviveRestart() {
+        val source = oldEntry.spec.source.copy(audioStreams = listOf(SourceAudioFacts(streamIndex = 1, sampleRateHz = 44100,
+            channels = 2, channelLayout = "stereo", sampleFormat = "s16", durationUs = 30000000,
+            totalSamples = 1323000, codec = "pcm_s16le", language = "eng", title = "Main sound")))
+        val entry = oldEntry.copy(spec = oldEntry.spec.copy(source = source,
+            settings = oldEntry.spec.settings.copy(audioEdit = AudioEdit(rate = AudioRate(3, 2)))))
+        assertEquals(listOf(entry), JobCodec.decode(JobCodec.encode(listOf(entry))))
+    }
 }

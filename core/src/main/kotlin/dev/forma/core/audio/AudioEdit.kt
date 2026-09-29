@@ -5,7 +5,12 @@ import java.util.Collections
 /** Times refer to the post-trim audio program, in integer microseconds. */
 data class SourceAudioFacts(val streamIndex: Int = 0, val sampleRateHz: Int? = null,
     val channels: Int? = null, val channelLayout: String? = null, val sampleFormat: String? = null,
-    val durationUs: Long = 0, val encoderDelaySamples: Long? = null, val paddingSamples: Long? = null)
+    val durationUs: Long = 0, val encoderDelaySamples: Long? = null, val paddingSamples: Long? = null,
+    val totalSamples: Long? = null, val codec: String? = null, val language: String? = null, val title: String? = null)
+
+data class AudioRate(val numerator: Int = 1, val denominator: Int = 1) {
+    val value: Double get() = numerator.toDouble() / denominator
+}
 
 enum class EqType { BELL, LOW_SHELF, HIGH_SHELF, HIGH_PASS, LOW_PASS, BAND_PASS, NOTCH }
 enum class ChannelMode { SOURCE, MONO, STEREO, LEFT, RIGHT, SWAP }
@@ -33,18 +38,19 @@ data class AudioOutputPolicy(val channels: ChannelMode? = null, val sampleRateHz
     val normalization: NormalizationPolicy = NormalizationPolicy())
 /** Defensive snapshots protect queued jobs even when a caller supplied mutable lists. */
 class AudioEdit(val schemaVersion: Int = 1, nodes: List<AudioEffectNode> = emptyList(),
-    val output: AudioOutputPolicy = AudioOutputPolicy(), val preservedJson: String? = null) {
+    val output: AudioOutputPolicy = AudioOutputPolicy(), val preservedJson: String? = null,
+    val rate: AudioRate = AudioRate()) {
     val nodes: List<AudioEffectNode> = Collections.unmodifiableList(nodes.map { node ->
         val parameters = node.parameters
         if (parameters is EqParameters) node.copy(parameters = parameters.copy(bands =
             Collections.unmodifiableList(ArrayList(parameters.bands)))) else node
     })
     fun copy(schemaVersion: Int = this.schemaVersion, nodes: List<AudioEffectNode> = this.nodes,
-        output: AudioOutputPolicy = this.output, preservedJson: String? = this.preservedJson) =
-        AudioEdit(schemaVersion, nodes, output, preservedJson)
+        output: AudioOutputPolicy = this.output, preservedJson: String? = this.preservedJson,
+        rate: AudioRate = this.rate) = AudioEdit(schemaVersion, nodes, output, preservedJson, rate)
     override fun equals(other: Any?) = other is AudioEdit && schemaVersion == other.schemaVersion &&
-        nodes == other.nodes && output == other.output && preservedJson == other.preservedJson
-    override fun hashCode() = 31 * (31 * (31 * schemaVersion + nodes.hashCode()) + output.hashCode()) + (preservedJson?.hashCode() ?: 0)
-    override fun toString() = "AudioEdit(schemaVersion=$schemaVersion, nodes=$nodes, output=$output)"
+        nodes == other.nodes && output == other.output && preservedJson == other.preservedJson && rate == other.rate
+    override fun hashCode() = 31 * (31 * (31 * (31 * schemaVersion + nodes.hashCode()) + output.hashCode()) + (preservedJson?.hashCode() ?: 0)) + rate.hashCode()
+    override fun toString() = "AudioEdit(schemaVersion=$schemaVersion, nodes=$nodes, output=$output, rate=$rate)"
 }
 data class AudioProblem(val nodeId: String? = null, val parameterId: String? = null, val message: String)

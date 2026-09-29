@@ -1,10 +1,12 @@
 package dev.forma.core
 
 import dev.forma.core.audio.AudioEdit
+import dev.forma.core.audio.SourceAudioFacts
 
-enum class Container(val extension: String, val muxer: String, val mime: String) {
+enum class Container(val extension: String, val muxer: String, val mime: String, val audioOnly: Boolean = false) {
     MP4("mp4", "mp4", "video/mp4"), MKV("mkv", "matroska", "video/x-matroska"),
-    WEBM("webm", "webm", "video/webm"), M4A("m4a", "ipod", "audio/mp4")
+    WEBM("webm", "webm", "video/webm"), M4A("m4a", "ipod", "audio/mp4", true),
+    WAV("wav", "wav", "audio/wav", true), FLAC("flac", "flac", "audio/flac", true)
 }
 enum class VideoEncoder(val ffmpeg: String, val label: String, val hardware: Boolean = false) {
     X264("libx264", "H.264 · software"), X265("libx265", "H.265 · software"),
@@ -12,7 +14,10 @@ enum class VideoEncoder(val ffmpeg: String, val label: String, val hardware: Boo
     H264_HW("h264_mediacodec", "H.264 · device", true),
     H265_HW("hevc_mediacodec", "H.265 · device", true)
 }
-enum class AudioEncoder(val ffmpeg: String) { AAC("aac"), OPUS("libopus"), FLAC("flac"), NONE("") }
+enum class AudioEncoder(val ffmpeg: String, val usesBitrate: Boolean = true) {
+    AAC("aac"), OPUS("libopus"), FLAC("flac", false),
+    PCM_S16LE("pcm_s16le", false), PCM_F32LE("pcm_f32le", false), NONE("", false)
+}
 enum class RateControl { QUALITY, BITRATE }
 enum class Goal(val label: String, val description: String) {
     SMALLER("Make it smaller", "Save space without the guesswork"),
@@ -50,7 +55,8 @@ data class Source(
     val videoTracks: Int = 0,
     val audioTracks: Int = 0,
     val hdr: Boolean = false,
-    val bytes: Long = -1
+    val bytes: Long = -1,
+    val audioStreams: List<SourceAudioFacts> = emptyList()
 )
 data class Trim(val startMs: Long = 0, val endMs: Long? = null)
 data class SourceEdit(val source: Source, val trim: Trim = Trim())

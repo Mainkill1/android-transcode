@@ -3,7 +3,7 @@ package dev.forma.app.data
 import dev.forma.core.*
 import dev.forma.ffmpeg.FfmpegBridge
 import java.io.File
-import kotlin.math.abs
+import dev.forma.core.audio.AudioArtifactVerification
 import kotlinx.coroutines.*
 
 /** Staging -> native execution -> structural verification -> private publication. */
@@ -29,15 +29,11 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
             onState(JobState.VERIFYING)
             check(temporary.isFile && temporary.length() > 0) { "FFmpeg did not produce a non-empty output." }
             val output = bridge.probe(temporary.absolutePath)
-            val expectedVideo = if (spec.settings.container == Container.M4A) 0 else 1
-            val expectedAudio = if (actual.audioTracks > 0 && spec.settings.audio != AudioEncoder.NONE) 1 else 0
-            check(output.videoTracks == expectedVideo && output.audioTracks == expectedAudio) { "The output track layout does not match the plan." }
-            val duration = Planner.duration(actual, spec.trim)
-            check(output.durationMs > 0 && abs(output.durationMs - duration) <= maxOf(1000L, duration / 20)) { "The output duration does not match the selected range." }
-            if (expectedVideo > 0) {
-                check(output.width > 0 && output.height > 0 && output.width % 2 == 0 && output.height % 2 == 0) { "The output dimensions are invalid." }
-                check(spec.settings.maxHeight == 0 || output.height <= spec.settings.maxHeight) { "The output exceeded the requested height." }
-            }
+            val verification = AudioArtifactVerification.problems(actual, spec.trim, spec.settings, output, temporary.length())
+            check(verification.isEmpty()) { verification.joinToString("\n") }
+            val decoded = bridge.execute(listOf("-hide_banner", "-nostdin", "-v", "error", "-xerror", "-i", temporary.absolutePath,
+                "-map", "0:v?", "-map", "0:a?", "-f", "null", "-")) {}
+            check(decoded.exitCode == 0) { "The output could not be fully decoded. ${decoded.diagnostics}" }
             currentCoroutineContext().ensureActive()
             // Keep publication and its durable state notification together across cancellation.
             // Process death between filesystem rename and queue fsync still needs startup recovery.

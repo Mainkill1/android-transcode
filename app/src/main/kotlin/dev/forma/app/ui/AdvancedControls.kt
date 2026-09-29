@@ -29,7 +29,7 @@ import kotlin.math.roundToLong
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Section("Video & format", true) {
             Choice("Output format", s.container, Container.entries, { it.name }) { update(s.copy(container = it)) }
-            if (s.container != Container.M4A) {
+            if (!s.container.audioOnly) {
                 Choice("Video encoder", s.video, VideoEncoder.entries, { it.label },
                     enabled = { if (it.hardware) ui.capabilities.available && it.ffmpeg in ui.capabilities.encoders else !ui.capabilities.available || it.ffmpeg in ui.capabilities.encoders }) {
                     update(if (it.hardware) s.copy(video = it, rateControl = RateControl.BITRATE, fps = if (s.fps == 0) 30 else s.fps) else s.copy(video = it))
@@ -47,7 +47,7 @@ import kotlin.math.roundToLong
                     { if (it == 0) "Same as source" else "$it fps" }) { update(s.copy(fps = it)) }
             }
         }
-        if (s.container != Container.M4A) Section("Picture & filters") {
+        if (!s.container.audioOnly) Section("Picture & filters") {
             Choice("Maximum height", s.maxHeight, listOf(0, 480, 720, 1080, 1440, 2160, 4320), { if (it == 0) "Same as source" else "$it pixels" }) { update(s.copy(maxHeight = it)) }
             Text("Keeps proportions · No upscaling", style = MaterialTheme.typography.bodySmall)
             Toggle("Deinterlace", s.deinterlace) { update(s.copy(deinterlace = it)) }

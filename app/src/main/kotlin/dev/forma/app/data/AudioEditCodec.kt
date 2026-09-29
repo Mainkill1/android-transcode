@@ -11,6 +11,7 @@ internal object AudioEditCodec {
         val output = edit.output
         val normalization = output.normalization
         return JSONObject().put("schema", edit.schemaVersion).put("nodes", JSONArray(edit.nodes.map(::encodeNode)))
+            .put("rate", JSONObject().put("numerator", edit.rate.numerator).put("denominator", edit.rate.denominator))
             .put("output", JSONObject().put("channels", output.channels?.name ?: JSONObject.NULL)
                 .put("sampleRateHz", output.sampleRateHz ?: JSONObject.NULL)
                 .put("normalization", JSONObject().put("mode", normalization.mode.name)
@@ -39,8 +40,10 @@ internal object AudioEditCodec {
     fun decode(json: JSONObject): AudioEdit {
         val version = json.getInt("schema")
         fun opaque() = AudioEdit(schemaVersion = version, preservedJson = json.toString())
-        if (version != 1 || hasUnknown(json, setOf("schema", "nodes", "output"))) return opaque()
+        if (version != 1 || hasUnknown(json, setOf("schema", "nodes", "output", "rate"))) return opaque()
         return try {
+            val rate = json.optJSONObject("rate") ?: JSONObject()
+            if (hasUnknown(rate, setOf("numerator", "denominator"))) return opaque()
             val output = json.optJSONObject("output") ?: JSONObject()
             if (hasUnknown(output, setOf("channels", "sampleRateHz", "normalization"))) return opaque()
             val normalization = output.optJSONObject("normalization") ?: JSONObject()
@@ -51,7 +54,8 @@ internal object AudioEditCodec {
                     if (output.isNull("sampleRateHz")) null else output.getInt("sampleRateHz"),
                     NormalizationPolicy(NormalizationMode.valueOf(normalization.optString("mode", "OFF")),
                         normalization.optDouble("peakDb", -1.0), normalization.optDouble("integratedLufs", -16.0),
-                        normalization.optDouble("truePeakDb", -1.5), normalization.optBoolean("preserveDynamics", true))))
+                        normalization.optDouble("truePeakDb", -1.5), normalization.optBoolean("preserveDynamics", true))),
+                rate = AudioRate(rate.optInt("numerator", 1), rate.optInt("denominator", 1)))
         } catch (_: IllegalArgumentException) { opaque() }
     }
 

@@ -15,6 +15,9 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
+    if (providers.gradleProperty("audioTests").orNull != "false") {
+        sourceSets.getByName("androidTest").java.srcDir("../testing/android")
+    }
     buildTypes {
         release {
             isMinifyEnabled = true

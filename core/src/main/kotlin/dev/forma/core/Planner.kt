@@ -3,6 +3,7 @@ package dev.forma.core
 import java.util.Locale
 import dev.forma.core.audio.AudioEffectRegistry
 import dev.forma.core.audio.SourceAudioFacts
+import dev.forma.core.audio.AudioGraphPlanner
 
 /** The only place where UI intent becomes FFmpeg arguments. No shell is involved. */
 object Planner {
@@ -21,7 +22,7 @@ object Planner {
     }
 
     fun validate(source: Source, trim: Trim, settings: Settings, caps: Capabilities? = null): List<String> = buildList {
-        val video = settings.container != Container.M4A
+        val video = !settings.container.audioOnly
         if (source.durationMs <= 0) add("The source has no readable duration.")
         if (trim.startMs < 0 || trim.startMs >= source.durationMs ||
             (trim.endMs != null && (trim.endMs <= trim.startMs || trim.endMs > source.durationMs)))
@@ -46,9 +47,11 @@ object Planner {
         if (settings.container == Container.MP4 && settings.audio !in setOf(AudioEncoder.AAC, AudioEncoder.NONE))
             add("This MP4 profile supports AAC audio or no audio.")
         if (settings.container == Container.M4A && settings.audio != AudioEncoder.AAC) add("This M4A profile needs AAC.")
-        val audioDuration = duration(source, trim).coerceAtLeast(0)
-        val audioFacts = SourceAudioFacts(streamIndex = settings.audioTrack,
-            durationUs = if (audioDuration <= Long.MAX_VALUE / 1000) audioDuration * 1000 else 0)
+        if (settings.container == Container.WAV && settings.audio !in setOf(AudioEncoder.PCM_S16LE, AudioEncoder.PCM_F32LE))
+            add("WAV output needs PCM 16-bit or float audio.")
+        if (settings.container == Container.FLAC && settings.audio != AudioEncoder.FLAC) add("FLAC output needs the FLAC encoder.")
+        if (video && settings.audioEdit.rate.value != 1.0) add("Audio speed changes are unavailable while linked to video.")
+        val audioFacts = AudioGraphPlanner.sourceFacts(source, trim, settings)
         addAll(AudioEffectRegistry.validate(settings.audioEdit, audioFacts, caps).map { it.message })
         if (caps != null) {
             if (!caps.available) add(caps.reason)
@@ -57,6 +60,11 @@ object Planner {
                 if (settings.audio != AudioEncoder.NONE && source.audioTracks > 0 && settings.audio.ffmpeg !in caps.encoders)
                     add("Encoder ${settings.audio.ffmpeg} is not included in this FFmpeg build.")
                 if (settings.container.muxer !in caps.muxers) add("Output format ${settings.container.muxer} is unavailable.")
+                if (source.audioTracks > 0 && settings.audio != AudioEncoder.NONE &&
+                    AudioEffectRegistry.validate(settings.audioEdit, audioFacts).isEmpty()) {
+                    for (filter in AudioGraphPlanner.plan(source, trim, settings).requiredFilters - caps.filters)
+                        add("The audio $filter filter is unavailable.")
+                }
                 if (video) {
                     if ("scale" !in caps.filters) add("The scale filter is unavailable.")
                     if (settings.denoise && "hqdn3d" !in caps.filters) add("The denoise filter is unavailable.")
@@ -72,11 +80,16 @@ object Planner {
         val problems = validate(source, trim, settings)
         require(problems.isEmpty()) { problems.joinToString("\n") }
         fun seconds(ms: Long) = String.format(Locale.ROOT, "%.3f", ms / 1000.0)
+        val audio = if (source.audioTracks > 0 && settings.audio != AudioEncoder.NONE) AudioGraphPlanner.plan(source, trim, settings) else null
+        val filtered = audio?.processed == true
+        val durationUs = if (filtered) audio!!.outputDurationUs else if (settings.container.audioOnly) audio?.outputDurationUs else null
+        val durationText = durationUs?.let { if (it % 1000 == 0L) seconds(it / 1000) else String.format(Locale.ROOT, "%.6f", it / 1000000.0) }
+            ?: seconds(duration(source, trim))
         return buildList {
             addAll(listOf("-hide_banner", "-loglevel", "warning", "-nostdin", "-n", "-i", input))
-            if (trim.startMs > 0) addAll(listOf("-ss", seconds(trim.startMs)))
-            addAll(listOf("-t", seconds(duration(source, trim))))
-            if (settings.container == Container.M4A) add("-vn") else {
+            if (trim.startMs > 0 && !filtered) addAll(listOf("-ss", seconds(trim.startMs)))
+            if (!filtered || !settings.container.audioOnly) addAll(listOf("-t", durationText))
+            if (settings.container.audioOnly) add("-vn") else {
                 addAll(listOf("-map", "0:v:0", "-c:v", settings.video.ffmpeg))
                 if (settings.rateControl == RateControl.QUALITY) {
                     addAll(listOf("-crf", settings.crf.toString()))
@@ -89,6 +102,10 @@ object Planner {
                     else -> Unit
                 }
                 val filters = buildList {
+                    if (filtered) {
+                        add("trim=start=${AudioGraphPlanner.number(trim.startMs / 1000.0)}:end=${AudioGraphPlanner.number((trim.endMs ?: source.durationMs) / 1000.0)}")
+                        add("setpts=PTS-STARTPTS")
+                    }
                     if (settings.deinterlace) add("yadif")
                     if (settings.denoise) add("hqdn3d")
                     val h = if (settings.maxHeight == 0) "ih" else "min(ih,${settings.maxHeight})"
@@ -100,8 +117,10 @@ object Planner {
             }
             if (source.audioTracks == 0 || settings.audio == AudioEncoder.NONE) add("-an") else {
                 addAll(listOf("-map", "0:a:${settings.audioTrack}", "-c:a", settings.audio.ffmpeg))
-                if (settings.audio != AudioEncoder.FLAC) addAll(listOf("-b:a", "${settings.audioKbps}k"))
-                if (settings.stereo) addAll(listOf("-ac", "2"))
+                if (settings.audio.usesBitrate) addAll(listOf("-b:a", "${settings.audioKbps}k"))
+                if (filtered) addAll(listOf("-af", audio!!.filters.joinToString(",")))
+                if (settings.audioEdit.output.channels == null && settings.stereo) addAll(listOf("-ac", "2"))
+                settings.audioEdit.output.sampleRateHz?.let { addAll(listOf("-ar", it.toString())) }
             }
             addAll(listOf("-sn", "-dn", "-map_chapters", "-1", "-map_metadata", if (settings.keepMetadata) "0" else "-1"))
             if (settings.container in setOf(Container.MP4, Container.M4A)) addAll(listOf("-movflags", "+faststart"))

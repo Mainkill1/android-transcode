@@ -42,6 +42,9 @@ object AudioEffectRegistry {
             if (capabilities?.available == true) for (filter in filters - capabilities.filters)
                 problem(node, null, "$name requires the unavailable $filter filter.")
         }
+        if (edit.rate.numerator <= 0 || edit.rate.denominator <= 0 || edit.rate.value !in 0.5..2.0)
+            problem(null, "rate", "Audio speed must be a positive rational value from 0.5× to 2×.")
+        if (edit.rate.value != 1.0) requireFilters(null, "Audio speed", setOf("atempo"))
         val ids = mutableSetOf<String>()
         if (edit.nodes.size > 32) problem(null, null, "Use at most 32 audio effects.")
         for (node in edit.nodes) {
@@ -103,6 +106,8 @@ object AudioEffectRegistry {
                 problem(null, "channels", "Channel extraction and swap require a known stereo source.")
             if (output.channels == ChannelMode.MONO && source.channels !in setOf(1, 2))
                 problem(null, "channels", "Mono downmix is qualified for mono or stereo sources.")
+            if (output.channels == ChannelMode.STEREO && source.channels !in setOf(1, 2))
+                problem(null, "channels", "Stereo conversion is qualified for mono or stereo sources.")
         }
         val normalization = output.normalization
         if (normalization.mode == NormalizationMode.PEAK) {
