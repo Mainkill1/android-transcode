@@ -8,7 +8,7 @@ import kotlinx.coroutines.*
 data class DisplayImage(val bitmap:Bitmap,val orientationApplied:Boolean)
 /** Both platform routes report normalized pixels, so display never applies EXIF twice. */
 object ImageDisplayAdapter {
-    suspend fun original(context:Context,uri:String,info:ImageInfo,modern:Boolean=Build.VERSION.SDK_INT>=28):DisplayImage=withContext(Dispatchers.IO) {
+    suspend fun original(context:Context,uri:String,info:ImageInfo,modern:Boolean=Build.VERSION.SDK_INT>=28):DisplayImage=ImageDisplayDecoding.decode {
         ImageValidation.requireSupported(info)
         val upright=ImageGeometry.orientation(info).first
         val scale=minOf(1.0,1600.0/maxOf(upright.width,upright.height))

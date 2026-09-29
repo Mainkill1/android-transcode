@@ -61,7 +61,8 @@ import dev.forma.core.image.*
 @Composable private fun ImageOriginalThumbnail(d:ImageEditDocument,info:ImageInfo) {
     val context=androidx.compose.ui.platform.LocalContext.current
     val bitmap by produceState<android.graphics.Bitmap?>(null,d.source.uri){value=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){runCatching{ImageDisplayAdapter.original(context,d.source.uri,info).bitmap}.getOrNull()}}
-    DisposableEffect(bitmap){onDispose{bitmap?.recycle()}}
+    // A BitmapPainter may still reference this image after the composable leaves.
+    // Published UI bitmaps are reclaimed with their final render reference.
     Text("Original",style=MaterialTheme.typography.labelLarge)
     bitmap?.let{androidx.compose.foundation.Image(it.asImageBitmap(),contentDescription="Original image preview",contentScale=androidx.compose.ui.layout.ContentScale.Fit,modifier=Modifier.fillMaxWidth().height(220.dp))}
 }

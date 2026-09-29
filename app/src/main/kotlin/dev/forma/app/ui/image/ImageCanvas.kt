@@ -34,7 +34,7 @@ private data class DisplayedImage(val bitmap:Bitmap,val path:String,val geometry
     var zoom by remember {mutableFloatStateOf(1f)};var pan by remember {mutableStateOf(Offset.Zero)}
     var background by remember {mutableStateOf("Checkerboard")};var custom by remember {mutableStateOf(Rgba(200,200,200))};var grid by remember {mutableStateOf(false)}
     val source by produceState<Bitmap?>(null,d.source.uri){value=withContext(Dispatchers.IO){runCatching{ImageDisplayAdapter.original(context,d.source.uri,info).bitmap}.getOrNull()}}
-    val editedFrame by produceState<DisplayedImage?>(null,preview.path,preview.region,preview.geometry){value=preview.path?.let{withContext(Dispatchers.IO){
+    val editedFrame by produceState<DisplayedImage?>(null,preview.path,preview.region,preview.geometry){value=preview.path?.let{ImageDisplayDecoding.decode {
         val r=preview.region
         val decoded=if(r==null)BitmapFactory.decodeFile(it)else {
             val decoder=BitmapRegionDecoder.newInstance(it,false)
@@ -43,8 +43,8 @@ private data class DisplayedImage(val bitmap:Bitmap,val path:String,val geometry
         decoded?.let{b->DisplayedImage(b,it,preview.geometry)}
     }}}
     val edited=editedFrame?.bitmap
-    DisposableEffect(source){onDispose{source?.recycle()}}
-    DisposableEffect(edited){onDispose{edited?.recycle()}}
+    // Compose and render-thread display lists can retain published bitmaps after
+    // recomposition. Let GC release them when those references are gone.
     val bitmap=if(original || edited==null)source else edited
     val requestedGeometry=remember(d,info){runCatching{ImageGeometry.resolve(info,d,ImageAttempt(0,ImageFormat.PNG,90))}.getOrNull()}
     val geometry=if(original || edited==null)requestedGeometry else editedFrame?.geometry ?:requestedGeometry
