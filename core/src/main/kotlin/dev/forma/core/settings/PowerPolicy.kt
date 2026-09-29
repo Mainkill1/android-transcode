@@ -38,7 +38,8 @@ data class PowerState(
 )
 data class PowerDecision(
     val canStart: Boolean, val action: PowerAction, val reasons: Set<String>,
-    val warnings: Set<String>, val state: PowerState, val threadCeiling: Int?
+    val warnings: Set<String>, val state: PowerState, val threadCeiling: Int?,
+    val recheckAtMs: Long? = null
 )
 
 /** Pure policy only. The native worker adapter must still enforce cleanup and Android service rules. */
@@ -50,6 +51,9 @@ object PowerPolicy {
         if (!recovering) return Latch(true, null)
         val start = since?.takeIf { it <= now } ?: now
         return if (now - start >= delay) Latch(false, null) else Latch(true, start)
+    }
+    private fun deadline(since: Long?, delay: Long): Long? = since?.let {
+        if (it > Long.MAX_VALUE - delay) Long.MAX_VALUE else it + delay
     }
     fun evaluate(policy: PowerPreferences, sample: PowerSample, previous: PowerState = PowerState(),
                  nowMs: Long, activeAttempt: Boolean = false, userStopped: Boolean = false): PowerDecision {
@@ -90,7 +94,12 @@ object PowerPolicy {
         val lastKnownCharge = sample.charging.takeUnless { it == ChargeState.UNKNOWN } ?: previous.previousCharge
         val state = PowerState(low.active, low.since, thermal.active, thermal.since, critical,
             unplug.active, unplug.since, lastKnownCharge, waitUser, stopped)
+        val recheckAt = listOfNotNull(
+            deadline(low.since, 10_000),
+            deadline(thermal.since, 30_000),
+            deadline(unplug.since, 10_000)
+        ).minOrNull()
         return PowerDecision(reasons.isEmpty(), if (activeAttempt) actions.maxOrNull() ?: PowerAction.CONTINUE else PowerAction.CONTINUE,
-            reasons.toSet(), warnings.toSet(), state, if (policy.respectSaver && sample.batterySaver) 2 else null)
+            reasons.toSet(), warnings.toSet(), state, if (policy.respectSaver && sample.batterySaver) 2 else null, recheckAt)
     }
 }

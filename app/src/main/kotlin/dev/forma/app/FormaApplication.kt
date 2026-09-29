@@ -2,6 +2,8 @@ package dev.forma.app
 
 import android.app.Application
 import dev.forma.app.data.*
+import dev.forma.app.settings.AndroidPowerMonitor
+import dev.forma.app.settings.PowerRuntime
 import dev.forma.app.work.RunCoordinator
 import dev.forma.ffmpeg.ManagedFfmpegBridge
 import dev.forma.ffmpeg.createFfmpegBridge
@@ -21,6 +23,8 @@ class AppGraph(private val application: Application) {
     val queue = QueueRepository(application)
     val runs = RunCoordinator(scope)
     val previews = dev.forma.app.audio.AudioPreviewController(scope)
+    val powerMonitor = AndroidPowerMonitor(application)
+    val power = PowerRuntime(settings.state, powerMonitor.samples, runs.state, scope)
     val bridge = ManagedFfmpegBridge(createFfmpegBridge())
     val transcoder = FfmpegTranscoder(files, bridge)
     private val initialization = Mutex()

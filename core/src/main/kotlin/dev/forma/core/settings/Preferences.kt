@@ -62,11 +62,11 @@ data class SettingsDraft(val saved: SettingsDocument, val values: PreferenceValu
 }
 
 object SettingsRules {
-    /** General parsing preserves known values; the production save boundary also rejects unwired controls. */
+    /** General parsing preserves known values; the production save boundary also rejects controls without consumers. */
     fun editErrors(values: PreferenceValues): List<String> = values.entries.mapNotNull { (id, value) ->
         val spec = SettingCatalog[id]
         when {
-            !spec.wired -> "$id: Planned; there is no active consumer yet."
+            !spec.implemented -> "$id: Planned; there is no active consumer yet."
             spec.options.isNotEmpty() && value is SettingValue.Choice && spec.options.none { it.id == value.value && it.available } ->
                 "$id: This choice is not implemented yet."
             else -> spec.error(value)?.let { "$id: $it" }
