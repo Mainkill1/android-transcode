@@ -78,6 +78,7 @@ object JobCodec {
             val settingFields=setOf("container","video","rateControl","crf","videoKbps","maxHeight","fps","audio","audioKbps","audioTrack","stereo","denoise","deinterlace","keepMetadata")
             fields(s,if(schema==1) settingFields else settingFields+"audioEdit")
             if(schema>1) validateAudioWire(s.getJSONObject("audioEdit"),schema==3)
+            if(schema==3) validateSavedAudioNodeIntent(s.getJSONObject("audioEdit"))
             val id = string(j,"id")
             require(UUID.fromString(id).toString() == id) { "Invalid job identifier." }
             val settings = Settings(Container.valueOf(string(s,"container")), VideoEncoder.valueOf(string(s,"video")),
