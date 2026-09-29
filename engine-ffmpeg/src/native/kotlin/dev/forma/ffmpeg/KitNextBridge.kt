@@ -13,28 +13,31 @@ import org.json.JSONObject
 /** Compiled only when a source-built local Maven artifact is explicitly selected. */
 internal class KitNextBridge : FfmpegBridge {
     override suspend fun capabilities(): Capabilities = withContext(Dispatchers.IO) {
-        // Bound retained session history. The application does not install global callbacks.
         FFmpegKitConfig.setSessionHistorySize(8)
         fun listing(option: String): String {
             val session = FFmpegKit.executeWithArguments(arrayOf("-hide_banner", option))
             check(ReturnCode.isSuccess(session.getReturnCode())) { "Could not query FFmpeg $option." }
             return session.getOutput().orEmpty()
         }
+        // Compiled wrapper availability is separate from per-job Android configuration support.
         val encoders = Regex("(?m)^\\s*[VAS][A-Z.]{5}\\s+(\\S+)").findAll(listing("-encoders"))
-            .map { it.groupValues[1] }.filterNot { it.endsWith("_mediacodec") }.toSet()
+            .map { it.groupValues[1] }.toSet()
         val muxers = Regex("(?m)^\\s*E\\s+(\\S+)").findAll(listing("-muxers"))
             .flatMap { it.groupValues[1].split(',').asSequence() }.toSet()
         val filters = Regex("(?m)^\\s*[TSC.]{3}\\s+(\\S+)").findAll(listing("-filters"))
             .map { it.groupValues[1] }.toSet()
-        Capabilities(true, "Device encoders are held until device-specific qualification.", encoders, muxers, filters,
+        Capabilities(true, "Device encoding requires a compatible Android component and checked bitrate plan.", encoders, muxers, filters,
             "FFmpegKitNext 9.0.0 · ${FFmpegKitConfig.getFFmpegVersion()}")
     }
 
-    override suspend fun probe(localPath: String): Source = withContext(Dispatchers.IO) {
-        // Probing uses a staged local file, never a shell-quoted document URI.
+    private fun probeJson(localPath: String): JSONObject {
         val session = FFprobeKit.executeWithArguments(arrayOf("-v", "error", "-show_streams", "-show_format", "-of", "json", localPath))
         check(ReturnCode.isSuccess(session.getReturnCode())) { "FFprobe could not inspect this media file." }
-        val root = JSONObject(session.getOutput().orEmpty())
+        return JSONObject(session.getOutput().orEmpty())
+    }
+
+    override suspend fun probe(localPath: String): Source = withContext(Dispatchers.IO) {
+        val root = probeJson(localPath)
         val streams = root.getJSONArray("streams")
         val video = (0 until streams.length()).map { streams.getJSONObject(it) }.filter { it.optString("codec_type") == "video" }
         val audio = (0 until streams.length()).map { streams.getJSONObject(it) }.filter { it.optString("codec_type") == "audio" }
@@ -48,6 +51,41 @@ internal class KitNextBridge : FfmpegBridge {
             File(localPath).length())
     }
 
+    override suspend fun prepare(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<String> =
+        withContext(Dispatchers.IO) {
+            val arguments = Planner.arguments(source, trim, settings, input, output)
+            if (!settings.video.hardware || settings.container == Container.M4A) return@withContext arguments
+            require(settings.fps > 0) { "Choose an explicit output frame rate for device encoding; source-rate/VFR needs separate qualification." }
+            val root = probeJson(input)
+            val streams = root.getJSONArray("streams")
+            val video = (0 until streams.length()).map { streams.getJSONObject(it) }.first { it.optString("codec_type") == "video" }
+            val rotations = mutableListOf<Double>()
+            video.optJSONObject("tags")?.optString("rotate")?.toDoubleOrNull()?.let { rotations.add(it) }
+            video.optJSONArray("side_data_list")?.let { data ->
+                for (i in 0 until data.length()) {
+                    val entry = data.getJSONObject(i)
+                    if (entry.has("rotation")) rotations.add(entry.optDouble("rotation", Double.NaN))
+                    // Mirroring/skew can exist in a display matrix with zero rotation.
+                    require(!entry.has("displaymatrix")) { "Display-matrix transforms need a separately qualified device path; use software encoding." }
+                }
+            }
+            require(rotations.all { it.isFinite() && kotlin.math.abs(it % 360) < 0.001 }) {
+                "Rotated source geometry is not yet qualified for device encoding; use software encoding."
+            }
+            val dimensions = MediaCodecCommand.dimensions(source.width, source.height, settings.maxHeight)
+            val format = when (settings.video) {
+                VideoEncoder.H264_HW -> VideoFormat.H264
+                VideoEncoder.H265_HW -> VideoFormat.HEVC
+                else -> error("Unsupported device encoder.")
+            }
+            val request = EncodeRequest(format, dimensions.first, dimensions.second, settings.fps.toDouble(),
+                settings.videoKbps * 1000, constantQuality = settings.rateControl == RateControl.QUALITY, hdr = source.hdr)
+            val decision = AccelerationPolicy.choose(request, AccelerationMode.HARDWARE_REQUIRED,
+                capabilities().encoders, AndroidCodecCatalog().candidates(request))
+            require(decision.backend == EncodeBackend.MEDIACODEC) { decision.reason }
+            MediaCodecCommand.bind(arguments, request, decision)
+        }
+
     override suspend fun execute(arguments: List<String>, onProgress: (Progress) -> Unit): NativeResult = withContext(Dispatchers.IO) {
         val done = CompletableDeferred<FFmpegSession>()
         val session = FFmpegKit.executeWithArgumentsAsync(arguments.toTypedArray(),
@@ -55,7 +93,6 @@ internal class KitNextBridge : FfmpegBridge {
             { onProgress(Progress(it.time.toLong(), it.speed)) })
         val completed = try { done.await() } catch (cancel: CancellationException) {
             FFmpegKit.cancel(session.getSessionId())
-            // Do not delete a staging file while native code still has it open.
             withContext(NonCancellable) { done.await() }
             throw cancel
         }

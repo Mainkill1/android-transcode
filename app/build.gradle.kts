@@ -49,3 +49,14 @@ dependencies {
     androidTestImplementation(libs.androidx.test)
     androidTestImplementation(libs.androidx.runner)
 }
+
+// UI-only debug builds remain useful, but cannot be promoted to a release by accident.
+// This checks intent; verify_android_native.py must still validate the produced AAR/APK.
+val nativeEnabledForRelease = providers.gradleProperty("ffmpegEnabled").orNull == "true"
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    doFirst {
+        check(nativeEnabledForRelease) {
+            "Forma releases require FFmpeg for Android. Set ffmpegEnabled=true and a source-built ffmpegRepo; then verify the actual native payload."
+        }
+    }
+}

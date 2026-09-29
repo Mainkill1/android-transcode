@@ -1,9 +1,13 @@
 # Working in Forma
 
-Keep the simple default and advanced controls on one workflow. Toggling Advanced must not reset settings. Presets may replace settings only after an explicit user action. Queue entries own immutable snapshots and per-file trims.
+**This product is a native Android app. Start with `docs/AGENT-START.md`.** Kotlin/Jetpack Compose is the UI; in-process FFmpeg for Android is a product requirement. `studio/` is a reference and regression oracle, not the shipping app. Do not replace the native work with another HTML iteration, a Python server, a privileged WebView, or Media3-only exports.
 
-Keep Android and native APIs out of `core`. Build arguments as tokens, never shell strings. Do not pretend a codec, hardware path, progress value or output exists. Missing native binaries must remain an unavailable state, not simulated success.
+Keep the simple default and advanced controls on one workflow. Toggling Advanced must not reset settings. Presets may replace settings only after an explicit user action. Queue entries own immutable snapshots and per-file trims. Preserve the upload-first home, 10 MB default, direct-media URL entry, expandable left shelf and bracket trimming described in the handoff. Limits are decimal bytes, not rounded display values.
 
-Run `tools/check-core.sh` when Kotlin CLI is available, then Android Gradle tests/build/lint when the SDK is available. Add regression checks for planner changes. Distinguish API compilation, emulator UI tests and actual native media/device qualification in every report.
+Keep Android and native APIs out of `core`. Build arguments as tokens, never shell strings. All application exports pass through `FfmpegBridge.prepare` after staging and after any retry changes the job configuration. Compiled wrappers, advertised Android support and proven device execution are different facts. Do not pretend a codec, hardware path, progress value or output exists. Missing native binaries remain unavailable, not simulated success.
 
-Do not change the FFmpeg source pin or application/native licensing implicitly. Never commit native downloads, signing keys, local.properties, source media or generated builds. Extend versioned queue serialization deliberately. Never overwrite originals or resume partial output without a proven design.
+Use MediaCodec for hardware video encoding first. Separate hardware decode, GPU filters and NPU inference; enabling one does not imply the others. No hardware CRF, unqualified zero-copy filter chain, untested HDR conversion or NPU encoder claim. Automatic backend selection must preserve the upload byte-cap verification and full selected duration. NPU work is optional and must not hold up the Android export path.
+
+Run `tools/check-core.sh` and `tools/check-android-readiness.sh` when Kotlin CLI is available, then Android Gradle tests/build/lint when the SDK is available. Add regression checks for planner changes. Distinguish host policy tests, API compilation, emulator UI tests, native payload/alignment checks and actual physical-device media qualification in every report. The explicit native smoke test must fail, not skip, when requested on a build without FFmpeg.
+
+Do not change the FFmpeg source pin or application/native licensing implicitly. Never commit native downloads, signing keys, local.properties, source media or generated builds. Extend versioned queue serialization deliberately. Never overwrite originals or resume partial output without a proven design. Do not create scheduled automations for this project.

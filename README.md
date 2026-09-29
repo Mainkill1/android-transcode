@@ -1,67 +1,92 @@
 # Forma — Android Transcode
 
-A simple-first media transcoder with upload-size goals, detailed video/audio controls and a lightweight editor. The native Android foundation uses Kotlin, Jetpack Compose and FFmpeg. The latest working desktop reference and interactive layout live alongside it in this repository.
+**A native Android app for making video, audio and images fit upload limits.**
+Kotlin/Jetpack Compose is the UI. In-process **FFmpeg for Android is required**
+for actual exports. Hardware video acceleration uses checked Android MediaCodec
+components; GPU filtering and NPU inference are separate, later capabilities.
 
-## Start here
+## Implementation agent: start here
 
-| Component | Location | What works today |
+Read **[the agent entry point](docs/AGENT-START.md)**, then the
+[Android handoff](docs/android-handoff.md),
+[acceleration design](docs/android-acceleration.md) and
+[ordered implementation plan](docs/superpowers/plans/2026-09-28-native-android.md).
+
+| Component | Location | Actual status |
 | --- | --- | --- |
-| Upload-first Studio and desktop runner | [`studio/`](studio/README.md) | Size presets, automatic settings, measured oversize retries, real video/audio and PNG/JPEG/WebP image conversion, direct HTTP(S) media import, and the bracket-based single-source editor. |
-| Native Android application | `app/`, `core/`, `engine-ffmpeg/` | Original application/queue foundation. Encoding requires the separately source-built native bundle. Material controls reserve at least 52 dp for interaction. |
+| Native Android app | `app/`, `core/`, `engine-ffmpeg/` | Compose/document/queue/service foundation; FFmpeg adapter; newly checked explicit H.264/H.265 MediaCodec preparation. Real native bundle/device qualification is required. |
+| Upload-first reference | [`studio/`](studio/README.md) | Working desktop byte-fit retries, video/audio/still images, URL import and bracket editor. These newer workflows still need a native port. |
+| Acceleration policy and package checks | `core/Acceleration.kt` (under Kotlin sources), `tools/verify_android_native.py` | Tested host-side policy and static native payload/alignment gate; neither is a phone speed or compatibility result. |
 
-**The Studio workbench is not a WebView, APK, or completed native editor.** The new size-goal, still-image, URL-import and editing workflows are implemented in Studio; they still need a native port. A desktop FFmpeg test does not qualify Android encoding.
+**Studio is not the product runtime.** Do not wrap it in a privileged WebView or
+ship its Python server as the Android solution. A UI-only APK, Kotlin/API-only AAR
+or desktop encode is not an FFmpeg-enabled Android app. No native binaries are
+stored in this repository. The new Auto policy is ready for native upload-job
+integration; existing quality presets are not silently switched to hardware.
 
-## Make a file fit an upload limit
+## Required Android build and qualification
 
-With Python 3.10+, FFmpeg and FFprobe on PATH:
-
-```bash
-python studio/server.py
-```
-
-The home screen defaults to **10 MB**, with **20, 25, 50, 100, 500 MB and Custom** goals. Select media or paste a directly downloadable media URL. After inspection, Forma chooses compatible output settings; press **Make it under 10 MB** to encode.
-
-The runner measures the complete output, not an estimate. Valid oversized files are re-encoded from the original with stronger compression, up to four attempts for video/audio or seven for images. Only an output strictly below the byte limit is marked ready and exposed for download. Impossible goals fail clearly rather than silently shortening the clip, removing sound or publishing an oversized file. Each queued job retains its own goal and editing settings.
-
-Video size goals use MP4/H.264 with AAC; audio goals use M4A/AAC. Still images support WebP, JPEG and PNG, with transparency preserved where supported. GIF/APNG/animated WebP are rejected rather than flattened. Limits use decimal MB. Presets are generic size goals: Discord currently documents 20 MB for free uploads, while Forma retains the requested 10 MB default. See the [size-goal contract, source references and limitations](docs/upload-limits.md).
-
-Detailed controls remain under **More settings**, including an explicit **Use manual settings — no size limit** choice. The left shelf provides quick navigation. Existing bracket trimming, crop/rotation, split/reorder, speed and sound edits remain in the same workflow.
-
-Optional generated samples and a standalone HTML preview:
-
-```bash
-python studio/build.py --samples
-```
-
-Open `studio/forma-studio.html` for local previews and settings. Actual encoding and URL download require the loopback-only runner. Generated media and builds are deliberately excluded from git.
-
-## Native Android build
-
-Use JDK 17, Android SDK 36 and Build Tools 35.0.0. Minimum Android version: 8.0 / API 26.
-
-```bash
-./gradlew :core:test :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
-```
-
-Windows uses `gradlew.bat`. The default build does not bundle native FFmpeg; conversion remains unavailable rather than reporting simulated progress. The checksum-pinned launcher downloads the Gradle 8.13 wrapper on first use.
-
-The pinned FFmpegKitNext 9.0.0 source build and selected codec profile are unchanged:
+Use JDK 17, Android SDK 36, Build Tools 35.0.0 and the pinned source-build toolchain.
+Minimum Android version remains 8.0/API 26. Start with physical arm64 devices.
 
 ```bash
 ./tools/build-ffmpeg.sh
-./gradlew -PffmpegEnabled=true \
-  -PffmpegRepo="$PWD/vendor/ffmpeg-kit-next/prebuilt/bundle-android-aar-24-maven" \
-  :app:assembleDebug
+NATIVE_REPO="$PWD/vendor/ffmpeg-kit-next/prebuilt/bundle-android-aar-24-maven"
+python3 tools/verify_android_native.py \
+  "$NATIVE_REPO/com/arthenica/ffmpeg-kit-next/9.0.0/ffmpeg-kit-next-9.0.0.aar"
+./gradlew -PffmpegEnabled=true -PffmpegRepo="$NATIVE_REPO" \
+  :core:test :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+python3 tools/verify_android_native.py app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Read [FFmpeg setup](docs/ffmpeg.md) for prerequisites and distribution/licensing decisions. The native profile enables GPL and x264; this repository does not silently assign an application license. Do not distribute native binaries before meeting the selected bundle's obligations.
+The helper now explicitly enables `--enable-lib-android-media-codec` alongside
+x264. The source pin and existing GPL profile are retained. Read
+[FFmpeg setup](docs/ffmpeg.md) for the supported build host and licensing decisions.
+Read the handoff for static alignment failures, the explicit native smoke-test
+command and physical-device acceptance. App licensing is not silently assigned.
 
-## Architecture and validation
+For host-only tests:
 
-`app -> engine-ffmpeg -> core`, with `app -> core`. The core never imports Android APIs or a native binding. Queue entries own immutable settings and per-file trims. The native service stages input privately, executes argument arrays, verifies output, and exposes Open/Share/Save. Native interrupted jobs are not automatically resumed.
+```bash
+./tools/check-core.sh
+./tools/check-android-readiness.sh
+```
 
-Studio has separate pure planning, loopback execution and browser presentation layers. Its queue is session-only; native queued jobs are persisted. Missing codecs never produce simulated success. Tests cover both normal fitting and forced oversize retries, plus source files genuinely larger than the default 10 MB limit.
+The ordinary `./gradlew :app:assembleDebug` is still a **no-native UI-development
+build**, not a shippable transcode build. Release preparation refuses a missing
+`ffmpegEnabled=true` flag; the payload verifier still checks the actual binaries. Existing API-contract CI intentionally
+compiles a wrapper without .so files; never distribute that artifact as FFmpeg.
+Windows can use `gradlew.bat` and Python for APK checks; follow upstream's supported
+host instructions for the native source build.
 
-[Architecture](docs/architecture.md) · [Native testing](docs/testing.md) · [Studio tests](studio/README.md) · [Upload limits](docs/upload-limits.md) · [Touchscreen contract](docs/touchscreen.md)
+## User workflow to preserve during the native port
 
-Native HDR processing, qualified hardware encoding, multi-track authoring, subtitles, chapters and comparison preview remain later stages. Keep device/emulator results separate from JVM, browser and desktop FFmpeg results.
+Home defaults to **10 MB**, with 20/25/50/100/500 MB and Custom. Select media or
+paste a direct media URL, inspect, then Convert. Show detailed settings only when
+requested; keep the expandable left shelf and bracket-based trimming. Changing
+a goal or opening Advanced must not discard edits.
+
+Limits use decimal bytes. Only verified output strictly below the selected cap
+is ready to share. Re-encode valid oversized candidates from the original with
+stronger compression (four video/audio attempts; seven image attempts). Do not
+truncate, silently remove sound/transparency or publish an oversized success.
+See [upload-size contract](docs/upload-limits.md) and
+[timeline contract](docs/timeline-editor.md).
+
+## Run the Studio reference, not the Android runtime
+
+With Python 3.10+, desktop FFmpeg and FFprobe on PATH:
+
+```bash
+python studio/server.py
+# Optional local samples and standalone layout:
+python studio/build.py --samples
+```
+
+The reference supports MP4/H.264+AAC and M4A/AAC upload goals, PNG/JPEG/WebP stills,
+and non-destructive single-source editing. It does not imply native parity.
+Generated media and builds are excluded from git; its queue is session-only,
+whereas the native queue is persisted.
+
+[Architecture](docs/architecture.md) · [Native testing](docs/testing.md) ·
+[Studio tests](studio/README.md) · [Touchscreen contract](docs/touchscreen.md)

@@ -21,8 +21,9 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
             val actual = inspected.copy(uri = spec.source.uri, name = spec.source.name)
             val problems = Planner.validate(actual, spec.trim, spec.settings, caps)
             require(problems.isEmpty()) { problems.joinToString("\n") }
+            val arguments = bridge.prepare(actual, spec.trim, spec.settings, input.absolutePath, temporary.absolutePath)
             onState(JobState.RUNNING)
-            val result = bridge.execute(Planner.arguments(actual, spec.trim, spec.settings, input.absolutePath, temporary.absolutePath), onProgress)
+            val result = bridge.execute(arguments, onProgress)
             check(result.exitCode == 0) { "FFmpeg failed (${result.exitCode}). ${result.diagnostics}" }
             currentCoroutineContext().ensureActive()
             onState(JobState.VERIFYING)
