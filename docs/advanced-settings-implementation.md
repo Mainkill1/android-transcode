@@ -7,6 +7,15 @@ proposal. This page is the current status; the original [64-option catalog](adva
 Their initial design-only paragraphs and E/N/D labels are historical, not current
 runtime status. Start here, then use the [direct-ADB test guide](../testing/settings/README.md).
 
+## Current target-phone integration
+
+The combined PR3/PR4 product is built and tested on the requested phone. Read
+[the integration and device record](advanced-settings-device-validation.md) for
+117 host tests, 38 physical instrumentation tests, the exact APK hashes, release
+isolation and remaining gates. The earlier foundation CI record below retains
+its own revision boundaries. PR4 remains Draft for live power/provenance and the
+other Planned consumers.
+
 ## Implemented scope
 
 | Area | Actual implementation | Remaining boundary |
@@ -35,12 +44,15 @@ Engine/container: `engine.encode_backend`, `engine.decode_backend`,
 
 Bound means the setting has a consumer; it does **not** mean a native codec has
 been qualified on every phone. Decode/filter currently accept CPU only. Fractional
-frame rates, detected-only deinterlacing, MP3/copy audio and mono remain disabled
-choices within otherwise available rows. Native preparation may reject an export.
+frame rates, detected-only deinterlacing, MP3/copy audio remain disabled
+choices within otherwise available rows. WAV/PCM16/float, FLAC containers and
+Source/Stereo/Mono/Left/Right/Swap routing now share PR3's audio graph. Native preparation may reject an export.
 
 ## Decisions the next agent must preserve
 
-**Queued jobs are unchanged.** No JobSpec/JobCodec migration occurs in this slice.
+**No settings-provenance migration.** PR3 supplies its neutral-audio queue
+schema-1→2 migration; this settings integration does not rebase media snapshots
+or add persisted preference origins.
 The legacy editor has concrete settings but no saved origins. Opening its settings
 captures all 14 mapped fields explicitly rather than guessing inheritance. Reset
 inherits within that menu session; Apply writes resolved values back. Reopening
@@ -139,7 +151,7 @@ Unknown scenario names fail; no arbitrary input paths/commands are accepted.
 `callerReportedAppRevision` is clearly caller metadata, not installed APK identity
 proof. Retain the matching app/test APK hashes when collecting evidence.
 
-`all` executes 43 pure checks and four real Android storage checks. Power samples
+`all` executes 45 pure checks and four real Android storage checks. Power samples
 remain synthetic and `nativeExecution` remains false. `storage_roundtrip` now uses
 the production Android storage adapter in a disposable test directory;
 `storage_memory` retains the original in-memory contract cases. An aborted atomic
@@ -150,8 +162,9 @@ write test is not a power-loss or process-death certification.
 All new test code, fixtures and instructions are under `testing/settings/`.
 `core/build.gradle.kts` references `core/` and `junit/` from its test source set;
 `app/build.gradle.kts` references `android/` and shared `core/` only from androidTest.
-Remove those four references and this test tree without deleting production
-settings sources. Source-set separation is not a substitute for inspecting a real
+Use `-PsettingsTests=false` to disable those four references and
+`-PaudioTests=false` for PR3 audio tests. The release builds with the test tree
+physically absent, without deleting production settings sources. Source-set separation is not a substitute for inspecting a real
 release APK/AAB and dependency graph. Coordinate with the editor/test-runner draft
 without changing its branch or creating another runner.
 

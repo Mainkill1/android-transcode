@@ -1,6 +1,6 @@
 # Settings tests: direct ADB, no Python driver
 
-These files are test-only. `core/build.gradle.kts` references `core/` and `junit/` from its test source set; `app/build.gradle.kts` references `core/` and `android/` from androidTest. No production command receiver, intent endpoint, host server, test API or new workflow is required. Remove this directory and those test-source references to remove the harness.
+These files are test-only. `core/build.gradle.kts` references `core/` and `junit/` from its test source set; `app/build.gradle.kts` references `core/` and `android/` from androidTest. No production command receiver, intent endpoint, host server, test API or new workflow is required. Set `settingsTests=false` to disable those references; `audioTests=false` disables PR3 audio instrumentation. Release builds without the `testing/` tree.
 
 ## Host checks
 
@@ -9,7 +9,7 @@ bash testing/settings/host/check.sh
 ./gradlew :core:test :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
 ```
 
-The Kotlin CLI runs the existing 39 settings assertions plus four power-transition regressions. Android instrumented tests also exercise the real `AtomicSettingsStorage` adapter in generated private temporary directories, without replacing the user's `settings-v1.txt`.
+The Kotlin CLI runs the 41 settings assertions plus four power-transition regressions. Android instrumented tests also exercise the real `AtomicSettingsStorage` adapter in generated private temporary directories, without replacing the user's `settings-v1.txt`.
 
 ## Install and run on the connected device
 
@@ -41,7 +41,7 @@ Read the report before optionally removing only that report with `adb shell run-
 
 | Case | Assertions | Evidence type |
 | --- | --- | --- |
-| `all` (default) | All 43 pure settings/power assertions and four real storage checks | Kotlin behavior plus Android storage |
+| `all` (default) | All 45 pure settings/power assertions and four real storage checks | Kotlin behavior plus Android storage |
 | `catalog` | 64-key/eight-category inventory | Catalog contract |
 | `overrides` | Explicit Auto, inheritance/reset, preset precedence | Pure resolver |
 | `battery_low` | Inclusive low threshold and recovery margin/timer | Synthetic power samples |
