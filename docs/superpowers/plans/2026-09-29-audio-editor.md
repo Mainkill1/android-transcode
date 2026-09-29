@@ -1,14 +1,18 @@
 # Audio Editor Implementation Plan
 
-> **For agentic workers:** Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` to implement this plan task-by-task. This PR supplies the plan only; the checkboxes below are deliberately unfinished.
+> **For agentic workers:** Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` to implement this plan task-by-task. PR3 implements the user-selected first usable slice. Checkboxes retain the broader original gates; see the implementation status below and the validation record for completed and unrun portions.
 
 **Goal:** Add a native, non-destructive audio editor that shares Forma's conversion, preview, queue and device-test contracts.
 
 **Architecture:** Keep typed editing and graph planning in `core`, native execution in `engine-ffmpeg`, and Compose/state/work ownership in `app`. Stage A uses FFmpeg-rendered preview audio played through ExoPlayer; richer live processing is a later qualified adapter.
 
-**Tech Stack:** Existing Kotlin/Compose/coroutines/FFmpegKitNext; candidate Media3 ExoPlayer 1.11.1 for preview; optional native/AI extensions only in later slices.
+**Tech Stack:** Existing Kotlin/Compose/coroutines/FFmpegKitNext; Media3 ExoPlayer 1.11.1 for preview; optional native/AI extensions only in later slices.
 
 **Spec:** [Audio architecture](../../audio-editor.md) and [UI layout](../../audio-editor-ui.md). Read both before implementing.
+
+## Implemented slice and remaining gates
+
+[Validation record](../../audio-editor-validation.md) identifies the code, APKs, observed phone results and limitations. Tasks 1–4 have shipped typed edits/migration, DSP/export, analysis/verification, native controls and bounded A/B preview. Task 6 supplies real test-only scenarios and release isolation. Task 5 is explicitly deferred. Original checklist items include broader acceptance requirements that have not all run; partial gates below are left open rather than claiming exhaustive Stage A qualification.
 
 ## Global constraints
 
@@ -17,7 +21,7 @@
 - Preserve source-first home, decimal-byte upload limits, URL entry, left shelf and bracket trim.
 - No default destructive audio enhancement; no source overwrite; queued jobs own immutable snapshots.
 - Every export/retry uses `FfmpegBridge.prepare`; one active native task, cancellation cleanup before slot release.
-- Reconcile [PR #2](https://github.com/Mainkill1/android-transcode/pull/2) before code changes. Reuse its edits, timeline and test harness rather than copying parallel implementations.
+- Reconcile [PR #2](https://github.com/Mainkill1/android-transcode/pull/2) before code changes. At the inspected implementation baseline it was documentation-only. Its subsequently added clip/timeline code requires explicit integration before both drafts merge.
 - Test code, media generators, CLI and evidence are separate from release runtime. No new scheduled automation or workflow is part of this plan.
 
 ## Review focus
@@ -91,23 +95,22 @@ Record VST/plugin hosting, cloud enhancement and a full DAW as out of this plan'
 
 ## Task 6: isolated Android/ADB automation and release gates
 
-**Interfaces:** Extend #2's existing-or-proposed harness with named audio commands consuming the production registry/planner/executor. Below is the **proposed audio protocol**, not a claim that these commands already work. Adopt #2's actual argument names when integrating and update this document in the same change.
+**Implemented protocol:** `python3 testing/audio_device.py all --serial "$SERIAL"` installs the matching debug/test APK pair and runs `capabilities`, `dsp`, `analysis`, `preview`, `jobs` and `ui` scenarios sequentially. Scenarios invoke the production bridge/planner/executor; the `jobs` case includes deterministic cap failure and verification cancellation. Each native test is explicitly enabled with `-e formaNative true`; no release command endpoint is installed.
 
 ```bash
-# After implementing and installing the debug APK and separate test APK:
+python3 -m unittest discover -s testing/host -v
+python3 testing/audio_device.py all --serial "$SERIAL"
+# Equivalent single native scenario:
 adb -s "$SERIAL" shell am instrument -w -r \
-  -e class dev.forma.app.audio.AudioEditorDeviceTest \
-  -e formaAudioCommand capabilities \
+  -e formaNative true -e class dev.forma.app.audio.AudioJobDeviceTest \
   dev.forma.transcode.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-Add `capabilities`, `run-fixture`, `run-job`, `verify-output` and `cancel` commands. Here `cancel` is a deterministic test scenario that requests cancellation inside its own running instrumentation session; do not launch competing instrumentation processes to interrupt an active native job. JSON job input is typed project data, never shell/filter text. The host harness stages inputs into a run-specific debug-app directory through ADB/run-as and retrieves a JSON report; validate paths, IDs and limits. Do not add an exported production receiver, HTTP server or root requirement. `run-as` availability is a debug-test prerequisite, not a release feature.
-
-- [ ] Add failing harness tests for missing device/native engine/filter, malformed JSON, invalid staged path, timeout, app crash, cancellation and instrumentation failure despite an ADB exit code of zero.
-- [ ] Implement report parsing and strict nonzero failure exits. Reports contain run ID, repo SHA, schema, APK/native/model hashes, device/API/ABI/page size, input identity, requested/effective graph, codec component, timings, memory observations, decoded output facts, measurements, artifact hashes and explicit errors.
-- [ ] Generate deterministic silence, impulse, sine sweep, stereo channel IDs, hum, noise and clipping fixtures outside production code; keep licensed speech/music references out of git. Host PCM arithmetic/FFT checks should provide an independent oracle for basic DSP, not only a second invocation of the same filter.
-- [ ] Reference all tests through test-only source sets and dependency scopes. Reuse #2's debloat switch; removal of `testing/` plus disabling its references must build the release app. Inspect release APK/dependency output to prove no test runner, fixtures, test commands or test-only runtime remains.
-- [ ] Run the existing host checks and Android gates below, plus the new audio suites once available. Commit harness/docs changes; do not commit media, reports, APKs or native binaries.
+- [x] Reject ADB-zero instrumentation failure, crash, missing results and connection failure; record timeout/parse/native failures as a nonzero host result. Native engine/filter absence fails the requested test.
+- [x] Record run ID, repo/diff identity, matching APK hashes, device/API/ABI/page size, scenario timings and native measurements; remove stale reports before each scenario. No optional model is bundled. General staged JSON/path commands and memory telemetry remain outside this protocol.
+- [x] Generate deterministic silence, impulse, tones, channel IDs and voiced-like fixtures in test-only code; independently evaluate PCM arithmetic/frame counts. Broader hum/noise/sweep/listening fixtures remain later qualification.
+- [x] Include audio instrumentation only through `androidTest` sources; `-PaudioTests=false` disables their references. Release builds with `testing/` physically absent and release dex excludes instrumentation classes, fixtures and test commands.
+- [x] Run existing host checks, Android build/unit/lint, all 24 phone instrumentation cases and packaged audio scenarios. Do not commit media, reports, APKs or native binaries.
 
 Existing verification commands (require their documented toolchains):
 
@@ -125,6 +128,6 @@ Physical-device qualification must cover at least a mainstream arm64 device and 
 
 ## Definition of done and current evidence
 
-**This documentation PR:** architecture, UI contract, framework decisions and ordered testable handoff only. No Gradle dependency, production DSP, native binary or application UI is changed. Document checks cannot prove Android compilation or sound quality.
+**Current PR:** first usable native audio editor and isolated device tests, with the original architecture/UI/roadmap retained as references. Media3 is added; the FFmpeg pin/profile is preserved. See the validation record for measured results, release isolation and integrations still required.
 
-**Stage A implementation:** real packaged exports, persistence, preview/export contract, strict byte cap, missing-engine failures, release test isolation, device signal checks and native accessibility review all pass with artifact identities. Mark later B/C features honestly unavailable until their independent gates pass. A feature list, host-only green test or declared filter name is not device qualification.
+**Full Stage A acceptance:** real packaged exports, persistence, preview/export contract, strict byte cap, missing-engine failures, release test isolation, device signal checks and native accessibility review must all pass with artifact identities. The selected slice passes target-phone functional/signal gates; broader accessibility/device gates remain open. Mark later B/C features honestly unavailable until their independent gates pass. A feature list, host-only green test or declared filter name is not device qualification.

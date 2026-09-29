@@ -1,6 +1,6 @@
 # Audio editor: design and framework decisions
 
-**Status: implementation proposal, not implemented or device-qualified by this PR.**
+**Status: first usable single-clip editor implemented and tested on the target LE2125 phone.** Read the [implementation and validation record](audio-editor-validation.md) for shipped behavior, artifact identities and unrun gates. The broader inventory below remains a roadmap.
 
 Read [UI layouts](audio-editor-ui.md), then the [implementation plan](superpowers/plans/2026-09-29-audio-editor.md). This proposal turns the approved audio-feature inventory into native Android work; it does not add another Studio/WebView editor.
 
@@ -19,7 +19,7 @@ Inspected `main`: [`89ceb3b362872f193a54feacc99225c80e77f176`](https://github.co
 | `app/src/main/kotlin/dev/forma/app/ui/FormaScreen.kt` and `AdvancedControls.kt` | Source-first Compose workspace, shelf, advanced settings and persistent queue actions |
 | Existing service/run coordinator | Native session serialization, cancellation ownership and bounded progress |
 
-[PR #2](https://github.com/Mainkill1/android-transcode/pull/2), inspected at `a362442b37c84da6654b56e044daff0d11684678`, proposes clip effects, a timeline foundation and external test sources. It was an open draft, not merged functionality. Reuse its eventual types, migration and ADB harness; do not implement competing gain/fade/speed chains or a second test runner. This documentation branch can merge independently. Production implementation must first reconcile the then-current #2 state. Preserve [AGENT-START](AGENT-START.md), [native UX](native-ux.md), [upload](upload-limits.md) and [FFmpeg](ffmpeg.md) contracts.
+[PR #2](https://github.com/Mainkill1/android-transcode/pull/2) was documentation-only at the implementation's inspected baseline `a362442b37c84da6654b56e044daff0d11684678`. This implementation retains existing `Settings.audioTrack` as the stream authority and adds one typed audio graph and queue schema migration. PR2 has since acquired separate clip/timeline code; integration of the two drafts needs explicit reconciliation before both merge. Preserve [AGENT-START](AGENT-START.md), [native UX](native-ux.md), [upload](upload-limits.md) and [FFmpeg](ffmpeg.md) contracts.
 
 ## Delivery slices and complete feature coverage
 

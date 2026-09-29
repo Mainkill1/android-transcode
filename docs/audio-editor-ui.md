@@ -1,6 +1,6 @@
 # Audio editor: native UI layout
 
-**Design reference, not implemented UI.** Builds on the [audio design](audio-editor.md) and the existing Compose workspace. All numbers below are proposed UI defaults or acceptance targets unless identified as current repository requirements.
+**Design reference for the full roadmap.** The first usable panel is implemented; see [current controls and validation](audio-editor-validation.md). Mockups below include later features that are not present yet. Numbers remain proposed defaults or acceptance targets unless identified as measured results.
 
 ## Home stays simple
 

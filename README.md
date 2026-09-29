@@ -115,10 +115,16 @@ See [native UX, threading and performance validation](docs/native-ux.md).
 Run `tools/check-ux.sh` for the host concurrency checks. This does not close the
 remaining native upload-fit/URL/image/full-editor or physical-device test gates.
 
-## Audio-editor proposal
+## Audio editor
 
 Read the [feature roadmap and framework decisions](docs/audio-editor.md),
 [native UI layouts](docs/audio-editor-ui.md), and
 [file-by-file implementation and Android testing plan](docs/superpowers/plans/2026-09-29-audio-editor.md).
-These documents propose non-destructive audio editing; they do not claim the
-effects, new dependencies or device qualification are already implemented.
+After selecting a source, tap **Edit audio**. Adjust gain, fades, EQ, compression
+or limiting; tap **Render preview**, then **Play original** or **Play edited**.
+**Undo**, **Redo** and **Reset audio edits** change the current draft. Expand
+**Audio output settings** for format, channels, sample rate, normalization and byte cap;
+tap **Convert** to export. Source files are preserved.
+
+The waveform and A/B preview cover the first ten seconds of the selected range.
+See [actual implementation, phone results and remaining gates](docs/audio-editor-validation.md).
