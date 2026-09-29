@@ -45,7 +45,7 @@ class TranscodeService : Service() {
             else -> { stopSelfResult(startId); return START_NOT_STICKY }
         }
         if (ticket?.job?.isCompleted == false) return START_NOT_STICKY
-        val powerAtStart = graph.power.state.value
+        val powerAtStart = graph.power.refresh()
         if (!powerAtStart.decision.canStart) {
             graph.queue.error.value = powerAtStart.blockingMessage
             stopSelfResult(startId)
@@ -129,7 +129,7 @@ class TranscodeService : Service() {
         try {
             graph.initialize()
             while (currentCoroutineContext().isActive && run.canTakeNext()) {
-                val gate = graph.power.state.value
+                val gate = graph.power.refresh()
                 if (!gate.decision.canStart) {
                     graph.queue.error.value = gate.blockingMessage
                     notify(gate.blockingMessage, null)

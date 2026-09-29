@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+/** System and privileged framework broadcasts require the exported dynamic-receiver mode. */
+internal val POWER_RECEIVER_FLAGS: Int = ContextCompat.RECEIVER_EXPORTED
+
 internal fun powerSampleFromBattery(
     battery: Intent?, thermalStatus: Int?, batterySaver: Boolean
 ): PowerSample {
@@ -50,7 +53,10 @@ class AndroidPowerMonitor(context: Context) : Closeable {
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            battery = if (intent?.action == Intent.ACTION_BATTERY_CHANGED) intent else currentBattery() ?: battery
+            // The receiver must be exported for framework broadcasts. Treat callbacks as
+            // invalidation signals and reread protected sticky/system state rather than
+            // trusting caller-provided extras from the exported receiver boundary.
+            battery = currentBattery() ?: battery
             publish()
         }
     }
@@ -68,7 +74,7 @@ class AndroidPowerMonitor(context: Context) : Closeable {
             addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
         }
         battery = ContextCompat.registerReceiver(
-            application, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED
+            application, receiver, filter, POWER_RECEIVER_FLAGS
         )
         receiverRegistered = true
         publish()

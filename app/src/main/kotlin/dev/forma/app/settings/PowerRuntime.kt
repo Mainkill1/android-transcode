@@ -73,6 +73,7 @@ class PowerRuntime(
     private val clock: () -> Long = SystemClock::elapsedRealtime
 ) {
     private val evaluator = PowerRuntimeEvaluator()
+    private val evaluationLock = Any()
     private val signal = Channel<Unit>(Channel.CONFLATED)
     private var timer: Job? = null
     private val mutable = MutableStateFlow(evaluateCurrent())
@@ -84,8 +85,7 @@ class PowerRuntime(
         scope.launch { runs.collect { signal.trySend(Unit) } }
         scope.launch {
             for (ignored in signal) {
-                val snapshot = evaluateCurrent()
-                mutable.value = snapshot
+                val snapshot = evaluateAndPublish()
                 timer?.cancel()
                 timer = snapshot.decision.recheckAtMs?.let { deadline ->
                     scope.launch {
@@ -96,6 +96,23 @@ class PowerRuntime(
             }
         }
         signal.trySend(Unit)
+    }
+
+    /**
+     * Synchronously re-reads the latest durable-settings state, telemetry and run state.
+     * The foreground worker calls this after initialization and before every queue claim,
+     * so a just-loaded safety policy cannot trail one Flow dispatch behind job one.
+     */
+    fun refresh(): PowerRuntimeSnapshot {
+        val snapshot = evaluateAndPublish()
+        // Timer ownership stays in the single actor. A conflated follow-up cannot make
+        // this returned snapshot stale and will reschedule any recovery deadline.
+        signal.trySend(Unit)
+        return snapshot
+    }
+
+    private fun evaluateAndPublish(): PowerRuntimeSnapshot = synchronized(evaluationLock) {
+        evaluateCurrent().also { mutable.value = it }
     }
 
     private fun evaluateCurrent(): PowerRuntimeSnapshot = evaluator.evaluate(
