@@ -21,7 +21,7 @@ object Planner {
         }
     }
 
-    fun validate(source: Source, trim: Trim, settings: Settings, caps: Capabilities? = null): List<String> = buildList {
+    fun validate(source: Source, trim: Trim, settings: Settings, caps: Capabilities? = null, allowSilentAudioSegment: Boolean = false): List<String> = buildList {
         val video = settings.container != Container.M4A
         if (source.durationMs <= 0) add("The source has no readable duration.")
         if (trim.startMs < 0 || trim.startMs >= source.durationMs ||
@@ -29,7 +29,7 @@ object Planner {
             add("Choose a start and end inside the source duration.")
         if (video && source.videoTracks == 0) add("Choose Just the audio for an audio-only source.")
         if (video && source.hdr) add("HDR/high-bit-depth or an unqualified pixel format needs a tested color pipeline; not enabled in this foundation.")
-        if (!video && (source.audioTracks == 0 || settings.audio == AudioEncoder.NONE)) add("Audio output needs an audio track.")
+        if (!video && !allowSilentAudioSegment && (source.audioTracks == 0 || settings.audio == AudioEncoder.NONE)) add("Audio output needs an audio track.")
         if (settings.audio != AudioEncoder.NONE && source.audioTracks > 0 && settings.audioTrack !in 0 until source.audioTracks)
             add("The selected audio track does not exist in this source.")
         if (settings.maxHeight < 0 || settings.maxHeight > 4320 || settings.maxHeight % 2 != 0 || settings.maxHeight == 2)

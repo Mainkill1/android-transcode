@@ -36,6 +36,7 @@ object UploadFit {
 
 /** All callers use the same duration, budget and validation for a single clip or a composed movie. */
 object JobPlans {
+    fun sourceUris(job: JobSpec): Set<String> = job.sequence?.timeline?.clips?.map { it.source.uri }?.toSet() ?: setOf(job.source.uri)
     fun duration(job: JobSpec): Long = job.sequence?.let(SequencePlanner::duration)
         ?: Planner.outputDuration(job.source, job.trim, job.settings)
     fun hasAudio(job: JobSpec): Boolean = job.sequence?.let { SequencePlanner.hasAudio(it, job.settings) }

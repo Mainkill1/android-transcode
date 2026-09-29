@@ -8,6 +8,11 @@ object SequenceChecks {
         SequenceSpec(EditTimeline(clips.toList()), CanvasSpec(640, 360, 30), overlap)
     private fun fails(block: () -> Unit) = check(runCatching(block).isFailure)
     val cases: List<Pair<String, () -> Unit>> = listOf(
+        "audio movie permits a finite silent segment" to {
+            val s = sequence(clip(), clip("b", source.copy(uri = "content://silent", audioTracks = 0)))
+            check(SequencePlanner.validate(s, Settings(container = Container.M4A)).isEmpty())
+            check(SequencePlanner.arguments(s, Settings(container = Container.M4A), listOf("/a", "/b"), "/out").any { "anullsrc" in it })
+        },
         "composition budgets every decoder and the final encoder" to {
             val raw = SequencePlanner.arguments(sequence(clip(), clip("b")), Settings(), listOf("/a", "/b"), "/out")
             val bounded = WorkPolicy.withSequenceThreadBudget(raw, 12)

@@ -3,6 +3,7 @@ package dev.forma.ffmpeg
 import dev.forma.core.*
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlinx.coroutines.*
 
@@ -17,7 +18,10 @@ class FfmpegRenderSession(private val bridge: FfmpegBridge) {
     suspend fun render(
         requested: JobSpec, inputs: List<File>, output: File, onProgress: (Progress) -> Unit,
         onAttempt: (RenderAttempt) -> Unit = {}
-    ): Source = withContext(Dispatchers.IO) {
+    ): Source {
+        val finalized = AtomicBoolean(false)
+        try {
+            return withContext(Dispatchers.IO) {
         val paths = inputs.map { it.canonicalFile }
         val destination = output.canonicalFile
         require(paths.isNotEmpty() && paths.all { it.isFile && it != destination }) { "Readable, separate staged sources are required." }
@@ -80,7 +84,9 @@ class FfmpegRenderSession(private val bridge: FfmpegBridge) {
                 reported = true
                 onAttempt(RenderAttempt(index, settings, arguments, bytes, (System.nanoTime() - start) / 1_000_000, true, accepted))
                 if (accepted) {
+                    currentCoroutineContext().ensureActive()
                     check(candidate.renameTo(destination)) { "The verified render could not be finalized." }
+                    finalized.set(true)
                     return@withContext facts.copy(uri = destination.absolutePath, name = destination.name, bytes = bytes)
                 }
                 check(index < count) { "Size target was not met after $count verified attempts: $bytes bytes, limit $limit. Nothing was published." }
@@ -96,5 +102,11 @@ class FfmpegRenderSession(private val bridge: FfmpegBridge) {
             }
         }
         error("No verified candidate was produced.")
+            }
+        } catch (error: Throwable) {
+            // withContext can cancel while delivering its result after the worker finalized it.
+            if (finalized.get()) output.delete()
+            throw error
+        }
     }
 }

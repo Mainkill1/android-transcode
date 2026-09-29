@@ -21,7 +21,10 @@ interface FfmpegBridge {
         require(problems.isEmpty()) { problems.joinToString("\n") }
         require(inputs.size == sequence.timeline.clips.size) { "Source count does not match the movie." }
         sequence.timeline.clips.forEachIndexed { index, clip ->
-            prepare(clip.source, clip.trim, SequencePlanner.clipSettings(clip, settings, sequence.canvas), inputs[index], output)
+            val clipSettings = SequencePlanner.clipSettings(clip, settings, sequence.canvas)
+            // A generated silent segment has no source stream to qualify in an audio-only movie.
+            if (settings.container != Container.M4A || (clip.source.audioTracks > 0 && clipSettings.audio != AudioEncoder.NONE))
+                prepare(clip.source, clip.trim, clipSettings, inputs[index], output)
         }
         return SequencePlanner.arguments(sequence, settings, inputs, output)
     }

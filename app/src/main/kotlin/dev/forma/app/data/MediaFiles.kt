@@ -63,12 +63,23 @@ class MediaFiles(private val context: Context) {
         } finally { extractor.release() }
     }
 
-    suspend fun stage(spec: JobSpec): File = withContext(Dispatchers.IO) {
-        val target = File(workDir(spec), "source.media")
-        if (spec.source.bytes > 0) require(target.parentFile!!.usableSpace > spec.source.bytes + 64L * 1024 * 1024) {
+    suspend fun stage(spec: JobSpec): File = stageSource(spec, spec.source, "source.media")
+
+    suspend fun stageInputs(spec: JobSpec): List<File> {
+        val sources = spec.sequence?.timeline?.clips?.map { it.source } ?: listOf(spec.source)
+        val staged = mutableMapOf<String, File>()
+        return sources.mapIndexed { index, source ->
+            currentCoroutineContext().ensureActive()
+            staged[source.uri] ?: stageSource(spec, source, "source-$index.media").also { staged[source.uri] = it }
+        }
+    }
+
+    private suspend fun stageSource(spec: JobSpec, source: Source, name: String): File = withContext(Dispatchers.IO) {
+        val target = File(workDir(spec), name)
+        if (source.bytes > 0) require(target.parentFile!!.usableSpace > source.bytes + 64L * 1024 * 1024) {
             "Not enough private storage to stage the source plus working space."
         }
-        resolver.openInputStream(Uri.parse(spec.source.uri))?.use { input ->
+        resolver.openInputStream(Uri.parse(source.uri))?.use { input ->
             target.outputStream().use { output ->
                 val buffer = ByteArray(64 * 1024)
                 while (true) {
@@ -79,12 +90,12 @@ class MediaFiles(private val context: Context) {
                 }
             }
         } ?: throw IOException("The source could not be opened. Reselect it to restore access.")
-        if (spec.source.bytes >= 0) require(target.length() == spec.source.bytes) { "The source size changed. Reselect it before converting." }
+        if (source.bytes >= 0) require(target.length() == source.bytes) { "The source size changed. Reselect it before converting." }
         target
     }
 
     suspend fun export(spec: JobSpec, destination: Uri, onBytes: (Long, Long) -> Unit = { _, _ -> }) = withContext(Dispatchers.IO) {
-        require(destination.toString() != spec.source.uri) { "The original cannot be the export destination." }
+        require(destination.toString() !in JobPlans.sourceUris(spec)) { "The original cannot be the export destination." }
         val source = output(spec)
         require(source.isFile && source.length() > 0) { "The completed output is no longer available." }
         val total = source.length()

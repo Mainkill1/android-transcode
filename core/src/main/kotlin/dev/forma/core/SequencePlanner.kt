@@ -57,7 +57,7 @@ object SequencePlanner {
         if (clips.groupBy { it.source.uri }.any { (_, group) -> group.map { it.source }.distinct().size > 1 })
             add("The same source URI has conflicting inspection facts. Reselect that source.")
         clips.forEach { clip ->
-            addAll(Planner.validate(clip.source, clip.trim, clipSettings(clip, output, sequence.canvas), caps).map { "${clip.id}: $it" })
+            addAll(Planner.validate(clip.source, clip.trim, clipSettings(clip, output, sequence.canvas), caps, allowSilentAudioSegment = true).map { "${clip.id}: $it" })
         }
         val counts = runCatching { frames(sequence) }.getOrElse { add(it.message ?: "Invalid movie timing."); emptyList() }
         val overlap = overlapFrames(sequence)
