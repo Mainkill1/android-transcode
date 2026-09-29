@@ -16,6 +16,9 @@ android {
     }
     buildFeatures { compose = true }
     buildTypes {
+        getByName("debug") {
+            if (providers.gradleProperty("formaLab").orNull == "true") applicationIdSuffix = ".lab"
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -48,6 +51,7 @@ dependencies {
     androidTestImplementation(libs.compose.test)
     androidTestImplementation(libs.androidx.test)
     androidTestImplementation(libs.androidx.runner)
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
 }
 
 // UI-only debug builds remain useful, but cannot be promoted to a release by accident.

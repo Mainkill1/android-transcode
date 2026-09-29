@@ -206,9 +206,7 @@ class HardwareAccelerationLabTest {
     }
 
     private fun observedDecoder(log: String): String {
-        val names = Regex("Found decoder ([A-Za-z0-9._-]+)").findAll(log).map { it.groupValues[1] }.toSet()
-        check(names.size == 1) { "No unambiguous actual decoder component was observed; do not claim hardware decode." }
-        val name = names.single()
+        val name = LabDiagnostics.decoderComponent(log)
         val info = MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.singleOrNull { it.name == name }
         check(Build.VERSION.SDK_INT >= 29 && info != null && !info.isEncoder && info.isHardwareAccelerated && !info.isSoftwareOnly) {
             "The observed decoder is not identified as hardware by Android."

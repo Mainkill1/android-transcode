@@ -25,6 +25,10 @@ fun accelerationLabChecks() {
     val async = variant(LabMode.NDK_ASYNC)
     expect(async.windowed(2).any { it == listOf("-ndk_async:v", "1") }, "Async option enabled")
     expect(async.windowed(2).any { it == listOf("-bsf:v", "extract_extradata") }, "Async mux extradata caveat handled")
+    expect(LabDiagnostics.decoderComponent("[h264_mediacodec @ 0x123] MediaCodec started successfully: codec = c2.qti.avc.decoder, ret = 0\n") == "c2.qti.avc.decoder", "Pinned decoder startup identifies the actual component")
+    rejects("Multiple started decoders are ambiguous") {
+        LabDiagnostics.decoderComponent("[h264_mediacodec @ 0x123] MediaCodec started successfully: codec = first.decoder, ret = 0\n[h264_mediacodec @ 0x456] MediaCodec started successfully: codec = other.decoder, ret = 0\n")
+    }
     val decode = variant(LabMode.DECODE_BUFFER)
     expect(decode.take(decode.indexOf("-i")).windowed(2).any { it == listOf("-c:v", "h264_mediacodec") }, "Hardware decode is an input option")
     expect("-hwaccel_output_format" !in decode && "-vf" in decode, "Buffer decode is not an opaque surface graph")

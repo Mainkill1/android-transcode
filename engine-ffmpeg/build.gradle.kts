@@ -14,5 +14,6 @@ kotlin { jvmToolchain(17) }
 dependencies {
     api(project(":core"))
     implementation(libs.coroutines)
+    testImplementation(libs.junit)
     if (nativeEnabled) implementation("com.arthenica:ffmpeg-kit-next:9.0.0")
 }
