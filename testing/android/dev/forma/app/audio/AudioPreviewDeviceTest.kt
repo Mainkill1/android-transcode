@@ -9,6 +9,8 @@ import dev.forma.core.audio.*
 import dev.forma.ffmpeg.*
 import dev.forma.ffmpeg.audio.*
 import kotlinx.coroutines.*
+import org.junit.Assume.assumeTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.json.JSONObject
@@ -18,6 +20,11 @@ import kotlin.math.*
 
 @RunWith(AndroidJUnit4::class)
 class AudioPreviewDeviceTest {
+    @Before fun requireNativeOptIn() {
+        assumeTrue("Run explicitly with -e formaNative true on a native Android build.",
+            InstrumentationRegistry.getArguments().getString("formaNative") == "true")
+    }
+
     @Test fun boundedPreviewUsesExportGraphAndPlaysFloatPcm():Unit=runBlocking(Dispatchers.IO) {
         val instrumentation=InstrumentationRegistry.getInstrumentation();val context=instrumentation.targetContext
         val dir=File(context.cacheDir,"preview-test-${UUID.randomUUID()}").apply { check(mkdirs()) };val report=JSONObject()

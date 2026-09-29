@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
+import org.junit.Assume.assumeTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.math.*
@@ -21,6 +23,11 @@ import kotlin.math.*
 /** Test-only independent PCM oracle; production prepare/export and packaged native engine. */
 @RunWith(AndroidJUnit4::class)
 class AudioDspDeviceTest {
+    @Before fun requireNativeOptIn() {
+        assumeTrue("Run explicitly with -e formaNative true on a native Android build.",
+            InstrumentationRegistry.getArguments().getString("formaNative") == "true")
+    }
+
     @Test fun packagedSignalContracts(): Unit = runBlocking(Dispatchers.IO) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val dir = File(context.cacheDir, "audio-dsp-${UUID.randomUUID()}").apply { check(mkdirs()) }
