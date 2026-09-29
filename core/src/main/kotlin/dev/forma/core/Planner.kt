@@ -6,6 +6,9 @@ import java.util.Locale
 object Planner {
     fun duration(source: Source, trim: Trim): Long = (trim.endMs ?: source.durationMs) - trim.startMs
 
+    fun outputDuration(source: Source, trim: Trim, settings: Settings): Long =
+        EditPipeline.duration(source, trim, settings.effects)
+
     fun preset(goal: Goal, quality: Quality): Settings {
         val crf = when (quality) { Quality.SMALL -> 28; Quality.BALANCED -> 23; Quality.CLEAR -> 18 }
         return when (goal) {
@@ -44,6 +47,7 @@ object Planner {
         if (settings.container == Container.MP4 && settings.audio !in setOf(AudioEncoder.AAC, AudioEncoder.NONE))
             add("This MP4 profile supports AAC audio or no audio.")
         if (settings.container == Container.M4A && settings.audio != AudioEncoder.AAC) add("This M4A profile needs AAC.")
+        addAll(EditPipeline.validate(source, trim, settings, caps))
         if (caps != null) {
             if (!caps.available) add(caps.reason)
             else {
@@ -68,8 +72,8 @@ object Planner {
         fun seconds(ms: Long) = String.format(Locale.ROOT, "%.3f", ms / 1000.0)
         return buildList {
             addAll(listOf("-hide_banner", "-loglevel", "warning", "-nostdin", "-n", "-i", input))
-            if (trim.startMs > 0) addAll(listOf("-ss", seconds(trim.startMs)))
-            addAll(listOf("-t", seconds(duration(source, trim))))
+            if (settings.effects.isNeutral && trim.startMs > 0) addAll(listOf("-ss", seconds(trim.startMs)))
+            addAll(listOf("-t", seconds(outputDuration(source, trim, settings))))
             if (settings.container == Container.M4A) add("-vn") else {
                 addAll(listOf("-map", "0:v:0", "-c:v", settings.video.ffmpeg))
                 if (settings.rateControl == RateControl.QUALITY) {
@@ -85,6 +89,7 @@ object Planner {
                 val filters = buildList {
                     if (settings.deinterlace) add("yadif")
                     if (settings.denoise) add("hqdn3d")
+                    addAll(EditPipeline.videoFilters(source, trim, settings))
                     val h = if (settings.maxHeight == 0) "ih" else "min(ih,${settings.maxHeight})"
                     add("scale=-2:'trunc($h/2)*2'")
                 }
@@ -96,6 +101,8 @@ object Planner {
                 addAll(listOf("-map", "0:a:${settings.audioTrack}", "-c:a", settings.audio.ffmpeg))
                 if (settings.audio != AudioEncoder.FLAC) addAll(listOf("-b:a", "${settings.audioKbps}k"))
                 if (settings.stereo) addAll(listOf("-ac", "2"))
+                val audioFilters = EditPipeline.audioFilters(source, trim, settings)
+                if (audioFilters.isNotEmpty()) addAll(listOf("-af", audioFilters.joinToString(",")))
             }
             addAll(listOf("-sn", "-dn", "-map_chapters", "-1", "-map_metadata", if (settings.keepMetadata) "0" else "-1"))
             if (settings.container in setOf(Container.MP4, Container.M4A)) addAll(listOf("-movflags", "+faststart"))

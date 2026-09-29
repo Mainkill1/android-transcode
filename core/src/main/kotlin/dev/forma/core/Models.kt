@@ -34,7 +34,8 @@ data class Settings(
     val stereo: Boolean = true,
     val denoise: Boolean = false,
     val deinterlace: Boolean = false,
-    val keepMetadata: Boolean = false
+    val keepMetadata: Boolean = false,
+    val effects: ClipEffects = ClipEffects()
 )
 
 /** URI identity is never converted into an arbitrary filesystem path. */
@@ -50,7 +51,9 @@ data class Source(
     val bytes: Long = -1
 )
 data class Trim(val startMs: Long = 0, val endMs: Long? = null)
-data class SourceEdit(val source: Source, val trim: Trim = Trim())
+data class SourceEdit(val source: Source, val trim: Trim = Trim(), val effects: ClipEffects = ClipEffects()) {
+    fun snapshot(settings: Settings): Settings = settings.copy(effects = effects)
+}
 data class Editor(
     val settings: Settings = Settings(),
     val advanced: Boolean = false,
