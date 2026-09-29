@@ -243,7 +243,7 @@ not merge the other drafts.
 
 Every row below has an implemented production consumer. The direct native/Android
 suite passed 26/26 on OnePlus LE2125, API 36, arm64, 4 KiB pages at production
-revision `ea886a2`. Host tests cover pure contracts and persisted data. The matrix
+revision `ac41edf`, including both WebP alpha variants. Host tests cover pure contracts and persisted data. The matrix
 describes implemented behavior; separate UI/accessibility/API and 16 KiB runtime
 gates below remain pending.
 
@@ -284,7 +284,7 @@ gates below remain pending.
 | UX-10 | `ImagePreviewController` | shared 32 MiB cache reserve, 150 ms debounce, superseded cancellation/join, immutable revision/key fence |
 | EXP-01 | `ImagePlanner / ImageVerifier` | qualified encoder/demuxer/muxer/pixel-format/filter routes; full decode |
 | EXP-02 | `ImageExportPanel / ImagePlanner` | JPEG qscale mapping, WebP quality, PNG compression effort |
-| EXP-03 | `ImagePlanner` | PNG RGBA and lossless WebP BGRA; no implied untouched pixels |
+| EXP-03 | `ImagePlanner` | PNG RGBA and lossless/lossy WebP BGRA with exact decoded alpha; no implied untouched pixels |
 | EXP-04 | `ImageFitPolicy / ImageTranscoder` | strict finalized bytes; <=7 distinct attempts, always from original |
 | EXP-05 | `ImageGeometry / ImageVerifier` | exact geometry and graph-derived alpha hash; resize fit only on explicit consent |
 | EXP-06 | `ImagePlanner / ImageExportPanel` | explicit opaque JPEG flatten color; same visual preview graph |
@@ -307,9 +307,13 @@ The corrected `ea886a2` pair passed 26/26 in fresh run
 `e606eaf0-35fc-46e7-85e6-4e35ff69155c` (JUnit OK 1, zero skipped cases).
 Its source hashes, prepared routes/arguments, decoded output and installed APK
 identity were verified by the root agent. The prior report remains a historical
-failure.
+failure. A later WebP-focused extension found lossy YUVA420P conversion changed
+alpha values. The BGRA encoder-input correction preserves the exact alpha check;
+`ac41edf` passed the extended 26/26 suite in fresh run
+`c84b78a2-f1dc-4b5f-a8b7-01ed874399bc`, including independently decoded lossless
+pixels and lossy colors/alpha. Native source and licensing pins are unchanged.
 
-Host gates: 140 JVM tests (core 77, engine 20, app 43), zero failures/skips;
+Host gates: 143 JVM tests (core 78, engine 20, app 45), zero failures/skips;
 matching lab APK assembly and debug lint;
 39 CLI core checks and 14 Android/native-build contract tests. A product-only
 release archive builds with `testing/image` physically absent and
@@ -343,12 +347,26 @@ Product-only unsigned release APK SHA-256:
 it was built from `ea886a2` with image tests physically absent, retains product
 image rendering, and contains no test runner/fixture/report/UI/provider entries.
 
-The pending WebP-focused extension runs lossless/lossy alpha variants inside
-`alpha_geometry`; the existing 26-case pass does not itself qualify those variants.
+The extended native-qualified `ac41edf` app APK SHA-256 is
+`233837c47ebd687b216b609e8d1a319291a693bbd1ac4b344d595396b3f53300`;
+its matching test APK is
+`718fd175d2cd4e1a7a769317b2dba7b877da28ad853fc7d06d95ea8bb185333e`.
+The subsequent `3310a26` UI-only correction removes unsafe recycling of published
+bitmaps and serializes platform display decoding. The actual Share/editor/service
+test exposed the original recycled-bitmap crash; its corrected physical retry is
+pending. Decode dimensions and preview budgets remain bounded. Its app/test APKs
+are `0a831af90192b71137c9d26c554c54a327376d981115b4db41d3d20efd3d653e` and
+`881c9d0dc76a86fc771b2121a4c72c2bfe1d8eacdf58fcf49e85eb6c1d008d2a`.
+The current `3310a26` product-only unsigned release APK SHA-256 is
+`0f16ae3c61ed9060450a7f2aa27d7a737cb99823aedb291ccefb5be834b4cb65`;
+the same physical-removal, DEX/manifest/mapping exclusion and native payload gates
+pass. Release packaging checks do not establish release runtime qualification.
+
 Parent-owned provenance/reports are retained under `vendor/pr-readiness/pr8` and
 `vendor/pr-readiness/pr8-native-provenance.json` outside source commits.
 
-Pending root-owned qualification: WebP-focused extension; ordinary native/Compose
+Pending root-owned qualification: corrected actual Share/editor/service flow and
+bitmap redraw regression; ordinary native/Compose
 regressions; Compose large-text,
 TalkBack, keyboard, lifecycle/Share/Save flows; API 26/27 and another vendor when
 available; actual 16 KiB page-size execution. Root alone owns ADB and retains run

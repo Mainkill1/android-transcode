@@ -19,7 +19,7 @@
         "Identity PNG preserves decoded pixels."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "orientation_all_eight",
@@ -34,7 +34,7 @@
         "Actual EXIF JPEG variants use independent known corner mapping through native export and both available platform display adapters; output orientation is 1."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "geometry_crop_turn_resize",
@@ -49,7 +49,7 @@
         "1200x800 crop 0.25,0.25,0.75,0.75 then clockwise quarter turn and longest edge 300 produces 200x300."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "geometry_odd_png",
@@ -63,7 +63,7 @@
         "101x77 identity PNG remains 101x77 with exact pixels."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "invalid_crop",
@@ -112,7 +112,7 @@
         "Actual native alpha WebP lossless preserves decoded pixels; lossy WebP has independently bounded corner RGB error and exact decoded alpha; both fully decoded and stripped."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-native-base-pending-webp-extension"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "alpha_blur_edges",
@@ -126,7 +126,7 @@
         "Declared premultiplied-edge oracle detects no added fringe."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "jpeg_alpha_block",
@@ -140,7 +140,7 @@
       ],
       "expectedError": "ALPHA_WOULD_BE_LOST",
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "jpeg_flatten",
@@ -153,7 +153,7 @@
         "Actual native JPEG flattened pixels plus production lossless proxy and actual-pixel previews agree with explicit white flatten consent."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "adjustments_neutral",
@@ -169,7 +169,7 @@
         "Neutral PNG pipeline omits correction and retains decoded pixels."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "adjustments_known_pixels",
@@ -185,7 +185,7 @@
         "Defined formula golden values differ by at most one 8-bit code value before lossy encoding."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "markup_unicode",
@@ -199,7 +199,7 @@
         "Multiline, RTL and combining text remain present with correct layout bounds."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "solid_redaction",
@@ -213,7 +213,7 @@
         "Opaque region covers target; export contains no source thumbnail, project or original attachment."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "source_corrupt",
@@ -227,7 +227,7 @@
       ],
       "expectedError": "DECODE_FAILED",
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "source_animation",
@@ -241,7 +241,7 @@
       ],
       "expectedError": "UNSUPPORTED_IMAGE",
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "source_too_large",
@@ -271,7 +271,7 @@
       ],
       "expectedError": "UNSUPPORTED_IMAGE",
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "source_uri_revoked",
@@ -287,7 +287,7 @@
       ],
       "expectedError": "SOURCE_ACCESS",
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "export_format_mismatch",
@@ -301,7 +301,7 @@
       ],
       "expectedError": "OUTPUT_INVALID",
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "export_cap_under",
@@ -342,7 +342,7 @@
         "Measured native JPEG quality-90 candidate exceeds a cap between measured 90/81 candidates; fresh prepare retries from original with <=7 attempts and strict finalized bytes."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "export_cap_exhausted",
@@ -357,7 +357,7 @@
       ],
       "expectedError": "CANNOT_FIT",
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "cancel_prepare",
@@ -372,7 +372,7 @@
       ],
       "expectedError": "CANCELLED",
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "cancel_encode",
@@ -387,7 +387,7 @@
       ],
       "expectedError": "CANCELLED",
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "cancel_verify",
@@ -402,7 +402,7 @@
       ],
       "expectedError": "CANCELLED",
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "preview_stale",
@@ -416,7 +416,7 @@
         "Old revision finishing last cannot overwrite the current preview; Original is labeled."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "queue_snapshot",
@@ -458,7 +458,7 @@
       ],
       "expectedError": "DRAFT_CORRUPT",
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "release_no_tests",
@@ -499,7 +499,7 @@
       ],
       "expectedError": "OUTPUT_EXISTS",
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     },
     {
       "id": "memory_budget",
@@ -532,17 +532,21 @@
         "Real imported still is edited, queued, encoded, fully decoded, size-verified and saved as a new copy."
       ],
       "implementationStatus": "implemented",
-      "qualificationStatus": "verified-oneplus-le2125-api36-ea886a2"
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     }
   ],
-  "qualification": "host and artifact gates verified; physical/native and Android gates pending root",
+  "qualification": "143 host checks and latest3310a26 release artifact gates verified; native/Android direct26 includingWebP passedac41edf; correctedUI/service retry pending root",
   "qualificationEvidence": {
-    "productionRevision": "ea886a29fa918966692c43549d26d7fd42e4073a",
-    "directAllRunId": "e606eaf0-35fc-46e7-85e6-4e35ff69155c",
+    "productionRevision": "ac41edf4d22ba521643d4725321b08bf88801458",
+    "directAllRunId": "c84b78a2-f1dc-4b5f-a8b7-01ed874399bc",
     "directAllPassed": 26,
     "directAllSelected": 26,
     "device": "OnePlus LE2125 / API36 / arm64 / 4096-byte pages",
-    "webpExtension": "pending-focused-run",
-    "remaining": "ordinary native/UI regressions, manual accessibility/large text, API26/27/other vendor and actual16KiB runtime"
+    "webpExtension": "verified-lossless-and-lossy-alpha",
+    "remaining": "ordinary native/UI regressions, manual accessibility/large text, API26/27/other vendor and actual16KiB runtime",
+    "latestUiRevision": "3310a2686896a67b198d3bd9d0bd7ff4260b875c",
+    "latestUiStatus": "pending-device-retry",
+    "hostTests": 143,
+    "releaseSha256": "0f16ae3c61ed9060450a7f2aa27d7a737cb99823aedb291ccefb5be834b4cb65"
   }
 }
