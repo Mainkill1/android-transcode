@@ -1,8 +1,9 @@
 # Isolated Android acceleration lab
 
-**Draft; Android compilation and physical-device qualification have not been run
-by the authoring session.** This directory contains test code, not an app service,
-receiver or production fallback. The shipping app still uses its checked FFmpeg
+**Blocked Draft.** Native Android build and selected OnePlus 9 Pro routes are
+now exercised; the required independent-vendor/OnePlus 15 matrix and working
+surface adapter remain blocked. See [observed qualification and exact artifacts](../../docs/acceleration-device-validation.md).
+This directory contains test code, not an app service, receiver or production fallback. The shipping app still uses its checked FFmpeg
 buffer-input hardware path. See [research and investment order](../../docs/android-hardware-acceleration-research.md).
 
 ## What runs
