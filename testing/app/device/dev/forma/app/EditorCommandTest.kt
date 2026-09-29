@@ -164,7 +164,7 @@ class EditorCommandTest {
             "-f","lavfi","-i","color=blue:size=360x640:rate=25:duration=3",
             "-c:v","libx264","-pix_fmt","yuv420p","-an","-f","mp4",b.absolutePath)) {}
         check(generatedB.exitCode == 0) { generatedB.diagnostics }
-        val c=File(directory,"movie-video-delay.mp4")
+        val c=File(directory,"movie-source-video-delay.mp4")
         val generatedC=graph.bridge.execute(listOf("-hide_banner","-loglevel","error","-nostdin","-n",
             "-itsoffset","0.300","-f","lavfi","-i","color=red:size=640x360:rate=30:duration=3",
             "-f","lavfi","-i","sine=frequency=440:sample_rate=48000:duration=3",
