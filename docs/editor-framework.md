@@ -77,15 +77,15 @@ The [movie integration plan](superpowers/plans/2026-09-29-movie-integration.md) 
 
 The attached OnePlus 9 Pro LE2125, API 36, arm64, 4 KB pages ran the actual pinned source-built FFmpeg through the production renderer. Matching lab APK identities are recorded below.
 
-- **47 JVM tests**, native lab/test assembly and lint passed. Desktop verification passed **22 exports**, including WebM/MKV and clockless WAV; those are desktop results.
-- **13 physical exports passed**: seven movies (cut, dissolve, speed, mixed-silent audio-only, strict byte cap, rendered preview and delayed video), five clip-effect cases and a downloaded WAV trimmed to 3.5-second M4A. All thirteen pulled files passed an independent strict full decode. Movie decoded frames were exactly 120/105/90/120/120/120 for their selected durations; delayed video retained a black opening gap then its red picture.
+- **50 JVM tests** pass in the current saved-intent/Save-guard follow-up; native lab/test assembly and lint pass. Desktop verification passed **22 exports**, including WebM/MKV and clockless WAV; those are desktop results.
+- **13 physical exports passed at native checkpoint `106c049`, before the Save-guard follow-up**: seven movies (cut, dissolve, speed, mixed-silent audio-only, strict byte cap, rendered preview and delayed video), five clip-effect cases and a downloaded WAV trimmed to 3.5-second M4A. All thirteen pulled files passed an independent strict full decode. Movie decoded frames were exactly 120/105/90/120/120/120 for their selected durations; delayed video retained a black opening gap then its red picture.
 - Native movies reread unchanged originals and passed queue round-trip, cancellation, impossible-cap rejection and failed durable-completion rollback checks. Per-stream verification rejects full-length audio hiding truncated video; source-rate video must supply positive decoded-frame evidence. Missing WAV clocks use observed packet/frame timestamps.
-- **Four instrumentation tests passed with no skips**: two MovieControls cases, real foreground MovieService completion and byte-exact preservation of incomplete saved intent. Sparse external recipes stay supported; saved trim/effect snapshots are strict.
+- **Four instrumentation tests passed with no skips at that earlier checkpoint**: two MovieControls cases, real foreground MovieService completion and byte-exact preservation of incomplete saved intent. Sparse external recipes stay supported; saved trim/effect snapshots are strict.
 - The product-only minified release built with the entire testing directory removed and `formaTests=false`. Release DEX excludes lab classes, runner and command arguments. Lab/release native payload and 16 KB ELF/APK ZIP alignment pass; this is not testing on a 16 KB phone.
 
 Fresh native run IDs: movie `405d9dc943714da38cad5efe3fb0d12e`, clip `1084745b80174e8787d86dc2a3a9f401`, downloaded WAV `0a1c586f674a4a539f313b38a437843c`.
 
-Artifact SHA-256:
+Earlier native checkpoint artifact SHA-256 (before the Save-guard follow-up):
 
 ```text
 lab      dcf8cd9666941f43cd2d45097bec1c25bbbf2536eb2f87778be78e03ca2e5572
@@ -94,3 +94,38 @@ release  0e36c884ebeda0e266636eacbd1831ed7ba2b5fc4d7e7b5657e27c104ee1180a
 ```
 
 Human listening, TalkBack exploration, larger VFR/rotation fixtures and sustained thermal/quality qualification remain unclaimed. Draft movie edits survive Activity recreation; durable process-restart persistence applies to queued snapshots. Still images, multitrack editing and draft-project persistence remain documented later scope. Integrating the other editor/settings PRs requires reconciling their queue envelopes.
+
+## Save-copy follow-up and release isolation
+
+Save checks the destination before opening it for write or entering failed-copy deletion.
+The source URI, nonempty originals and aliases, and destinations whose empty state cannot
+be read are rejected. A genuinely empty new document remains writable. The guard also
+protects sources privately copied during import, where URI equality alone is insufficient.
+Host regressions and a disposable Android provider cover these cases; the earlier 13
+native exports and four instrumentation results above remain revision-specific evidence.
+
+The final Save-guard release was rebuilt with all of `testing/` physically quarantined
+and `-PformaTests=false`; the directory was restored afterward. Native payload and
+16 KiB ELF/APK alignment checks pass. Release DEX and manifest contain no test runner,
+`ExportDestinationDeviceTest`, `WritableExportTestProvider`, movie/clip test classes or
+opt-in command arguments. Debug/lab APKs were unchanged by this release-only gate.
+Workspace evidence: `vendor/pr-readiness/pr2-final-save-release/{build.log,native-report.json,dex-isolation.json,release.sha256,debug-pair-unchanged.log}`.
+
+Final minified unsigned release SHA-256:
+
+```text
+a0c5c57ec05f30966e896b9cb25cfd3d7eafbe724c11acce883c4b98d9926316
+```
+
+The matching Save-guard lab app/test APKs passed the fresh physical
+`ExportDestinationDeviceTest` (**1 test, no skips**) on the attached phone. Its provider
+confirmed originals/aliases remained unchanged, unreadable destinations caused no write,
+and an empty new document received the output. Save behavior changed; the 13 native
+exports above remain the earlier `106c049` renderer evidence.
+
+Matching final Save-guard APK identities (workspace `vendor/pr-readiness/pr2-save-guard-apk-sha256.txt`):
+
+```text
+lab   2c1fd96b41a4e44a1c464e59b9e53d12eb6c530babe07a82cb346af5b756e75c
+test  59ec8233b5b4ea679e18bb2e7bf0df47af4fb19bac4051bb3c8d0eb1847c5d8c
+```

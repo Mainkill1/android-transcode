@@ -25,6 +25,7 @@ android {
     sourceSets["test"].java.setSrcDirs(if (formaTests) listOf(rootProject.file("testing/app/unit")) else emptyList<File>())
     sourceSets["androidTest"].java.setSrcDirs(if (formaTests)
         listOf(rootProject.file("testing/app/device"), rootProject.file("testing/shared")) else emptyList<File>())
+    if (formaTests) sourceSets["androidTest"].manifest.srcFile(rootProject.file("testing/shared/AndroidManifest.xml"))
     buildTypes {
         if (formaTests) create("lab") {
             initWith(getByName("debug"))

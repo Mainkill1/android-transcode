@@ -119,3 +119,25 @@ adb shell am instrument -w -e class dev.forma.app.MovieServiceTest -e formaMovie
 ```
 
 This opt-in test requires an idle empty lab queue and a native build. It generates its own fixture, starts the production service while the lab activity is foreground, requires a durable Completed output, waits for native ownership to end, then restores only its empty queue snapshot and removes its own media. It refuses foreign queue entries. Ordinary UI suites skip this native test unless explicitly requested.
+
+## Save destination regression
+
+`dev.forma.app.ExportDestinationDeviceTest` uses an instrumentation-only disposable
+writable provider to check Save-copy behavior: original and alias documents stay byte
+exact, unreadable destinations are rejected before opening for write or deletion, and
+an observably empty new document receives the output. The isolated Save test supplies
+private-source identity; native import/encoding have separate qualification gates.
+`ExportDestinationTest` provides the host guard regression. Current JVM XML reports
+contain 50 passing tests. The earlier 13 physical exports/four UI-service results are
+recorded with their earlier checkpoint in the linked editor document.
+
+The final release gate removes the entire `testing/` tree with restoration on failure,
+builds with `-PformaTests=false`, validates native payload/alignment, and checks release
+DEX/manifest for absent test classes and command hooks. Evidence is under the workspace
+`vendor/pr-readiness/pr2-final-save-release`; this gate does not rebuild installed lab
+APKs or establish a new phone result.
+
+The matching Save-guard lab pair now has a fresh physical provider result:
+`ExportDestinationDeviceTest` passed one test with no skips. Exact lab/test identities
+are in the editor document and workspace `vendor/pr-readiness/pr2-save-guard-apk-sha256.txt`.
+This Save check does not restamp the earlier `106c049` native renderer exports.
