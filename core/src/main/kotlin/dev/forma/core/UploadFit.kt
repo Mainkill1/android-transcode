@@ -11,6 +11,7 @@ object UploadFit {
     fun initial(settings: Settings, durationMs: Long, hasAudio: Boolean, target: Long): Settings {
         validateTarget(target)
         require(durationMs > 0) { "Read the edited duration before budgeting." }
+        require(!hasAudio || settings.audio.usesBitrate || settings.container.audioOnly){"A capped video needs bitrate-controlled audio; keep lossless audio in an audio-only output or remove the limit."}
         // A fixed/lossless audio policy gets one measured candidate, never fictitious bitrate retries.
         if(settings.container.audioOnly && hasAudio && !settings.audio.usesBitrate) return settings
         val reserved = maxOf(32_768L, target / 100)
@@ -38,3 +39,20 @@ object UploadFit {
     }
 }
 
+
+/** All callers use the same duration, budget and validation for a single clip or a composed movie. */
+object JobPlans {
+    fun sourceUris(job: JobSpec): Set<String> = job.sequence?.timeline?.clips?.map { it.source.uri }?.toSet() ?: setOf(job.source.uri)
+    fun duration(job: JobSpec): Long = job.sequence?.let {SequencePlanner.outputDuration(it,job.settings)}
+        ?: Planner.outputDuration(job.source, job.trim, job.settings)
+    fun hasAudio(job: JobSpec): Boolean = job.sequence?.let { SequencePlanner.hasAudio(it, job.settings) }
+        ?: (job.source.audioTracks > 0 && job.settings.audio != AudioEncoder.NONE)
+    fun settings(job: JobSpec): Settings {
+        val base = job.sequence?.let { job.settings.copy(maxHeight = it.canvas.height, fps = it.canvas.fps) } ?: job.settings
+        return job.targetBytes?.let { UploadFit.initial(base, duration(job), hasAudio(job), it) } ?: base
+    }
+    fun validate(job: JobSpec, caps: Capabilities? = null): List<String> = try {
+        val s = settings(job)
+        job.sequence?.let { SequencePlanner.validate(it, s, caps) } ?: Planner.validate(job.source, job.trim, s, caps)
+    } catch (error: IllegalArgumentException) { listOf(error.message ?: "Invalid export plan.") }
+}

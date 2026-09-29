@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "startMs": 1000,
+  "endMs": 5000,
+  "container": "MP4",
+  "video": "X264",
+  "audio": "AAC",
+  "maxHeight": 720,
+  "fps": 30,
+  "effects": {
+    "speedPercent": 125,
+    "rotation": "CLOCKWISE",
+    "brightnessPercent": 10,
+    "saturationPercent": 110,
+    "fadeInMs": 250,
+    "fadeOutMs": 500,
+    "volumePercent": 75,
+    "audioFadeInMs": 250,
+    "audioFadeOutMs": 500
+  }
+}

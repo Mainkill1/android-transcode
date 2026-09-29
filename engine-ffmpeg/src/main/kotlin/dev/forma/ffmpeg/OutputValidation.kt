@@ -32,7 +32,9 @@ suspend fun verifyOutputStreams(bridge: FfmpegBridge, source: Source, trim: Trim
         require(keptEnd>keptStart) { "An included original stream has no data in the selected range." }
         val relative=Window(keptStart-from,keptEnd-from)
         // A processed graph explicitly resets PTS; neutral exports preserve selected stream offsets.
-        return if(graph?.processed==true) Window(0,relative.end-relative.start) else relative
+        val speed=settings.effects.speedPercent/100.0
+        return if(graph?.originNormalized==true) Window(0,((relative.end-relative.start)/speed).toLong())
+            else Window((relative.start/speed).toLong(),(relative.end/speed).toLong())
     }
     fun timing(stream: StreamFacts, expected: Window,toleranceUs: Long,label: String) {
         val start=stream.startUs;val duration=stream.durationUs
@@ -59,7 +61,7 @@ suspend fun verifyOutputStreams(bridge: FfmpegBridge, source: Source, trim: Trim
         val sound=audios.single()
         val selected=original.streams.filter { it.kind==StreamKind.AUDIO }.getOrNull(settings.audioTrack)
             ?: error("The selected original audio stream is missing.")
-        val expected=if(graph?.processed==true) Window(0,graph.outputDurationUs) else window(selected)
+        val expected=if(graph?.originNormalized==true) Window(0,graph.outputDurationUs) else window(selected).let { if(settings.audioEdit.rate.value==1.0)it else Window((it.start/settings.audioEdit.rate.value).toLong(),(it.end/settings.audioEdit.rate.value).toLong()) }
         val rate=sound.sampleRate
         expect(rate!=null && rate>0,"Output audio sample rate is unknown.")
         val tolerance=maxOf(50_000L,ceil(2_048_000_000.0/requireNotNull(rate)).toLong())

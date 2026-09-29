@@ -50,6 +50,23 @@ interface FfmpegBridge {
     /** Complete native routes retain the same immutable media intent. */
     suspend fun prepareAttempts(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<PreparedAttempt> =
         listOf(PreparedAttempt(prepare(source, trim, settings, input, output)))
+    suspend fun prepareSequence(sequence:SequenceSpec,settings:Settings,inputs:List<String>,output:String):List<String> {
+        val resolved=if(settings.video.automatic)settings.copy(video=settings.video.softwareVariant())else settings
+        val problems=SequencePlanner.validate(sequence,resolved,capabilities())
+        require(problems.isEmpty()){problems.joinToString("\n")}
+        require(inputs.size==sequence.timeline.clips.size){"Source count does not match the movie."}
+        sequence.timeline.clips.forEachIndexed {index,clip ->
+            val s=SequencePlanner.clipSettings(clip,resolved,sequence.canvas)
+            if(!resolved.container.audioOnly || (clip.source.audioTracks>0 && s.audio!=AudioEncoder.NONE))prepare(clip.source,clip.trim,s,inputs[index],output)
+        }
+        return SequencePlanner.arguments(sequence,resolved,inputs,output)
+    }
+    suspend fun prepareSequenceAttempts(sequence:SequenceSpec,settings:Settings,inputs:List<String>,output:String):List<PreparedAttempt> =
+        listOf(PreparedAttempt(prepareSequence(sequence,settings,inputs,output),EncodeDecision(EncodeBackend.SOFTWARE,
+            if(settings.container.audioOnly)null else settings.video.softwareVariant().ffmpeg,
+            reason="Movie composition uses the permitted software graph route.")))
+    suspend fun prepareSequenceAudio(sequence:SequenceSpec,settings:Settings,inputs:List<String>,output:String):List<String> =
+        SequencePlanner.arguments(sequence,settings.copy(video=settings.video.softwareVariant()),inputs,output,audioTransport=true)
     suspend fun execute(arguments: List<String>, onProgress: (Progress) -> Unit): NativeResult
 }
 

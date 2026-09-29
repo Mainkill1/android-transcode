@@ -6,7 +6,7 @@ object EncoderChoiceChecks {
         val auto = VideoEncoder.valueOf("H264_AUTO")
         val settings = Settings(video = auto, rateControl = RateControl.BITRATE, fps = 30)
         fun valid(s: Settings, enc: Set<String>) = Planner.validate(source, Trim(), s,
-            Capabilities(true, "", enc + "aac", setOf("mp4", "webm"), setOf("scale"))).isEmpty()
+            Capabilities(true, "", enc + "aac", setOf("mp4", "webm"), setOf("scale", "fps"))).isEmpty()
         check(valid(settings, setOf("h264_mediacodec"))) { "Auto works even when only hardware is compiled" }
         check(valid(settings, setOf("libx264"))) { "Auto works when only CPU is compiled" }
         check(!valid(settings.copy(rateControl = RateControl.QUALITY), setOf("h264_mediacodec"))) {

@@ -24,16 +24,21 @@ class AudioPreviewRenderer(private val bridge:FfmpegBridge) {
         require(duration>0)
         val settings=r.settings
         val original=File(r.directory,"original.wav");val rendered=File(r.directory,"rendered.wav")
-        val originalSettings=settings.copy(audioEdit=AudioEdit(output=settings.audioEdit.output.copy(normalization=NormalizationPolicy(),maxBytes=null),rate=settings.audioEdit.rate))
+        val originalSettings=settings.copy(effects=settings.effects.copy(volumePercent=100,audioFadeInMs=0,audioFadeOutMs=0,normalizeAudio=false),audioEdit=AudioEdit(output=settings.audioEdit.output.copy(normalization=NormalizationPolicy(),maxBytes=null),rate=settings.audioEdit.rate))
         suspend fun produce(value:Settings,file:File,normalize:Boolean) {
             var args=bridge.prepareAudio(r.source,r.trim,value,r.input.path,file.path)
+            var normalizationFilter=""
             if(normalize && value.audioEdit.output.normalization.mode!=NormalizationMode.OFF) {
                 val analyzed=AudioAnalyzer(bridge).analyze(AudioAnalysisRequest(r.identity,r.input,r.source,r.trim,value))
                 val measured=analyzed.measurement
-                args=AudioAnalyzer.appendFilter(args,measured.normalizationFilter(value.audioEdit.output.normalization),AudioGraphPlanner.plan(r.source,r.trim,value).sampleRateHz)
+                normalizationFilter=measured.normalizationFilter(value.audioEdit.output.normalization)
+                args=AudioAnalyzer.appendFilter(args,normalizationFilter,AudioGraphPlanner.plan(r.source,r.trim,value).sampleRateHz)
             }
             args=AudioAnalyzer.appendFilter(args,"atrim=end=${AudioGraphPlanner.number(duration/1000000.0)}",null)
+            val policies=listOf(normalizationFilter to value.audioEdit.output.normalization)
+            args=AudioNormalizationGuard.withDiagnostics(args,policies)
             val result=bridge.execute(args) {};check(result.exitCode==0) { "Preview failed. ${result.diagnostics}" }
+            AudioNormalizationGuard.requireDynamics(result.diagnostics,policies)
             currentCoroutineContext().ensureActive()
             check(file.length() in 1..(32L*1024*1024)) { "Preview exceeded its storage bound." }
         }

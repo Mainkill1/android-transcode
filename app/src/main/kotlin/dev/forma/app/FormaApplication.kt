@@ -50,7 +50,13 @@ class AppGraph(private val application: Application) {
                 java.io.File(application.cacheDir,"audio-preview").deleteRecursively()
                 java.io.File(application.cacheDir,"image-preview").deleteRecursively()
                 val references=imageDrafts.references()
-                if(!references.preserveImports)files.cleanupImports(queue.entries.value.map { it.spec.source.uri }.toSet() + references.uris)
+                val queuedSources=queue.entries.value.flatMap { entry ->
+                    when(val spec=entry.spec) {
+                        is dev.forma.core.image.QueueJobSpec.Av -> dev.forma.core.JobPlans.sourceUris(spec.job) + spec.source.uri
+                        is dev.forma.core.image.QueueJobSpec.Image -> setOf(spec.source.uri)
+                    }
+                }.toSet()
+                if(!references.preserveImports)files.cleanupImports(queuedSources + references.uris)
                 else queue.error.value="Some image drafts cannot be read. Their originals are retained for recovery."
                 initialized = true
             }

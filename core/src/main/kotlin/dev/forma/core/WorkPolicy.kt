@@ -2,6 +2,7 @@ package dev.forma.core
 
 /** Resource policy, not a guarantee about vendor codec pools or device frame times. */
 object WorkPolicy {
+    const val MAX_COMPOSITION_INPUTS = 16
     const val UI_PROGRESS_MS = 250L
     const val NOTIFICATION_MS = 1000L
     fun encodeThreads(processors: Int): Int = (processors - 1).coerceIn(1, 4)
@@ -26,4 +27,20 @@ object WorkPolicy {
             arguments.dropLast(1).flatMap { if(it=="-i")listOf("-threads:v",threads,it) else listOf(it) } +
             outputThreads + arguments.last()
     }
+
+    /** A composed movie has several decoders; do not allocate four threads to every input. */
+    fun withSequenceThreadBudget(arguments: List<String>, processors: Int): List<String> {
+        require(arguments.count { it == "-i" } in 1..MAX_COMPOSITION_INPUTS && "-filter_complex" in arguments)
+        require(arguments.none { it.substringBefore(':') in setOf("-threads", "-filter_threads", "-filter_complex_threads") })
+        return buildList {
+            addAll(listOf("-filter_threads", "1", "-filter_complex_threads", "1"))
+            arguments.dropLast(1).forEach { token ->
+                if (token == "-i") addAll(listOf("-threads:v", "1"))
+                add(token)
+            }
+            if ("-c:v" in arguments) addAll(listOf("-threads:v", encodeThreads(processors).toString()))
+            add(arguments.last())
+        }
+    }
+
 }

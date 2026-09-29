@@ -81,6 +81,7 @@ sealed interface QueueJobSpec {
     val settings:dev.forma.core.Settings
     val preferences:MediaPreferences
     val targetBytes:Long?
+    val sequence:dev.forma.core.SequenceSpec?
     val mime:String
     val extension:String
     data class Av(val job:dev.forma.core.JobSpec):QueueJobSpec {
@@ -90,6 +91,7 @@ sealed interface QueueJobSpec {
         override val settings get()=job.settings
         override val preferences get()=job.preferences
         override val targetBytes get()=job.targetBytes
+        override val sequence get()=job.sequence
         override val mime get()=settings.container.mime
         override val extension get()=settings.container.extension
     }
@@ -101,14 +103,15 @@ sealed interface QueueJobSpec {
         override val settings get()=dev.forma.core.Settings()
         override val preferences get()=job.preferences
         override val targetBytes get()=job.document.output.targetBytes
+        override val sequence:dev.forma.core.SequenceSpec? get()=null
         val format get()=job.resolvedFormat?:job.document.output.format.takeIf { it!=ImageFormat.AUTO }?:if(job.info?.alpha==ImageAlpha.PRESENT)ImageFormat.PNG else ImageFormat.JPEG
         override val mime get()=format.mime
         override val extension get()=format.extension
     }
     fun copy(id:String=this.id,source:dev.forma.core.Source=this.source,trim:dev.forma.core.Trim=this.trim,
         settings:dev.forma.core.Settings=this.settings,preferences:MediaPreferences=this.preferences,
-        targetBytes:Long?=this.targetBytes):QueueJobSpec = when(this) {
-        is Av->Av(job.copy(id=id,source=source,trim=trim,settings=settings,preferences=preferences,targetBytes=targetBytes))
-        is Image->{require(source==this.source && trim==this.trim && settings==this.settings && targetBytes==this.targetBytes){"Use the immutable image document to edit image jobs."};Image(job.copy(id=id,preferences=preferences))}
+        targetBytes:Long?=this.targetBytes,sequence:dev.forma.core.SequenceSpec?=this.sequence):QueueJobSpec = when(this) {
+        is Av->Av(job.copy(id=id,source=source,trim=trim,settings=settings,preferences=preferences,targetBytes=targetBytes,sequence=sequence))
+        is Image->{require(source==this.source && trim==this.trim && settings==this.settings && targetBytes==this.targetBytes && sequence==null){"Use the immutable image document to edit image jobs."};Image(job.copy(id=id,preferences=preferences))}
     }
 }

@@ -48,123 +48,165 @@ object JobCodec {
             }
         })).toString()
 
-    private fun encodeAv(record: JSONObject, j: JobSpec): JSONObject {
-        val s = j.settings
-        return record
-            .put("targetBytes", j.targetBytes ?: JSONObject.NULL)
-            .put("source", JSONObject().put("uri", j.source.uri).put("name", j.source.name)
-                .put("durationMs", j.source.durationMs).put("width", j.source.width).put("height", j.source.height)
-                .put("videoTracks", j.source.videoTracks).put("audioTracks", j.source.audioTracks)
-                .put("hdr", j.source.hdr).put("bytes", j.source.bytes)
-                .put("audioStreams", JSONArray(j.source.audioStreams.map { f ->
-                    JSONObject().put("streamIndex", f.streamIndex).put("sampleRateHz", f.sampleRateHz ?: JSONObject.NULL)
-                        .put("channels", f.channels ?: JSONObject.NULL).put("layout", f.channelLayout ?: JSONObject.NULL)
-                        .put("sampleFormat", f.sampleFormat ?: JSONObject.NULL).put("durationUs", f.durationUs)
-                        .put("codecDelaySamples", f.encoderDelaySamples ?: JSONObject.NULL)
-                        .put("paddingSamples", f.paddingSamples ?: JSONObject.NULL).put("totalSamples", f.totalSamples ?: JSONObject.NULL)
-                        .put("codec", f.codec ?: JSONObject.NULL).put("language", f.language ?: JSONObject.NULL).put("title", f.title ?: JSONObject.NULL).put("timelineOffsetUs", f.timelineOffsetUs ?: JSONObject.NULL)
-                })))
-            .put("trim", JSONObject().put("startMs", j.trim.startMs).put("endMs", j.trim.endMs ?: JSONObject.NULL))
-            .put("settings", JSONObject().put("container", s.container.name).put("video", s.video.name)
-                .put("rateControl", s.rateControl.name).put("crf", s.crf).put("videoKbps", s.videoKbps)
-                .put("maxHeight", s.maxHeight).put("fps", s.fps).put("audio", s.audio.name)
-                .put("audioKbps", s.audioKbps).put("audioTrack", s.audioTrack).put("stereo", s.stereo)
-                .put("denoise", s.denoise).put("deinterlace", s.deinterlace).put("keepMetadata", s.keepMetadata)
-                .put("audioEdit", AudioEditCodec.encode(s.audioEdit)))
+    private fun encodeAv(record: JSONObject, j: JobSpec): JSONObject = record
+        .put("targetBytes", j.targetBytes ?: JSONObject.NULL)
+        .put("sequence", j.sequence?.let(::encodeSequence) ?: JSONObject.NULL)
+        .put("source", encodeSource(j.source)).put("trim", encodeTrim(j.trim)).put("settings", encodeSettings(j.settings))
+
+    private fun encodeSource(source: Source): JSONObject = JSONObject().put("uri", source.uri).put("name", source.name)
+        .put("durationMs", source.durationMs).put("width", source.width).put("height", source.height)
+        .put("videoTracks", source.videoTracks).put("audioTracks", source.audioTracks).put("hdr", source.hdr).put("bytes", source.bytes)
+        .put("audioStreams", JSONArray(source.audioStreams.map { f ->
+            JSONObject().put("streamIndex", f.streamIndex).put("sampleRateHz", f.sampleRateHz ?: JSONObject.NULL)
+                .put("channels", f.channels ?: JSONObject.NULL).put("layout", f.channelLayout ?: JSONObject.NULL)
+                .put("sampleFormat", f.sampleFormat ?: JSONObject.NULL).put("durationUs", f.durationUs)
+                .put("codecDelaySamples", f.encoderDelaySamples ?: JSONObject.NULL)
+                .put("paddingSamples", f.paddingSamples ?: JSONObject.NULL).put("totalSamples", f.totalSamples ?: JSONObject.NULL)
+                .put("codec", f.codec ?: JSONObject.NULL).put("language", f.language ?: JSONObject.NULL)
+                .put("title", f.title ?: JSONObject.NULL).put("timelineOffsetUs", f.timelineOffsetUs ?: JSONObject.NULL)
+        }))
+
+    private fun encodeTrim(trim: Trim): JSONObject = JSONObject().put("startMs", trim.startMs).put("endMs", trim.endMs ?: JSONObject.NULL)
+    private fun encodeSettings(s: Settings): JSONObject = JSONObject().put("container", s.container.name).put("video", s.video.name)
+        .put("rateControl", s.rateControl.name).put("crf", s.crf).put("videoKbps", s.videoKbps)
+        .put("maxHeight", s.maxHeight).put("fps", s.fps).put("audio", s.audio.name)
+        .put("audioKbps", s.audioKbps).put("audioTrack", s.audioTrack).put("stereo", s.stereo)
+        .put("denoise", s.denoise).put("deinterlace", s.deinterlace).put("keepMetadata", s.keepMetadata)
+        .put("audioEdit", AudioEditCodec.encode(s.audioEdit)).put("effects", ClipEffectsCodec.encode(s.effects))
+
+    private fun encodeSequence(sequence: SequenceSpec): JSONObject = JSONObject().put("transitionMs", sequence.transitionMs)
+        .put("canvas", JSONObject().put("width", sequence.canvas.width).put("height", sequence.canvas.height)
+            .put("fps", sequence.canvas.fps).put("fit", sequence.canvas.fit.name).put("backgroundRgb", sequence.canvas.backgroundRgb))
+        .put("clips", JSONArray(sequence.timeline.clips.map { clip -> JSONObject().put("id", clip.id)
+            .put("source", encodeSource(clip.source)).put("trim", encodeTrim(clip.trim)).put("settings", encodeSettings(clip.settings)) }))
+
+    private enum class Family { LEGACY1, AUDIO2, RUNTIME2, EFFECTS2, TAGGED3, SETTINGS3, MOVIE3, MODERN4 }
+
+    /** A historical envelope has one recognized family; never infer missing intent record by record. */
+    private fun family(record: JSONObject, schema: Int): Family = when(schema) {
+        1 -> Family.LEGACY1
+        2 -> {
+            val settings=record.getJSONObject("settings")
+            val signatures=listOf(settings.has("audioEdit"),record.has("targetBytes"),settings.has("effects"))
+            require(signatures.count { it } == 1) { "Unrecognized or hybrid schema-2 intent; the original queue is preserved." }
+            when(signatures.indexOf(true)) { 0 -> Family.AUDIO2; 1 -> Family.RUNTIME2; else -> Family.EFFECTS2 }
+        }
+        3 -> when {
+            record.has("kind") -> Family.TAGGED3
+            record.has("preferences") || record.has("completedAtMs") -> Family.SETTINGS3
+            record.has("sequence") || record.has("targetBytes") || record.getJSONObject("settings").has("effects") -> Family.MOVIE3
+            else -> throw IllegalArgumentException("Unrecognized schema-3 envelope; the original queue is preserved.")
+        }
+        else -> Family.MODERN4
     }
 
     fun decode(text: String): List<QueueEntry> {
-        val root = JSONObject(text)
+        val root=JSONObject(text)
         fields(root,setOf("schema","jobs"))
-        val schema = int(root,"schema")
+        val schema=int(root,"schema")
         require(schema in 1..4) { "Unsupported queue schema. The original file has been preserved." }
-        val jobs = root.getJSONArray("jobs")
-        if(schema == 2) {
-            val families = (0 until jobs.length()).map { index ->
-                val record = jobs.getJSONObject(index)
-                val audio = record.getJSONObject("settings").has("audioEdit")
-                val runtime = record.has("targetBytes")
-                require(audio != runtime) { "Unrecognized schema-2 job intent; the original queue is preserved." }
-                runtime
-            }.distinct()
-            require(families.size <= 1) { "Mixed schema-2 queue envelopes are unsupported; original preserved." }
+        val jobs=root.getJSONArray("jobs")
+        require(jobs.length() <= 200) { "Too many saved jobs." }
+        val families=(0 until jobs.length()).map { family(jobs.getJSONObject(it),schema) }
+        if(schema in 2..3) require(families.distinct().size <= 1) {
+            "Mixed historical queue envelopes are unsupported; the original queue is preserved."
         }
-        // The two published schema-3 envelopes are distinct formats, never a per-record guess.
-        val tagged = (0 until jobs.length()).map { jobs.getJSONObject(it).has("kind") }.distinct()
-        if (schema == 3) require(tagged.size <= 1) { "Mixed legacy queue envelopes are unsupported; original preserved." }
         return (0 until jobs.length()).map { index ->
-            val record = jobs.getJSONObject(index)
-            when {
-                schema == 4 -> decodeTagged(record, schema, preferences = true)
-                schema == 3 && tagged.singleOrNull() == true -> decodeTagged(record, schema, preferences = false)
-                else -> decodeAv(record, schema, tagged = false, preferences = schema == 3)
-            }
+            val record=jobs.getJSONObject(index)
+            val wire=families[index]
+            if(wire == Family.MODERN4 || wire == Family.TAGGED3) decodeTagged(record,wire) else decodeAv(record,wire)
         }.also { require(it.map { entry -> entry.spec.id }.distinct().size == it.size) { "Duplicate job identifiers." } }
     }
 
-    private fun decodeTagged(record: JSONObject, schema: Int, preferences: Boolean): QueueEntry =
-        when (string(record,"kind")) {
-            "av" -> decodeAv(record, schema, tagged = true, preferences = preferences)
-            "image" -> decodeImage(record, preferences)
-            else -> throw IllegalArgumentException("Unsupported queue kind; the original file is preserved.")
-        }
+    private fun decodeTagged(record: JSONObject, family: Family): QueueEntry = when(string(record,"kind")) {
+        "av" -> decodeAv(record,family)
+        "image" -> decodeImage(record,family == Family.MODERN4)
+        else -> throw IllegalArgumentException("Unsupported queue kind; the original file is preserved.")
+    }
 
     private fun identifier(record: JSONObject): String = string(record,"id").also {
         require(UUID.fromString(it).toString() == it) { "Invalid job identifier." }
     }
-
     private fun completionTime(record: JSONObject, preferences: Boolean): Long? =
-        if (!preferences || record.isNull("completedAtMs")) null else integer(record,"completedAtMs").also {
+        if(!preferences || record.isNull("completedAtMs")) null else integer(record,"completedAtMs").also {
             require(it >= 0) { "Invalid saved completion timestamp." }
         }
 
     private fun decodeImage(record: JSONObject, preferences: Boolean): QueueEntry {
-        val base = setOf("kind","id","state","message","resolvedFormat","document","info")
-        fields(record, if(preferences) base + setOf("preferences","completedAtMs") else base)
-        val job = ImageJobSpec(identifier(record), ImageDocumentCodec.decode(record.getJSONObject("document")),
+        val base=setOf("kind","id","state","message","resolvedFormat","document","info")
+        fields(record,if(preferences) base + setOf("preferences","completedAtMs") else base)
+        val job=ImageJobSpec(identifier(record),ImageDocumentCodec.decode(record.getJSONObject("document")),
             if(record.isNull("info")) null else ImageDocumentCodec.decodeInfo(record.getJSONObject("info")),
             if(record.isNull("resolvedFormat")) null else ImageFormat.valueOf(string(record,"resolvedFormat")),
             if(preferences) decodePreferences(record.getJSONObject("preferences")) else MediaPreferences.legacy(Settings()))
-        return QueueEntry(QueueJobSpec.Image(job), JobState.valueOf(string(record,"state")),
-            string(record,"message"), completionTime(record, preferences))
+        return QueueEntry(QueueJobSpec.Image(job),JobState.valueOf(string(record,"state")),string(record,"message"),completionTime(record,preferences))
     }
 
-    private fun decodeAv(record: JSONObject, schema: Int, tagged: Boolean, preferences: Boolean): QueueEntry {
-        val base = setOf("id","state","message","source","trim","settings")
-        val runtime = schema == 2 && record.has("targetBytes")
-        val hasTarget = schema == 4 || runtime
-        fields(record, base + (if(tagged) setOf("kind") else emptySet()) +
-            (if(preferences) setOf("preferences","completedAtMs") else emptySet()) +
-            (if(hasTarget) setOf("targetBytes") else emptySet()))
-        val source = record.getJSONObject("source")
-        val trim = record.getJSONObject("trim")
-        val settingsRecord = record.getJSONObject("settings")
-        val sourceFields = setOf("uri","name","durationMs","width","height","videoTracks","audioTracks","hdr","bytes")
-        val completeWriter = schema >= 3
-        fields(source, if(runtime) sourceFields else sourceFields + "audioStreams",
-            if(completeWriter) sourceFields + "audioStreams" else sourceFields)
-        fields(trim,setOf("startMs","endMs"))
-        val settingFields = setOf("container","video","rateControl","crf","videoKbps","maxHeight","fps","audio","audioKbps","audioTrack","stereo","denoise","deinterlace","keepMetadata")
-        fields(settingsRecord,if(schema == 1 || runtime) settingFields else settingFields + "audioEdit")
-        if(schema > 1 && !runtime) {
-            val edit = settingsRecord.getJSONObject("audioEdit")
-            validateAudioWire(edit, completeWriter)
-            validateSavedAudioNodeIntent(edit)
+    private fun hasAudio(family: Family) = family in setOf(Family.AUDIO2,Family.TAGGED3,Family.SETTINGS3,Family.MODERN4)
+    private fun hasEffects(family: Family) = family in setOf(Family.EFFECTS2,Family.MOVIE3,Family.MODERN4)
+    private fun fullAudioWriter(family: Family) = family in setOf(Family.TAGGED3,Family.SETTINGS3,Family.MODERN4)
+
+    private fun decodeAv(record: JSONObject, family: Family): QueueEntry {
+        val preferences=family == Family.MODERN4 || family == Family.SETTINGS3
+        val tagged=family == Family.MODERN4 || family == Family.TAGGED3
+        val hasTarget=family in setOf(Family.MODERN4,Family.RUNTIME2,Family.MOVIE3)
+        val hasSequence=family == Family.MODERN4 || family == Family.MOVIE3
+        fields(record,setOf("id","state","message","source","trim","settings") +
+            (if(tagged) setOf("kind") else emptySet()) + (if(preferences) setOf("preferences","completedAtMs") else emptySet()) +
+            (if(hasTarget) setOf("targetBytes") else emptySet()) + (if(hasSequence) setOf("sequence") else emptySet()))
+        val settings=decodeSettings(record.getJSONObject("settings"),family)
+        val target=if(!hasTarget || record.isNull("targetBytes")) null else integer(record,"targetBytes").also(UploadFit::validateTarget)
+        val sequence=if(!hasSequence || record.isNull("sequence")) null else decodeSequence(record.getJSONObject("sequence"),family)
+        val job=JobSpec(identifier(record),decodeSource(record.getJSONObject("source"),family),decodeTrim(record.getJSONObject("trim")),settings,
+            preferences=if(preferences) decodePreferences(record.getJSONObject("preferences")) else MediaPreferences.legacy(settings),
+            targetBytes=target,sequence=sequence)
+        val endMs=job.trim.endMs
+        require(job.source.durationMs >= 0 && job.trim.startMs >= 0 &&
+            (endMs == null || endMs > job.trim.startMs) &&
+            (job.source.durationMs == 0L || (job.trim.startMs < job.source.durationMs && (job.trim.endMs ?: job.source.durationMs) <= job.source.durationMs))) {
+            "Invalid saved source range; the original queue is preserved."
         }
-        val settings = Settings(Container.valueOf(string(settingsRecord,"container")),
-            VideoEncoder.valueOf(string(settingsRecord,"video")), RateControl.valueOf(string(settingsRecord,"rateControl")),
-            int(settingsRecord,"crf"), int(settingsRecord,"videoKbps"), int(settingsRecord,"maxHeight"),
-            int(settingsRecord,"fps"), AudioEncoder.valueOf(string(settingsRecord,"audio")), int(settingsRecord,"audioKbps"),
-            int(settingsRecord,"audioTrack"), boolean(settingsRecord,"stereo"), boolean(settingsRecord,"denoise"),
-            boolean(settingsRecord,"deinterlace"), boolean(settingsRecord,"keepMetadata"),
-            if(schema == 1 || runtime) AudioEdit() else AudioEditCodec.decode(settingsRecord.getJSONObject("audioEdit")))
-        val target = if(!hasTarget || record.isNull("targetBytes")) null else integer(record,"targetBytes").also(UploadFit::validateTarget)
-        return QueueEntry(JobSpec(identifier(record), Source(string(source,"uri"), string(source,"name"),
-            integer(source,"durationMs"), int(source,"width"), int(source,"height"), int(source,"videoTracks"),
-            int(source,"audioTracks"), boolean(source,"hdr"), integer(source,"bytes"), decodeStreams(source,completeWriter)),
-            Trim(integer(trim,"startMs"), if(trim.isNull("endMs")) null else integer(trim,"endMs")), settings,
-            if(preferences) decodePreferences(record.getJSONObject("preferences")) else MediaPreferences.legacy(settings), target),
-            JobState.valueOf(string(record,"state")), string(record,"message"), completionTime(record, preferences))
+        return QueueEntry(job,JobState.valueOf(string(record,"state")),string(record,"message"),completionTime(record,preferences))
+    }
+
+    private fun decodeSource(source: JSONObject, family: Family): Source {
+        val base=setOf("uri","name","durationMs","width","height","videoTracks","audioTracks","hdr","bytes")
+        val supportsFacts=hasAudio(family) || family == Family.LEGACY1
+        fields(source,if(supportsFacts) base + "audioStreams" else base,if(fullAudioWriter(family)) base + "audioStreams" else base)
+        return Source(string(source,"uri"),string(source,"name"),integer(source,"durationMs"),int(source,"width"),int(source,"height"),
+            int(source,"videoTracks"),int(source,"audioTracks"),boolean(source,"hdr"),integer(source,"bytes"),decodeStreams(source,fullAudioWriter(family)))
+    }
+    private fun decodeTrim(trim: JSONObject): Trim {
+        fields(trim,setOf("startMs","endMs"))
+        return Trim(integer(trim,"startMs"),if(trim.isNull("endMs")) null else integer(trim,"endMs"))
+    }
+    private fun decodeSettings(record: JSONObject, family: Family): Settings {
+        val base=setOf("container","video","rateControl","crf","videoKbps","maxHeight","fps","audio","audioKbps","audioTrack","stereo","denoise","deinterlace","keepMetadata")
+        fields(record,base + (if(hasAudio(family)) setOf("audioEdit") else emptySet()) + (if(hasEffects(family)) setOf("effects") else emptySet()))
+        val audio=if(hasAudio(family)) record.getJSONObject("audioEdit").also {
+            validateAudioWire(it,fullAudioWriter(family));validateSavedAudioNodeIntent(it)
+        }.let(AudioEditCodec::decode) else AudioEdit()
+        val effects=if(hasEffects(family)) record.getJSONObject("effects").also {
+            fields(it,ClipEffectsCodec.encode(ClipEffects()).keys().asSequence().toSet())
+        }.let(ClipEffectsCodec::decode) else ClipEffects()
+        return Settings(Container.valueOf(string(record,"container")),VideoEncoder.valueOf(string(record,"video")),
+            RateControl.valueOf(string(record,"rateControl")),int(record,"crf"),int(record,"videoKbps"),int(record,"maxHeight"),
+            int(record,"fps"),AudioEncoder.valueOf(string(record,"audio")),int(record,"audioKbps"),int(record,"audioTrack"),
+            boolean(record,"stereo"),boolean(record,"denoise"),boolean(record,"deinterlace"),boolean(record,"keepMetadata"),audio,effects)
+    }
+    private fun decodeSequence(record: JSONObject, family: Family): SequenceSpec {
+        fields(record,setOf("transitionMs","canvas","clips"))
+        val canvas=record.getJSONObject("canvas")
+        fields(canvas,setOf("width","height","fps","fit","backgroundRgb"))
+        val clips=record.getJSONArray("clips")
+        require(clips.length() in 1..SequencePlanner.MAX_RENDER_CLIPS) { "Unsupported saved movie clip count." }
+        return SequenceSpec(EditTimeline((0 until clips.length()).map { index ->
+            val clip=clips.getJSONObject(index)
+            fields(clip,setOf("id","source","trim","settings"))
+            TimelineClip(string(clip,"id"),decodeSource(clip.getJSONObject("source"),family),
+                decodeTrim(clip.getJSONObject("trim")),decodeSettings(clip.getJSONObject("settings"),family))
+        }),CanvasSpec(int(canvas,"width"),int(canvas,"height"),int(canvas,"fps"),
+            CanvasFit.valueOf(string(canvas,"fit")),string(canvas,"backgroundRgb")),integer(record,"transitionMs"))
     }
 
     private fun encodePreferences(p: MediaPreferences) = JSONObject()
@@ -226,7 +268,35 @@ object JobCodec {
         edit.optJSONArray("nodes")?.let { nodes ->
             for(i in 0 until nodes.length()) {
                 val node=nodes.getJSONObject(i)
-                int(node,"version");string(node,"id");string(node,"type");boolean(node,"enabled")
+                val nodeVersion=int(node,"version");string(node,"id");val type=string(node,"type");boolean(node,"enabled")
+                if(requiredWriterFields && nodeVersion==1 &&
+                    node.keys().asSequence().all { it in setOf("id","type","version","enabled","parameters") }) {
+                    val expected=when(type) {
+                        "gain" -> setOf("gainDb","muted")
+                        "fades" -> setOf("fadeInUs","fadeOutUs")
+                        "eq" -> setOf("bands")
+                        "compressor" -> setOf("thresholdDb","ratio","kneeDb","attackMs","releaseMs","makeupDb")
+                        "limiter" -> setOf("ceilingDb","attackMs","releaseMs")
+                        else -> emptySet()
+                    }
+                    if(expected.isNotEmpty()) {
+                        val parameters=node.getJSONObject("parameters")
+                        val actual=parameters.keys().asSequence().toSet()
+                        if(actual.all {it in expected}) require(actual.containsAll(expected)) {
+                            "Saved audio effect parameters are missing; the original queue is preserved."
+                        }
+                        if(type=="eq" && actual==expected) {
+                            val bands=parameters.getJSONArray("bands")
+                            val required=setOf("id","type","frequencyHz","gainDb","q","slopeDbPerOctave","enabled")
+                            for(index in 0 until bands.length()) {
+                                val fields=bands.getJSONObject(index).keys().asSequence().toSet()
+                                if(fields.all {it in required}) require(fields.containsAll(required)) {
+                                    "Saved EQ band intent is missing; the original queue is preserved."
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

@@ -60,6 +60,7 @@ import kotlin.math.ceil
         ModalDrawerSheet(Modifier.widthIn(max = 320.dp)) {
             Text("Forma", Modifier.padding(24.dp), style = MaterialTheme.typography.headlineMedium)
             NavigationDrawerItem(label = { Text("Convert media") }, selected = page == "home", onClick = { page = "home"; scope.launch { drawer.close() } })
+            NavigationDrawerItem(label = { Text("Make a movie") }, selected = page == "movie", onClick = { page = "movie"; scope.launch { drawer.close() } })
             NavigationDrawerItem(label = { Text("Queue · ${jobs.size}") }, selected = page == "queue", onClick = { page = "queue"; scope.launch { drawer.close() } })
             NavigationDrawerItem(label = { Text("Advanced settings") }, selected = page == "home" && ui.editor.advanced,
                 onClick = { page = "home"; if (!ui.editor.advanced) onAction(UiAction.ToggleAdvanced); scope.launch { drawer.close() } })
@@ -70,7 +71,7 @@ import kotlin.math.ceil
         }
     }) {
         Scaffold(
-            topBar = { TopAppBar(title = { Text(if (page == "queue") "Your queue" else if (page == "engine") "App info" else "Forma") },
+            topBar = { TopAppBar(title = { Text(if (page == "queue") "Your queue" else if (page == "engine") "App info" else if (page == "movie") "Your movie" else "Forma") },
                 navigationIcon = { TextButton(onClick = { scope.launch { drawer.open() } }, modifier = Modifier.testTag("open-shelf").semantics { contentDescription = "Open navigation" }) { Text("Menu") } },
                 actions = { if (page != "queue" && jobs.isNotEmpty()) TextButton(onClick = { page = "queue" }) { Text("Queue ($waiting)") } }) },
             bottomBar = {
@@ -167,32 +168,36 @@ import kotlin.math.ceil
                                     (ui.problems+ui.runtimeProblems).distinct().take(3).forEach{Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
                                 }
                             } else {
-                            item(key = "audio-editor") { dev.forma.app.ui.audio.AudioEditorPanel(ui, onAction) }
-                            item(key = "simple-options") { SimpleOptions(ui.editor, onAction) }
-                            item(key = "override-summary") {
-                                if(ui.editor.preferences.overrideCount>0) AssistChip(onClick={settingsScope="job"},
-                                    label={Text("${ui.editor.preferences.overrideCount} overrides")}, modifier=Modifier.testTag("overrides-summary"))
-                            }
-                            item(key = "advanced-toggle") {
-                                OutlinedButton(onClick = { onAction(UiAction.ToggleAdvanced) }, modifier = Modifier.fillMaxWidth().testTag("mode-toggle")) {
-                                    Text(if (ui.editor.advanced) "Hide advanced settings" else "Advanced settings")
+                                item(key = "audio-editor") { dev.forma.app.ui.audio.AudioEditorPanel(ui, onAction) }
+                                item(key = "movie-entry") { OutlinedButton(onClick = { page = "movie" }, modifier = Modifier.fillMaxWidth().testTag("open-movie")) { Text("Make a movie") } }
+                                item(key = "simple-options") { SimpleOptions(ui.editor, onAction) }
+                                item(key = "override-summary") {
+                                    if(ui.editor.preferences.overrideCount>0) AssistChip(onClick={settingsScope="job"},
+                                        label={Text("${ui.editor.preferences.overrideCount} overrides")}, modifier=Modifier.testTag("overrides-summary"))
                                 }
-                            }
-                            if (ui.editor.advanced) item(key = "advanced-controls") { Column {
-                                TextButton(onClick = { settingsScope = "job" }, modifier = Modifier.testTag("job-settings")) { Text("Defaults & overrides · ${ui.editor.preferences.overrideCount}") }
-                                AdvancedControls(ui, onAction)
-                            } }
+                                item(key = "advanced-toggle") {
+                                    OutlinedButton(onClick = { onAction(UiAction.ToggleAdvanced) }, modifier = Modifier.fillMaxWidth().testTag("mode-toggle")) {
+                                        Text(if (ui.editor.advanced) "Hide advanced settings" else "Advanced settings")
+                                    }
+                                }
+                                if (ui.editor.advanced) item(key = "advanced-controls") { Column {
+                                    TextButton(onClick = { settingsScope = "job" }, modifier = Modifier.testTag("job-settings")) { Text("Defaults & overrides · ${ui.editor.preferences.overrideCount}") }
+                                    AdvancedControls(ui, onAction)
+                                } }
 
-                            item(key = "output-plan") { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Output", style = MaterialTheme.typography.titleMedium)
-                                Text(outputDescription(ui.editor.settings))
-                                if (ui.validating) Text("Checking settings…", style = MaterialTheme.typography.bodySmall)
-                                (ui.problems + ui.runtimeProblems).distinct().take(3).forEach {
-                                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                                }
-                            } } }
+                                item(key = "output-plan") { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Output", style = MaterialTheme.typography.titleMedium)
+                                    Text(outputDescription(ui.editor.settings))
+                                    if (ui.validating) Text("Checking settings…", style = MaterialTheme.typography.bodySmall)
+                                    (ui.problems + ui.runtimeProblems).distinct().take(3).forEach {
+                                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                } } }
                             }
                         }
+                    }
+                    "movie" -> {
+                        item(key = "movie-controls") { MovieControls(ui, jobs, run, onAction) }
                     }
                     "queue" -> {
                         item(key = "queue-heading") {
@@ -227,12 +232,12 @@ import kotlin.math.ceil
     settingsScope?.let { selectedScope ->
         dev.forma.app.ui.settings.SettingsDialog(ui.editor.settings, selectedScope == "job",
             onApplyToJob = { settings ->
-                val problems = ui.sources.filter { it.source.imageInfo == null }.flatMap { Planner.validate(it.source, it.trim, settings) }.distinct()
+                val problems = ui.sources.filter { it.source.imageInfo == null }.flatMap { JobPlans.validate(JobSpec("settings",it.source,it.trim,it.snapshot(settings),targetBytes=ui.targetBytes)) }.distinct()
                 require(problems.isEmpty()) { problems.joinToString("\n") }
                 onAction(UiAction.ChangeSettings(settings))
             }, onDismiss = { settingsScope = null }, preferences=ui.editor.preferences,
             onApplyPreferences={ settings,preferences ->
-                val problems=ui.sources.filter { it.source.imageInfo == null }.flatMap { Planner.validate(it.source,it.trim,settings) }.distinct()
+                val problems=ui.sources.filter { it.source.imageInfo == null }.flatMap { JobPlans.validate(JobSpec("settings",it.source,it.trim,it.snapshot(settings),targetBytes=ui.targetBytes)) }.distinct()
                 require(problems.isEmpty()) { problems.joinToString("\n") }
                 onAction(UiAction.ChangeSettings(settings,preferences))
             })
@@ -288,7 +293,12 @@ import kotlin.math.ceil
     OutlinedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(entry.spec.source.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(stateLabel(entry.state), style = MaterialTheme.typography.labelLarge)
-        Text(if(entry.spec is QueueJobSpec.Image) "Image · ${(entry.spec as QueueJobSpec.Image).format.name}" else "${entry.spec.settings.container.name} · ${mediaTime(Planner.duration(entry.spec.source, entry.spec.trim))}", style = MaterialTheme.typography.bodySmall)
+        val description=when(val spec=entry.spec) {
+            is QueueJobSpec.Image -> "Image · ${spec.format.name}"
+            is QueueJobSpec.Av -> (spec.job.sequence?.let { "Movie · ${it.timeline.clips.size} clips · " } ?: "") +
+                "${spec.settings.container.name} · ${queueDurationLabel(spec.job)}"
+        }
+        Text(description, style = MaterialTheme.typography.bodySmall)
         Text(byteLimitLabel(entry.spec.targetBytes),style=MaterialTheme.typography.bodySmall)
         TextButton(onClick={settingsDetails=!settingsDetails}) { Text(if(settingsDetails) "Hide settings" else "Settings snapshot") }
         if(settingsDetails) {
@@ -327,7 +337,7 @@ import kotlin.math.ceil
     }
     val current=live?.takeIf { it.id == entry.spec.id }
     val progress = current?.progress
-    val stats = conversionStats(progress, Planner.outputDuration(entry.spec.source,entry.spec.trim,entry.spec.settings), entry.state == JobState.COMPLETED)
+    val stats = conversionStats(progress, JobPlans.duration((entry.spec as QueueJobSpec.Av).job), entry.state == JobState.COMPLETED)
     val fraction = stats.percent?.div(100f)
     Column(Modifier.testTag("live-progress")) {
         current?.attempt?.let { event ->

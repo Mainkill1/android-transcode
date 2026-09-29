@@ -142,6 +142,8 @@ internal class KitNextBridge : FfmpegBridge {
                 return@withContext software("Software explicitly selected or audio-only output.")
             if (settings.video.automatic && (settings.rateControl == RateControl.QUALITY || settings.fps == 0))
                 return@withContext software("Preserving constant quality or source/VFR timing; this device path requires explicit bitrate and frame rate.")
+            if(settings.video.automatic && !settings.effects.isNeutral)
+                return@withContext software("Preserving clip edits through the software graph route.")
             require(settings.fps > 0) { "Choose an explicit output frame rate for device encoding." }
             val root = probeJson(input)
             val streams = root.getJSONArray("streams")

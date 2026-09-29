@@ -164,8 +164,9 @@ class TranscodeService : Service() {
                             if (notificationGate.accept(spec.id)) notify("${stage.stage.name.lowercase().replaceFirstChar { it.uppercase() }} image · attempt ${stage.attempt}", stage.fraction,spec.source.name)
                         })
                     } else {
+                        val av = spec as QueueJobSpec.Av
                         val lastAttempt=AtomicReference<AttemptEvent?>(null)
-                        graph.transcoder.run((spec as QueueJobSpec.Av).job, { state ->
+                        graph.transcoder.run(av.job, { state ->
                             graph.queue.transition(spec.id, state)
                             graph.queue.progress.value = null
                             notify(when (state) { JobState.VERIFYING -> "Checking output"; JobState.COMPLETED -> "Output ready"; else -> "Converting media" }, null,spec.source.name)
@@ -177,7 +178,7 @@ class TranscodeService : Service() {
                                     RunMode.STOPPING -> "Stopping safely…"
                                     else -> "Converting media"
                                 }
-                                notify(status, WorkPolicy.fraction(progress.processedMs, Planner.outputDuration(spec.source,spec.trim,spec.settings)),spec.source.name)
+                                notify(status, WorkPolicy.fraction(progress.processedMs, JobPlans.duration(av.job)),spec.source.name)
                             }
                         }, onAttempt={ event ->
                             lastAttempt.set(event)

@@ -111,4 +111,15 @@ class OutputCompletenessTest {
         assertTrue(runCatching { verifyEncodedOutput(failure,source,Trim(),Settings(),File("encoded.mp4"),attempt) }.exceptionOrNull() is java.io.IOException)
     }
 
+    @Test fun movieNormalizationTargetsLabeledAudioWithoutAddingASecondSimpleFilter() {
+        val args=listOf("-filter_complex","[0:a:0]atrim=start=1:end=3,volume=0.5[a0];[a0]concat=n=1:v=0:a=1[aout]","-map","[aout]","-c:a","aac","-f","ipod","output")
+        val perClip=dev.forma.ffmpeg.audio.AudioAnalyzer.appendClipFilter(args,0,"volume=-6dB",48000)
+        val final=dev.forma.ffmpeg.audio.AudioAnalyzer.appendFilter(perClip,"volume=-3dB",44100)
+        assertFalse("-af" in final)
+        val graph=final[final.indexOf("-filter_complex")+1]
+        assertTrue(graph.contains("volume=0.5,volume=-6dB,aresample=48000[a0]"))
+        assertTrue(graph.endsWith("[aout]volume=-3dB,aresample=44100[formaNormalizedAudio]"))
+        assertEquals("[formaNormalizedAudio]",final[final.indexOf("-map")+1])
+    }
+
 }

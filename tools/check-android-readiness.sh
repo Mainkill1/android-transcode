@@ -10,8 +10,8 @@ command -v python3 >/dev/null || { echo 'Python 3 is required.' >&2; exit 1; }
 kotlinc "$ROOT/core/src/main/kotlin/dev/forma/core/Acceleration.kt" \
   "$ROOT/core/src/main/kotlin/dev/forma/core/CodecRanking.kt" \
   "$ROOT/core/src/main/kotlin/dev/forma/core/MediaCodecCommand.kt" \
-  "$ROOT/core/src/test/kotlin/dev/forma/core/AccelerationChecks.kt" \
-  "$ROOT/core/src/test/kotlin/dev/forma/core/MediaCodecCommandChecks.kt" \
+  "$ROOT/testing/core/unit/dev/forma/core/AccelerationChecks.kt" \
+  "$ROOT/testing/core/unit/dev/forma/core/MediaCodecCommandChecks.kt" \
   -include-runtime -d "$TMP/readiness.jar"
 java -jar "$TMP/readiness.jar"
 python3 -m unittest discover -s "$ROOT/tools/tests" -v

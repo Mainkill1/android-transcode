@@ -42,4 +42,17 @@ class AudioAnalysisTest {
         val m=AudioMeasurements(-24.0,-12.0,0.0,-34.0,0.0)
         assertEquals("volume=8dB:precision=double",m.normalizationFilter(NormalizationPolicy(mode=NormalizationMode.LOUDNESS)))
     }
+    @Test fun previewAndExportRequireLinearEvidenceOnlyForRequestedPreservedDynamics() {
+        val filter="loudnorm=I=-16:linear=true:print_format=json"
+        val preserve=NormalizationPolicy(mode=NormalizationMode.LOUDNESS,preserveDynamics=true)
+        val base=listOf("-loglevel","warning","-af",filter,"out")
+        val args=AudioNormalizationGuard.withDiagnostics(base,listOf(filter to preserve))
+        assertEquals("info",args[args.indexOf("-loglevel")+1])
+        assertTrue(runCatching {AudioNormalizationGuard.requireDynamics("{\"normalization_type\":\"dynamic\"}",listOf(filter to preserve))}.isFailure)
+        assertTrue(runCatching {AudioNormalizationGuard.requireDynamics("",listOf(filter to preserve))}.isFailure)
+        AudioNormalizationGuard.requireDynamics("{\"normalization_type\":\"linear\"}",listOf(filter to preserve))
+        AudioNormalizationGuard.requireDynamics("{\"normalization_type\":\"dynamic\"}",listOf(filter to preserve.copy(preserveDynamics=false)))
+        AudioNormalizationGuard.requireDynamics("",listOf("volume=8dB" to preserve))
+    }
+
 }

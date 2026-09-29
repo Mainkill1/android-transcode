@@ -37,7 +37,7 @@ class MediaFiles(private val context: Context,private val imageBridge: dev.forma
     fun cleanupExpiredOutputs(ids:Set<String>) {
         ids.forEach { id ->
             val identity=dev.forma.core.settings.ManagedMediaPaths.work(outputRoot,id).name
-            Container.entries.forEach { File(outputRoot,"$identity.${it.extension}").delete() }
+            (Container.entries.map { it.extension } + ImageFormat.entries.map { it.extension }).distinct().forEach { File(outputRoot,"$identity.$it").delete() }
         }
     }
     // Editor-only copies expire on the next process start; every persisted job keeps its source.
@@ -132,13 +132,24 @@ class MediaFiles(private val context: Context,private val imageBridge: dev.forma
     }
 
     suspend fun stage(spec: QueueJobSpec): File = when(spec) { is QueueJobSpec.Av -> stage(spec.job); is QueueJobSpec.Image -> stage(spec.job) }
-    suspend fun stage(spec: JobSpec): File = withContext(Dispatchers.IO) {
-        require(Uri.parse(spec.source.uri).scheme=="content") { "Reselect this source through the system picker." }
-        val target = File(workDir(spec), "source.media")
-        if (spec.source.bytes > 0) require(target.parentFile!!.usableSpace > spec.source.bytes + 64L * 1024 * 1024) {
+    suspend fun stage(spec: JobSpec): File = stageSource(spec, spec.source, "source.media")
+
+    suspend fun stageInputs(spec: JobSpec): List<File> {
+        val sources = spec.sequence?.timeline?.clips?.map { it.source } ?: listOf(spec.source)
+        val staged = mutableMapOf<String, File>()
+        return sources.mapIndexed { index, source ->
+            currentCoroutineContext().ensureActive()
+            staged[source.uri] ?: stageSource(spec, source, "source-$index.media").also { staged[source.uri] = it }
+        }
+    }
+
+    private suspend fun stageSource(spec: JobSpec, source: Source, name: String): File = withContext(Dispatchers.IO) {
+        require(Uri.parse(source.uri).scheme in setOf("content", "file")) { "Reselect this source through the system picker." }
+        val target = File(workDir(spec), name)
+        if (source.bytes > 0) require(target.parentFile!!.usableSpace > source.bytes + 64L * 1024 * 1024) {
             "Not enough private storage to stage the source plus working space."
         }
-        resolver.openInputStream(Uri.parse(spec.source.uri))?.use { input ->
+        resolver.openInputStream(Uri.parse(source.uri))?.use { input ->
             target.outputStream().use { output ->
                 val buffer = ByteArray(64 * 1024)
                 while (true) {
@@ -149,7 +160,7 @@ class MediaFiles(private val context: Context,private val imageBridge: dev.forma
                 }
             }
         } ?: throw IOException("The source could not be opened. Reselect it to restore access.")
-        if (spec.source.bytes >= 0) require(target.length() == spec.source.bytes) { "The source size changed. Reselect it before converting." }
+        if (source.bytes >= 0) require(target.length() == source.bytes) { "The source size changed. Reselect it before converting." }
         target
     }
 
@@ -184,7 +195,8 @@ class MediaFiles(private val context: Context,private val imageBridge: dev.forma
     suspend fun export(spec: JobSpec, destination: Uri, onBytes: (Long, Long) -> Unit = { _, _ -> }) = export(QueueJobSpec.Av(spec), destination, onBytes)
     suspend fun export(spec: QueueJobSpec, destination: Uri, onBytes: (Long, Long) -> Unit = { _, _ -> }) = withContext(Dispatchers.IO) {
         if(spec is QueueJobSpec.Image)require(!spec.job.document.source.isOriginalDestination(destination.toString())){"The original cannot be the export destination."}
-        require(destination.toString() != spec.source.uri) { "The original cannot be the export destination." }
+        val originalUris = (spec as? QueueJobSpec.Av)?.let { JobPlans.sourceUris(it.job) } ?: setOf(spec.source.uri)
+        require(destination.toString() !in originalUris) { "The original cannot be the export destination." }
         val source = output(spec)
         require(source.isFile && source.length() > 0) { "The completed output is no longer available." }
         val total = source.length()

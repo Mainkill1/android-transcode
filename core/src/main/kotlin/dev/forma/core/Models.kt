@@ -59,7 +59,8 @@ data class Settings(
     val denoise: Boolean = false,
     val deinterlace: Boolean = false,
     val keepMetadata: Boolean = false,
-    val audioEdit: AudioEdit = AudioEdit()
+    val audioEdit: AudioEdit = AudioEdit(),
+    val effects: ClipEffects = ClipEffects()
 )
 
 /** URI identity is never converted into an arbitrary filesystem path. */
@@ -77,20 +78,28 @@ data class Source(
     val imageInfo: dev.forma.core.image.ImageInfo? = null, val imageOriginalUri:String?=null
 )
 data class Trim(val startMs: Long = 0, val endMs: Long? = null)
-data class SourceEdit(val source: Source, val trim: Trim = Trim())
+data class SourceEdit(val source: Source, val trim: Trim = Trim(), val effects: ClipEffects = ClipEffects()) {
+    fun snapshot(settings: Settings): Settings = settings.copy(effects = effects)
+}
 data class Editor(
     val settings: Settings = Settings(),
     val advanced: Boolean = false,
     val custom: Boolean = false,
     val goal: Goal = Goal.SHARE,
     val quality: Quality = Quality.BALANCED,
-    val preferences: MediaPreferences = MediaPreferences.legacy(settings)
+    val preferences: MediaPreferences = MediaPreferences.legacy(settings),
+    val targetBytes: Long? = 10_000_000
 )
 data class JobSpec(val id: String, val source: Source, val trim: Trim, val settings: Settings,
-    val preferences: MediaPreferences = MediaPreferences.legacy(settings), val targetBytes: Long? = null) {
+    val preferences: MediaPreferences = MediaPreferences.legacy(settings), val targetBytes: Long? = null,
+    val sequence: SequenceSpec? = null) {
     /** Compatibility for runtime-codec snapshots constructed before preference provenance. */
     constructor(id: String, source: Source, trim: Trim, settings: Settings, legacyTargetBytes: Long?) :
         this(id,source,trim,settings,MediaPreferences.legacy(settings),legacyTargetBytes)
+    /** Compatibility for movie snapshots; new callers should use named sequence and targetBytes. */
+    constructor(id: String, source: Source, trim: Trim, settings: Settings, legacySequence: SequenceSpec,
+        legacyTargetBytes: Long? = null) :
+        this(id,source,trim,settings,MediaPreferences.legacy(settings),legacyTargetBytes,legacySequence)
     init { targetBytes?.let(UploadFit::validateTarget) }
 }
 enum class JobState { QUEUED, PREPARING, RUNNING, VERIFYING, COMPLETED, FAILED, CANCELLED, INTERRUPTED }
@@ -111,7 +120,7 @@ data class Capabilities(
     val pixelFormats: Set<String> = emptySet(),
     val configuration: String = ""
 )
-data class Progress(val processedMs: Long, val speed: Double? = null) {
+data class Progress(val processedMs: Long, val speed: Double? = null, val attempt: Int = 1, val attempts: Int = 1) {
     fun fraction(durationMs: Long): Float? = if (durationMs <= 0) null else
         (processedMs.toDouble() / durationMs).coerceIn(0.0, 0.99).toFloat()
 }

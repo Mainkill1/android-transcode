@@ -12,7 +12,7 @@ object AudioArtifactVerification {
         val expectedAudio = if (source.audioTracks > 0 && settings.audio != AudioEncoder.NONE) 1 else 0
         if (output.videoTracks != expectedVideo || output.audioTracks != expectedAudio) add("The output track layout does not match the plan.")
         val graph = if (expectedAudio == 1) AudioGraphPlanner.plan(source,trim,settings) else null
-        val durationMs = if (settings.container.audioOnly) graph?.outputDurationUs?.div(1000) ?: Planner.duration(source,trim) else Planner.duration(source,trim)
+        val durationMs = if (settings.container.audioOnly) graph?.outputDurationUs?.div(1000) ?: Planner.duration(source,trim) else Planner.outputDuration(source,trim,settings)
         if (output.durationMs <= 0 || abs(output.durationMs-durationMs) > if (expectedVideo > 0) 250 else 100)
             add("The output duration does not match the selected range.")
         val audio = output.audioStreams.singleOrNull()

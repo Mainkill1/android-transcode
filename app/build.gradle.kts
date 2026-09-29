@@ -3,6 +3,9 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+val formaTests = providers.gradleProperty("formaTests").orNull != "false"
+val selectedTestBuild = providers.gradleProperty("formaTestBuildType").orElse("debug").get()
+require(selectedTestBuild == "debug" || (formaTests && selectedTestBuild == "lab"))
 val accelerationTests = providers.gradleProperty("accelerationTests").orNull != "false"
 android {
     namespace = "dev.forma.app"
@@ -11,33 +14,42 @@ android {
         applicationId = "dev.forma.transcode"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.0-ready.20260929"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    testBuildType = selectedTestBuild
+    sourceSets["test"].java.setSrcDirs(if (formaTests) listOf(rootProject.file("testing/app/unit")) else emptyList<File>())
+    sourceSets["androidTest"].java.setSrcDirs(if (formaTests) listOf(rootProject.file("testing/app/device"), rootProject.file("testing/shared")) else emptyList<File>())
+    if (formaTests) sourceSets["androidTest"].manifest.srcFile(rootProject.file("testing/shared/AndroidManifest.xml"))
     // External test sources are packaged only in the instrumentation APK, never in main/release.
-    if (providers.gradleProperty("settingsTests").orNull != "false") {
+    if (formaTests && providers.gradleProperty("settingsTests").orNull != "false") {
         sourceSets.getByName("test").java.srcDir(rootProject.file("testing/settings/app"))
         sourceSets.getByName("test").resources.srcDir(rootProject.file("testing/settings/fixtures"))
         sourceSets.getByName("androidTest").java.srcDir(rootProject.file("testing/settings/android"))
         sourceSets.getByName("androidTest").java.srcDir(rootProject.file("testing/settings/core"))
     }
-    if (accelerationTests) {
+    if (formaTests && accelerationTests) {
         sourceSets["test"].java.srcDir(rootProject.file("testing/acceleration/appTest"))
         sourceSets["androidTest"].java.srcDir(rootProject.file("testing/acceleration/androidTest"))
     }
     buildFeatures { compose = true }
-    if (providers.gradleProperty("audioTests").orNull != "false") {
+    if (formaTests && providers.gradleProperty("audioTests").orNull != "false") {
         sourceSets.getByName("androidTest").java.srcDir("../testing/android")
     }
-    if (providers.gradleProperty("imageTests").orNull != "false") {
+    if (formaTests && providers.gradleProperty("imageTests").orNull != "false") {
         sourceSets.getByName("test").java.srcDir("../testing/image/app")
         sourceSets.getByName("test").java.srcDir("../testing/image/shared")
         sourceSets.getByName("androidTest").java.srcDir("../testing/image/android")
         sourceSets.getByName("androidTest").java.srcDir("../testing/image/shared")
     }
     buildTypes {
-        debug { if (providers.gradleProperty("formaLab").orNull == "true") applicationIdSuffix = ".lab" }
+        if (formaTests) create("lab") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".lab"
+            matchingFallbacks += listOf("debug")
+        }
+        debug { if (formaTests && providers.gradleProperty("formaLab").orNull == "true") applicationIdSuffix = ".lab" }
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -64,15 +76,18 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.preview)
     debugImplementation(libs.compose.tooling)
-    debugImplementation(libs.compose.test.manifest)
-    testImplementation(libs.junit)
-    testImplementation("org.json:json:20240303")
-    androidTestImplementation(platform(libs.compose.bom))
-    androidTestImplementation(libs.compose.test)
-    androidTestImplementation(libs.androidx.test)
-    androidTestImplementation(libs.androidx.runner)
-    // Compose's transitive Espresso 3.5.0 uses InputManager reflection removed on API 36.
-    androidTestImplementation(libs.espresso.core)
+    if (formaTests) {
+        debugImplementation(libs.compose.test.manifest)
+        add("labImplementation", libs.compose.test.manifest)
+        testImplementation(libs.junit)
+        testImplementation("org.json:json:20240303")
+        androidTestImplementation(platform(libs.compose.bom))
+        androidTestImplementation(libs.compose.test)
+        androidTestImplementation(libs.androidx.test)
+        androidTestImplementation(libs.androidx.runner)
+        // Compose's transitive Espresso 3.5.0 uses InputManager reflection removed on API 36.
+        androidTestImplementation(libs.espresso.core)
+    }
 }
 
 // UI-only debug builds remain useful, but cannot be promoted to a release by accident.

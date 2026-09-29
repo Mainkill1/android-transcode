@@ -67,24 +67,49 @@ class AudioAnalyzer(private val bridge:FfmpegBridge) {
         val r=request
         val policy=r.settings.audioEdit.output.normalization
         val args=bridge.prepareAudio(r.source,r.trim,r.settings,r.input.path,"-").toMutableList()
+        return analyzeArguments(r.identity,args,policy)
+    }
+    /** Audio transport may map a simple -af stream or a labeled movie graph. */
+    suspend fun analyzeArguments(identity:String,prepared:List<String>,policy:NormalizationPolicy):AudioAnalysisResult {
         val normalization="loudnorm=I=${AudioGraphPlanner.number(policy.integratedLufs)}:TP=${AudioGraphPlanner.number(policy.truePeakDb)}:LRA=50:print_format=json"
-        val af=args.indexOf("-af");check(af>=0)
-        args[af+1]+=",astats=reset=0,$normalization"
-        args[args.indexOf("-loglevel")+1]="info"
+        val args=appendFilter(prepared,"astats=reset=0,$normalization",null).toMutableList()
+        val log=args.indexOf("-loglevel");if(log>=0)args[log+1]="info" else args.addAll(0,listOf("-loglevel","info"))
         args[args.lastIndexOf("-f")+1]="null"
         val result=bridge.execute(args) {}
-        check(result.exitCode==0) { "Audio analysis failed. ${result.diagnostics}" }
+        check(result.exitCode==0){"Audio analysis failed. ${result.diagnostics}"}
         currentCoroutineContext().ensureActive()
-        return AudioAnalysisResult(r.identity,AudioMeasurements.parseLoudness(result.diagnostics,policy.mode))
+        return AudioAnalysisResult(identity,AudioMeasurements.parseLoudness(result.diagnostics,policy.mode))
     }
     companion object {
         fun appendFilter(arguments:List<String>,filter:String,rate:Int?):List<String> {
             if(filter.isEmpty())return arguments
-            val args=arguments.toMutableList();val index=args.indexOf("-af")
-            val value=filter + if(rate!=null) ",aresample=$rate" else ""
-            if(index>=0)args[index+1]+=",$value" else args.addAll(args.size-1,listOf("-af",value))
+            val args=arguments.toMutableList()
+            val value=filter+if(rate!=null)",aresample=$rate" else ""
+            val complex=args.indexOf("-filter_complex")
+            if(complex>=0) {
+                val map=args.indices.lastOrNull {args[it]=="-map"} ?: error("The movie audio map is absent.")
+                val label=args[map+1]
+                require(label.startsWith("[") && label.endsWith("]")){"The final movie audio stream must be labeled."}
+                args[complex+1]+=";$label$value[formaNormalizedAudio]"
+                args[map+1]="[formaNormalizedAudio]"
+            }else {
+                val af=args.indexOf("-af")
+                if(af>=0)args[af+1]+=",$value" else args.addAll(args.size-1,listOf("-af",value))
+            }
             return args
         }
+        /** Place a measured per-clip normalization before the common mix/transition stage. */
+        fun appendClipFilter(arguments:List<String>,index:Int,filter:String,rate:Int?):List<String> {
+            if(filter.isEmpty())return arguments
+            val args=arguments.toMutableList();val complex=args.indexOf("-filter_complex")
+            require(complex>=0){"A movie graph is required."}
+            val label="[a$index]";val nodes=args[complex+1].split(';').toMutableList()
+            val declaration=nodes.indexOfFirst {it.endsWith(label)}
+            require(declaration>=0){"The included clip audio label is absent."}
+            nodes[declaration]=nodes[declaration].removeSuffix(label)+",$filter"+(if(rate!=null)",aresample=$rate" else "")+label
+            args[complex+1]=nodes.joinToString(";");return args
+        }
+
     }
 }
 
@@ -95,4 +120,21 @@ fun AudioMeasurementResult.normalizationFilter(policy:NormalizationPolicy):Strin
         "volume=${AudioGraphPlanner.number(policy.peakDb-samplePeakDb)}dB:precision=double"
     }
     is AudioMeasurementResult.NotMeasurable -> error(reason)
+}
+
+/** Shared result contract for bounded previews and full exports; no excerpt target assertions. */
+object AudioNormalizationGuard {
+    fun withDiagnostics(arguments:List<String>,filters:List<Pair<String,NormalizationPolicy>>):List<String> {
+        if(filters.none {it.first.startsWith("loudnorm=")})return arguments
+        val args=arguments.toMutableList();val index=args.indexOf("-loglevel")
+        if(index>=0)args[index+1]="info" else args.addAll(0,listOf("-loglevel","info"))
+        return args
+    }
+    fun requireDynamics(diagnostics:String,filters:List<Pair<String,NormalizationPolicy>>) {
+        val requested=filters.count {it.first.startsWith("loudnorm=") && it.second.preserveDynamics}
+        if(requested==0)return
+        val linear=Regex(""""normalization_type"\s*:\s*"linear"""").findAll(diagnostics).count()
+        val dynamic=Regex(""""normalization_type"\s*:\s*"dynamic"""").containsMatchIn(diagnostics)
+        check(linear>=requested && !dynamic){"The requested normalization did not preserve dynamics."}
+    }
 }
