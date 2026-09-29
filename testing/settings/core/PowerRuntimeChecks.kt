@@ -18,6 +18,16 @@ object PowerRuntimeChecks {
             check(!SettingCatalog["power.respect_saver"].implemented)
             check(SettingCatalog.all.count { it.implemented } == 26)
         },
+        "implemented power values pass save validation while deferred values remain blocked" to {
+            val live = PreferenceValues.of(mapOf(
+                "power.low_action" to c("stop"),
+                "power.low_percent" to n(25),
+                "power.only_when_not_charging" to f(true)
+            ))
+            check(SettingsRules.editErrors(live).isEmpty())
+            val deferred = PreferenceValues.of(mapOf("power.auto_continue" to f(false)))
+            check(SettingsRules.editErrors(deferred).isNotEmpty())
+        },
         "resolved power values map exactly into the reducer preferences" to {
             val saved = PreferenceValues.of(mapOf(
                 "power.low_action" to c("stop"),

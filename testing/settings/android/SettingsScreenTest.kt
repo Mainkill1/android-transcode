@@ -50,13 +50,21 @@ class SettingsScreenTest {
         compose.runOnIdle { assertEquals(false, closed) }
     }
 
-    @Test fun plannedBatteryOptionExplainsWhyItCannotBeActivated() {
-        val draft = SettingsDraft(SettingsDocument())
-        compose.setContent { FormaTheme { SettingsPanel(draft, PreferenceValues.EMPTY, false,
-            onValuesChanged={ error("Planned control must not modify real settings") }, onSave={}, onDiscard={}, onClose={}) } }
+    @Test fun liveBatteryActionCanBeDraftedWhileAutomaticRestartStaysPlanned() {
+        val state = mutableStateOf(SettingsDraft(SettingsDocument()))
+        compose.setContent { FormaTheme { SettingsPanel(state.value, PreferenceValues.EMPTY, false,
+            onValuesChanged={ state.value = state.value.copy(values=it) }, onSave={}, onDiscard={}, onClose={}) } }
+
         compose.onNodeWithTag("settings-search").performTextInput("power.low_action")
         compose.onNodeWithTag("settings-row:power.low_action").performClick()
-        compose.onNodeWithTag("settings-option:power.low_action:stop").assertIsNotEnabled()
+        compose.onNodeWithTag("settings-option:power.low_action:stop").assertIsEnabled().performClick()
+        compose.runOnIdle {
+            assertEquals(SettingValue.Choice("stop"), state.value.values["power.low_action"])
+        }
+
+        compose.onNodeWithTag("settings-search").performTextClearance()
+        compose.onNodeWithTag("settings-search").performTextInput("power.auto_continue")
+        compose.onNodeWithTag("settings-row:power.auto_continue").performClick()
         compose.onNodeWithText("Planned — not active in exports.").assertIsDisplayed()
     }
 }
