@@ -67,7 +67,8 @@ class HostContractTests(unittest.TestCase):
         with self.assertRaises(ValueError): cli.validate_report(report, "a" * 32, "smoke")
 
     def test_cleanup_timeout_is_not_recorded_as_pass(self):
-        with tempfile.TemporaryDirectory() as temporary:
+        Path("testing/results/contract").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir="testing/results/contract") as temporary:
             report = self.report()
             device = MagicMock()
             def shell(args, **kwargs):
@@ -87,6 +88,12 @@ class HostContractTests(unittest.TestCase):
                 self.assertEqual(2, cli.main(["capabilities", "--output", temporary]))
             saved = json.loads((Path(temporary) / ("a" * 32) / "host.json").read_text())
             self.assertEqual("FAIL", saved["status"])
+
+    def test_movie_smoke_requires_complete_native_inventory(self):
+        report=self.report("movie-smoke"); report["capabilities"]["available"]=True
+        with self.assertRaises(ValueError): cli.validate_report(report,"a"*32,"movie-smoke")
+        report["results"]=[{"name": name,"decoded": True,"bytes": 10,"sourceSha256": "f"*64,"outputFile":name+".mp4"} for name in cli.MOVIE_CASES]
+        cli.validate_report(report,"a"*32,"movie-smoke")
 
     def test_remote_command_quoting(self):
         self.assertEqual("run-as dev.forma.transcode.lab sh -c 'cat > files/forma-tests/abc/input.media'",

@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+import struct
 from pathlib import Path
 import shutil
 import subprocess
@@ -106,17 +108,64 @@ def main() -> int:
     try:
         unit = ROOT / "testing/core/unit/dev/forma/core"
         sources = sorted((ROOT / "core/src/main/kotlin/dev/forma/core").glob("*.kt"))
-        sources += [unit / f"{name}.kt" for name in ("CoreChecks", "EditorChecks", "TimelineChecks")]
+        sources += [unit / f"{name}.kt" for name in ("CoreChecks", "EditorChecks", "TimelineChecks", "SequenceChecks", "ProjectChecks")]
         sources += [ROOT / "testing/host/EditorMain.kt", ROOT / "testing/host/ExportCases.kt",
                     ROOT / "testing/shared/dev/forma/testing/EditorCases.kt"]
+        sources += [ROOT / "testing/host/MovieMain.kt"]
+        sources += [ROOT / "engine-ffmpeg/src/main/kotlin/dev/forma/ffmpeg" / (name + ".kt") for name in
+                    ("FfmpegBridge", "ManagedFfmpegBridge", "FfmpegRenderSession", "FfmpegListing")]
+        kotlin_home = Path(shutil.which("kotlinc")).resolve().parents[1]
+        coroutines = kotlin_home / "lib/kotlinx-coroutines-core-jvm.jar"
+        if not coroutines.is_file():
+            raise RuntimeError("Kotlin CLI needs its bundled kotlinx-coroutines-core-jvm.jar for production session checks")
         jar = directory / "checks.jar"
-        run(["kotlinc", *map(str, sources), "-jvm-target", "17", "-include-runtime", "-d", str(jar)], directory / "compile.log")
+        run(["kotlinc", *map(str, sources), "-cp", str(coroutines), "-jvm-target", "17", "-include-runtime", "-d", str(jar)], directory / "compile.log")
         run(["java", "-cp", str(jar), "dev.forma.core.CoreChecksKt"], directory / "core.log")
         run(["java", "-cp", str(jar), "EditorMainKt"], directory / "editor.log")
         run([sys.executable, "-m", "unittest", "discover", "-s", "testing/adb", "-p", "test_*.py", "-v"], directory / "adb-contract.log")
         print((directory / "core.log").read_text().splitlines()[-1])
         print((directory / "editor.log").read_text().splitlines()[-1])
         report["desktopExports"] = exports(jar, directory) if args.exports else []
+        if args.exports:
+            movies = directory / "movies"
+            run(["java", "-cp", str(jar) + ":" + str(coroutines), "dev.forma.testing.MovieMainKt", str(movies)], directory / "movies.log")
+            report["movieExports"] = []
+            for line in (movies / "movies.tsv").read_text().splitlines():
+                name, artifact, duration, frames, size, attempts, first_hash, second_hash = line.split("\t")
+                measured = {"case": name, "output": artifact, "durationMs": int(duration),
+                    "decodedFrames": int(frames), "bytes": int(size), "attempts": int(attempts),
+                    "sourceSha256": [first_hash, second_hash], "status": "PASS"}
+                if name in ("movie-cut", "movie-speed", "movie-audio"):
+                    raw = subprocess.check_output(["ffmpeg", "-v", "error", "-i", str(movies / artifact),
+                        "-map", "0:a:0", "-ar", "48000", "-ac", "1", "-f", "f32le", "pipe:1"], timeout=30)
+                    samples = [sample[0] for sample in struct.iter_unpack("<f", raw)]
+                    def rms(start, end):
+                        window = samples[int(start * 48000):int(end * 48000)]
+                        return math.sqrt(sum(value * value for value in window) / len(window))
+                    leading = rms(0, .1 if name == "movie-speed" else .2)
+                    tone = rms(.4 if name == "movie-speed" else .5, .8)
+                    silent = rms(1.2 if name == "movie-speed" else 2.2, 2.8 if name == "movie-speed" else 3.8)
+                    if leading > 1e-4 or tone < .01 or silent > 1e-4:
+                        raise AssertionError(f"{name}: leading A/V offset or silent segment changed: {leading}, {tone}, {silent}")
+                    measured["independentRms"] = {"leading": leading, "tone": tone, "silentSegment": silent}
+                if name in ("movie-cut", "movie-crossfade"):
+                    position = "2.5" if name == "movie-cut" else "1.75"
+                    pixel = subprocess.check_output(["ffmpeg", "-v", "error", "-ss", position, "-i", str(movies / artifact),
+                        "-frames:v", "1", "-vf", "scale=1:1", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], timeout=30)
+                    if len(pixel) != 3 or (name == "movie-cut" and pixel[2] <= pixel[0]) or (name == "movie-crossfade" and min(pixel[0],pixel[2]) < 20):
+                        raise AssertionError(f"{name}: ordered pictures or dissolve failed: {list(pixel)}")
+                    measured["independentRgb"] = list(pixel)
+                if name == "movie-video-delay":
+                    colors=[]
+                    for position in ("0.1", "0.5"):
+                        pixel = subprocess.check_output(["ffmpeg", "-v", "error", "-ss", position, "-i", str(movies / artifact),
+                            "-frames:v", "1", "-vf", "scale=1:1", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], timeout=30)
+                        colors.append(list(pixel))
+                    if max(colors[0]) > 3 or colors[1][0] < 150:
+                        raise AssertionError(f"Delayed video advanced into its leading gap: {colors}")
+                    measured["leadingGapRgb"] = colors
+                report["movieExports"].append(measured)
+            print((directory / "movies.log").read_text().strip())
         report["status"] = "PASS"
         print(f"PASS host checks. Android build/device execution NOT performed. Reports: {directory}")
         return 0

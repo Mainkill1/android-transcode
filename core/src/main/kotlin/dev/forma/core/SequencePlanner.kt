@@ -69,7 +69,7 @@ object SequencePlanner {
         if (output.container == Container.M4A && !hasAudio(sequence, output)) add("Audio movie output needs at least one included audio track.")
         if (caps?.available == true) {
             val needed = mutableSetOf("concat", "atrim", "asetpts", "aresample", "aformat", "apad")
-            if (output.container != Container.M4A) needed += setOf("trim", "setpts", "scale", "setsar", "fps", "tpad", "format", "settb")
+            if (output.container != Container.M4A) needed += setOf("trim", "setpts", "scale", "setsar", "fps", "tpad", "format", "settb", "color", "overlay")
             if (output.container != Container.M4A && sequence.canvas.fit == CanvasFit.FIT) needed += "pad"
             if (output.container != Container.M4A && sequence.canvas.fit == CanvasFit.FILL) needed += "crop"
             if (hasAudio(sequence, output) && clips.any { it.source.audioTracks == 0 || it.settings.audio == AudioEncoder.NONE }) needed += "anullsrc"
@@ -114,16 +114,18 @@ object SequencePlanner {
                         CanvasFit.STRETCH -> add("scale=${c.width}:${c.height}")
                     }
                     add("setsar=1")
-                    add("fps=${c.fps}:start_time=0")
+                    // Keep the common trim origin, including a video-leading gap.
+                    add("fps=${c.fps}")
                     add("tpad=stop_mode=clone:stop_duration=$length")
                     add("trim=duration=$length")
-                    add("setpts=N/(${c.fps}*TB)")
-                    // setpts can clear the advertised frame rate; xfade requires it explicitly.
-                    add("fps=${c.fps}:start_time=0")
                     add("settb=AVTB")
                     add("format=yuv420p")
                 }
-                graph += "[$index:v:0]${filters.joinToString(",")}[v$index]"
+                graph += "[$index:v:0]${filters.joinToString(",")}[picture$index]"
+                graph += "color=c=0x${c.backgroundRgb}:s=${c.width}x${c.height}:r=${c.fps}:d=$length[background$index]"
+                // Overlay follows timestamps. Before the first picture, only the canvas is visible.
+                graph += "[background$index][picture$index]overlay=eof_action=repeat:shortest=0:format=yuv420," +
+                    "trim=duration=$length,setpts=N/(${c.fps}*TB),fps=${c.fps}:start_time=0,settb=AVTB,format=yuv420p[v$index]"
             }
             if (audio) {
                 val included = clip.source.audioTracks > 0 && s.audio != AudioEncoder.NONE

@@ -29,7 +29,7 @@ class EditorCommandTest {
         val command = args.getString("formaCommand")
         // Ordinary Compose suites do not implicitly request expensive native qualification.
         assumeTrue("ADB editor command not requested", command != null)
-        require(command in setOf("capabilities", "smoke", "export")) { "Unknown formaCommand." }
+        require(command in setOf("capabilities", "smoke", "export", "movie-smoke")) { "Unknown formaCommand." }
         val runId = args.getString("formaRunId").orEmpty()
         require(Regex("[a-f0-9]{32}").matches(runId)) { "formaRunId must contain 32 lowercase hex characters." }
         val timeout = args.getString("formaTimeoutMs")?.toLongOrNull() ?: 290_000L
@@ -57,7 +57,10 @@ class EditorCommandTest {
                     report.put("capabilities", JSONObject().put("available", caps.available).put("reason", caps.reason)
                         .put("build", caps.build).put("encoders", JSONArray(caps.encoders.sorted()))
                         .put("filters", JSONArray(caps.filters.sorted())).put("muxers", JSONArray(caps.muxers.sorted())))
-                    if (command != "capabilities") {
+                    if (command == "movie-smoke") {
+                        check(caps.available) { "Native movie test requested without FFmpeg: ${caps.reason}" }
+                        runMovieCases(graph, directory, results)
+                    } else if (command != "capabilities") {
                         check(caps.available) { "Native test explicitly requested, but FFmpeg is unavailable: ${caps.reason}" }
                         val input = File(directory, "input.media")
                         val cases = if (command == "smoke") {
@@ -147,6 +150,120 @@ class EditorCommandTest {
             // Only this test's UUID output. Never clear the app queue or an unrelated output.
             graph.files.output(spec).delete()
         }
+    }
+
+    private suspend fun runMovieCases(graph: AppGraph, directory: File, results: JSONArray) {
+        val a = File(directory,"movie-a.mp4")
+        val b = File(directory,"movie-b.mp4")
+        val generatedA = graph.bridge.execute(listOf("-hide_banner","-loglevel","error","-nostdin","-n",
+            "-f","lavfi","-i","color=red:size=640x360:rate=30:duration=3",
+            "-itsoffset","0.300","-f","lavfi","-i","sine=frequency=440:sample_rate=48000:duration=3",
+            "-c:v","libx264","-pix_fmt","yuv420p","-c:a","aac","-f","mp4",a.absolutePath)) {}
+        check(generatedA.exitCode == 0) { generatedA.diagnostics }
+        val generatedB = graph.bridge.execute(listOf("-hide_banner","-loglevel","error","-nostdin","-n",
+            "-f","lavfi","-i","color=blue:size=360x640:rate=25:duration=3",
+            "-c:v","libx264","-pix_fmt","yuv420p","-an","-f","mp4",b.absolutePath)) {}
+        check(generatedB.exitCode == 0) { generatedB.diagnostics }
+        val c=File(directory,"movie-video-delay.mp4")
+        val generatedC=graph.bridge.execute(listOf("-hide_banner","-loglevel","error","-nostdin","-n",
+            "-itsoffset","0.300","-f","lavfi","-i","color=red:size=640x360:rate=30:duration=3",
+            "-f","lavfi","-i","sine=frequency=440:sample_rate=48000:duration=3",
+            "-c:v","libx264","-pix_fmt","yuv420p","-fps_mode","passthrough","-c:a","aac","-f","mp4",c.absolutePath)) {}
+        check(generatedC.exitCode==0) { generatedC.diagnostics }
+        val ah=sha256(a); val bh=sha256(b); val ch=sha256(c)
+        val sa=graph.bridge.probe(a.absolutePath).copy(uri=Uri.fromFile(a).toString(),name=a.name,bytes=a.length())
+        val sb=graph.bridge.probe(b.absolutePath).copy(uri=Uri.fromFile(b).toString(),name=b.name,bytes=b.length())
+        val sc=graph.bridge.probe(c.absolutePath).copy(uri=Uri.fromFile(c).toString(),name=c.name,bytes=c.length())
+        fun project(speed: Int = 100, transition: Long = 0, cap: Long? = null, audio: Boolean = false): MovieProject {
+            val clips=listOf(TimelineClip("a",sa,Trim(0,2000),Settings(effects=ClipEffects(speedPercent=speed))),
+                TimelineClip("b",sb,Trim(0,2000),Settings()))
+            return MovieProject(sequence=SequenceSpec(EditTimeline(clips),CanvasSpec(320,180,30),transition),
+                settings=Settings(container=if(audio) Container.M4A else Container.MP4),targetBytes=cap)
+        }
+        val cases=listOf("movie-cut" to project(),"movie-crossfade" to project(transition=500),
+            "movie-speed" to project(speed=200),"movie-audio" to project(audio=true),
+            "movie-budget" to project(cap=150000),"movie-preview" to project(),
+            "movie-video-delay" to project().copy(sequence=project().sequence.copy(timeline=EditTimeline(listOf(TimelineClip("a",sc,Trim(0,2000)),TimelineClip("b",sb,Trim(0,2000)))))))
+        for((name,doc) in cases) {
+            val id=UUID.randomUUID().toString()
+            val requested=if(name=="movie-preview") doc.previewJob(id) else doc.toJob(id)
+            val saved=dev.forma.app.data.JobCodec.decode(dev.forma.app.data.JobCodec.encode(listOf(QueueEntry(requested)))).single().spec
+            check(saved == requested) { "Movie changed across queue persistence." }
+            val result=JSONObject().put("name",name).put("sourceSha256",if(name=="movie-video-delay") ch else ah).put("otherSourceSha256",bh)
+                .put("job",JSONObject(dev.forma.app.data.JobCodec.encode(listOf(QueueEntry(saved)))))
+            val attempts=JSONArray();result.put("attempts",attempts);results.put(result)
+            val tracing=object : dev.forma.ffmpeg.FfmpegBridge by graph.bridge {
+                override suspend fun prepareSequence(sequence: SequenceSpec,settings: Settings,inputs: List<String>,output: String): List<String> {
+                    return graph.bridge.prepareSequence(sequence,settings,inputs,output).also { result.put("preparedArgv",JSONArray(it)) }
+                }
+            }
+            var entry=QueueEntry(saved,JobState.PREPARING)
+            try {
+                dev.forma.app.data.FfmpegTranscoder(graph.files,tracing).run(saved,{entry=QueueRules.transition(entry,it)},{}, { attempt ->
+                    attempts.put(JSONObject().put("index",attempt.index).put("bytes",attempt.bytes).put("verified",attempt.verified)
+                        .put("accepted",attempt.accepted).put("arguments",JSONArray(attempt.arguments)))
+                })
+                check(entry.state==JobState.COMPLETED)
+                val output=graph.files.output(saved)
+                val facts=graph.bridge.probe(output.absolutePath)
+                check(abs(facts.durationMs-JobPlans.duration(saved))<=100)
+                saved.targetBytes?.let { check(UploadFit.fits(output.length(),it)) }
+                if(saved.settings.container!=Container.M4A) {
+                    val counted=graph.bridge.execute(listOf("-hide_banner","-nostdin","-v","info","-i",output.absolutePath,
+                        "-map","0:v:0","-vf","showinfo","-an","-f","null","-")) {}
+                    check(counted.exitCode==0)
+                    val frames=Regex("""n:\s*(\d+)""").findAll(counted.diagnostics).map { it.groupValues[1].toLong() }.lastOrNull()?.plus(1)
+                    val sequence=requireNotNull(saved.sequence)
+                    val expected=SequencePlanner.frames(sequence).sum()-SequencePlanner.overlapFrames(sequence)*(sequence.timeline.clips.size-1)
+                    check(frames==expected) { "Decoded frame count $frames != $expected. ${counted.diagnostics}" }
+                    result.put("decodedFrames",frames)
+                }
+                check(sha256(a)==ah && sha256(b)==bh && sha256(c)==ch) { "An original changed." }
+                if(name=="movie-video-delay") {
+                    val colors=JSONArray()
+                    for(time in listOf("0.100","0.500")) {
+                        val raw=File(directory,"gap-${time.replace('.','-')}.rgb")
+                        val decoded=graph.bridge.execute(listOf("-hide_banner","-nostdin","-v","error","-n","-ss",time,"-i",output.absolutePath,
+                            "-frames:v","1","-vf","scale=1:1","-pix_fmt","rgb24","-f","rawvideo",raw.absolutePath)) {}
+                        check(decoded.exitCode==0) { decoded.diagnostics }
+                        val pixel=raw.readBytes().map { it.toInt() and 255 };check(pixel.size==3)
+                        if(time=="0.100") check(pixel.max()<=3) { "Video was advanced into its leading gap: $pixel" }
+                        else check(pixel[0]>=150)
+                        colors.put(JSONArray(pixel));raw.delete()
+                    }
+                    result.put("leadingGapRgb",colors)
+                }
+                val artifact="$name.${saved.settings.container.extension}"
+                output.copyTo(File(directory,artifact),overwrite=false)
+                result.put("decoded",true).put("bytes",output.length()).put("durationMs",facts.durationMs)
+                    .put("expectedDurationMs",JobPlans.duration(saved)).put("outputFile",artifact).put("outputSha256",sha256(output))
+            } finally { graph.files.output(saved).delete() }
+        }
+        // Deterministic cancellation after verification still must not produce a shareable output.
+        val cancelled=project().toJob(UUID.randomUUID().toString())
+        coroutineScope {
+            val work=launch(start=CoroutineStart.LAZY) {
+                dev.forma.app.data.FfmpegTranscoder(graph.files,graph.bridge).run(cancelled,{}, {},
+                    { if(it.accepted) cancel("Movie lab cancellation at accepted attempt") })
+            }
+            work.start();work.join();check(work.isCancelled)
+        }
+        check(!graph.files.output(cancelled).exists()) { "Cancelled movie was published." }
+        check(!graph.files.workDir(cancelled).listFiles().orEmpty().isNotEmpty())
+        graph.files.workDir(cancelled).delete()
+        val commitFailed=project().toJob(UUID.randomUUID().toString())
+        check(runCatching {
+            dev.forma.app.data.FfmpegTranscoder(graph.files,graph.bridge).run(commitFailed,
+                { if(it==JobState.COMPLETED) error("Lab simulates a failed durable completion") },{})
+        }.isFailure)
+        check(!graph.files.output(commitFailed).exists()) { "Failed queue completion left a shareable output." }
+        // An impossible minimum bitrate budget fails without publishing or modifying originals.
+        val impossible=project().copy(targetBytes=65536)
+        val first=impossible.sequence.timeline.clips.first().source
+        val invalid=JobSpec(UUID.randomUUID().toString(),first,Trim(),impossible.settings,impossible.sequence,impossible.targetBytes)
+        check(runCatching { dev.forma.app.data.FfmpegTranscoder(graph.files,graph.bridge).run(invalid,{}, {}) }.isFailure)
+        check(!graph.files.output(invalid).exists())
+        check(sha256(a)==ah && sha256(b)==bh && sha256(c)==ch)
     }
 
     private fun readRecipe(file: File): EditorCase {

@@ -23,3 +23,7 @@ Preserve queue/service cancellation ownership; do not mutate source media or unr
 ## Execution and remaining gates
 
 Host assertions and desktop export regressions passed as recorded in `docs/editor-framework.md`. Source changes and test isolation were implemented. Android/JVM dependency-backed builds, lab test packaging, physical-device commands, persistence execution, release APK inspection and visual/A/V qualification remain mandatory before readiness. The test README includes commands and failure/report procedures for those gates. No scheduled automation or new GitHub workflow is part of this work.
+
+## Expanded movie delivery
+
+Commit 30318d9 introduced the composition renderer. Its full native integration, schema-3 queue migration, strict-cap export, rendered-preview controls and reproducible qualification are covered by [movie integration](2026-09-29-movie-integration.md). The old statement that ordered timeline export is future work is superseded by that delivery, subject to its physical-device gates.

@@ -15,6 +15,7 @@ import uuid
 PACKAGE = "dev.forma.transcode.lab"
 RUNNER = PACKAGE + ".test/androidx.test.runner.AndroidJUnitRunner"
 TEST_CLASS = "dev.forma.app.EditorCommandTest"
+MOVIE_CASES = {"movie-cut", "movie-crossfade", "movie-speed", "movie-audio", "movie-budget", "movie-preview", "movie-video-delay"}
 SMOKE_CASES = {"neutral", "speed", "crop-color", "fades", "audio-only"}
 
 
@@ -60,7 +61,7 @@ def validate_report(report: dict[str, Any], run_id: str, command: str) -> None:
             raise ValueError("Requested native test has no native engine.")
         results = report.get("results", [])
         names = [item.get("name") for item in results]
-        expected = SMOKE_CASES if command == "smoke" else {"custom"}
+        expected = MOVIE_CASES if command == "movie-smoke" else SMOKE_CASES if command == "smoke" else {"custom"}
         if len(names) != len(expected) or set(names) != expected:
             raise ValueError("The report did not execute the requested case inventory.")
         for item in results:
@@ -106,7 +107,7 @@ def source_identity() -> dict[str, Any]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["capabilities", "smoke", "export"])
+    parser.add_argument("command", choices=["capabilities", "smoke", "export", "movie-smoke"])
     parser.add_argument("--serial")
     parser.add_argument("--adb", default="adb")
     parser.add_argument("--input", type=Path)

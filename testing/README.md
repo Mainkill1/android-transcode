@@ -64,6 +64,7 @@ On Windows, use `gradlew.bat` and the corresponding native-repository path. Thos
 ```sh
 python testing/adb/forma_device.py capabilities --serial SERIAL
 python testing/adb/forma_device.py smoke --serial SERIAL --pull-media
+python testing/adb/forma_device.py movie-smoke --serial SERIAL --timeout 600 --pull-media
 python testing/adb/forma_device.py export --serial SERIAL --input sample.mp4 --recipe testing/recipes/basic-edit.json --pull-media
 ```
 
@@ -73,6 +74,7 @@ python testing/adb/forma_device.py export --serial SERIAL --input sample.mp4 --r
 | --- | --- |
 | `capabilities` | Records actual installed APK identity, native availability, build, encoders, muxers and filters. PASS means inspection succeeded, not that encoding is available. |
 | `smoke` | Generates a six-second fixture and runs neutral trim, speed, crop/rotation/color, fades/normalization and audio-only cases through the production exporter. Missing native support is a failure, not a skip. |
+| `movie-smoke` | Generates ordered sources, preserves delayed tracks, and checks cut/dissolve/speed/silent-audio/cap/preview jobs plus cancellation, failed completion and cap failure. |
 | `export` | Uploads an input and typed recipe, then runs one production export with structural and decode verification. |
 
 The test calls `FfmpegTranscoder` with the normal managed bridge and media-files implementation. A forwarding recorder captures `prepare` arguments; it is not a second encoder. Each export uses its own UUID, obeys queue transition rules, hashes the input, probes/decodes the result and deletes only its own temporary job output. It does not append test jobs to the normal app's queue.
@@ -101,3 +103,11 @@ Success removes only that run's private device directory unless `--keep-device-f
 ## Qualification still required before merge
 
 Build/lint normal debug, lab and their test APKs; run JVM persistence tests; inspect a release dependency/APK report with `formaTests=false`; verify the actual native bundle; run capabilities/smoke/custom exports on an Android device; inspect crop/color/fades and listen for A/V sync; exercise timeout/cancellation and source preservation. Also verify the touchscreen controls and queued edits across app restarts. Keep desktop evidence distinct from those results.
+
+## Native movie qualification
+
+`python3 testing/adb/forma_device.py movie-smoke --serial "$SERIAL" --timeout 600` generates isolated red/blue sources and invokes the production `FfmpegTranscoder` for cut, dissolve, speed, mixed-silent M4A, byte-cap, rendered-preview and delayed-video jobs. It round-trips schema-3 jobs, records prepared graphs and attempts, checks decoded frame counts, and tests cancellation at accepted-attempt reporting, failed durable completion and an impossible cap without publication. It never clears another job or source. Build and install matching lab app/test APKs first; `capabilities` alone is not this gate.
+
+Run `dev.forma.app.MovieControlsTest` separately for native action/accessibility checks. Review the Movie inspector on narrow/wide screens and with TalkBack; perform listening and A/V review on actual devices.
+
+The desktop command `python3 testing/run_host.py --exports` now compiles the actual `FfmpegRenderSession`/managed bridge alongside core. It generates deterministic movie fixtures and verifies frame counts plus independent audio/pixel oracles. Its desktop bridge and fixtures are entirely under testing and do not enter release runtime. JVM lifecycle tests in `testing/app/unit/dev/forma/app/data/MovieRenderSessionTest.kt` use a command recorder to exercise failure/retry/cancel paths; those tests are policy evidence, separately from desktop or Android native execution.
