@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.AtomicFile
 import dev.forma.core.*
 import dev.forma.core.image.*
+import dev.forma.ffmpeg.AttemptEvent
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,7 +13,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-data class LiveProgress(val id: String, val progress: Progress = Progress(0), val image: ImageStageProgress? = null)
+data class LiveProgress(val id: String, val progress: Progress = Progress(0), val image: ImageStageProgress? = null, val attempt: AttemptEvent? = null)
 
 class QueueRepository(context: Context) {
     private val file = AtomicFile(File(context.filesDir, "queue-v1.json"))

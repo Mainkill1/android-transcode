@@ -9,6 +9,12 @@ import dev.forma.core.audio.AudioGraphPlanner
 object Planner {
     fun duration(source: Source, trim: Trim): Long = (trim.endMs ?: source.durationMs) - trim.startMs
 
+    /** Budget the actual audio sample graph, rather than the unedited input window. */
+    fun outputDuration(source: Source, trim: Trim, settings: Settings): Long =
+        if(settings.container.audioOnly && source.audioTracks>0 && settings.audio!=AudioEncoder.NONE)
+            (AudioGraphPlanner.plan(source,trim,settings).outputDurationUs+999)/1000
+        else duration(source,trim)
+
     fun preset(goal: Goal, quality: Quality): Settings {
         val crf = when (quality) { Quality.SMALL -> 28; Quality.BALANCED -> 23; Quality.CLEAR -> 18 }
         return when (goal) {
@@ -41,7 +47,7 @@ object Planner {
         if (settings.crf !in 0..maxCrf) add("The quality value is outside this encoder's range.")
         if (video && settings.video.hardware && settings.rateControl == RateControl.QUALITY)
             add("Device encoders require bitrate mode; CRF is not a device quality scale.")
-        if (settings.container == Container.WEBM && (settings.video !in setOf(VideoEncoder.VP9, VideoEncoder.AV1) ||
+        if (settings.container == Container.WEBM && (settings.video.softwareVariant() !in setOf(VideoEncoder.VP9, VideoEncoder.AV1) ||
                     settings.audio !in setOf(AudioEncoder.OPUS, AudioEncoder.NONE)))
             add("WebM needs VP9/AV1 video and Opus audio (or no audio).")
         if (settings.container == Container.MP4 && settings.audio !in setOf(AudioEncoder.AAC, AudioEncoder.NONE))
@@ -64,7 +70,14 @@ object Planner {
         if (caps != null) {
             if (!caps.available) add(caps.reason)
             else {
-                if (video && settings.video.ffmpeg !in caps.encoders) add("Encoder ${settings.video.ffmpeg} is not enabled in this build/profile.")
+                if (video) {
+                    if (!settings.video.isCompiled(caps.encoders))
+                        add("Encoder ${settings.video.ffmpeg} is not enabled in this build/profile.")
+                    else if (settings.video.automatic &&
+                        (settings.rateControl == RateControl.QUALITY || settings.fps == 0) &&
+                        settings.video.format.software !in caps.encoders)
+                        add("Automatic constant-quality or source-rate output requires software encoder ${settings.video.format.software} in this build.")
+                }
                 if (settings.audio != AudioEncoder.NONE && source.audioTracks > 0 && settings.audio.ffmpeg !in caps.encoders)
                     add("Encoder ${settings.audio.ffmpeg} is not included in this FFmpeg build.")
                 if (settings.container.muxer !in caps.muxers) add("Output format ${settings.container.muxer} is unavailable.")

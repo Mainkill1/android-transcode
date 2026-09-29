@@ -31,10 +31,13 @@ import kotlin.math.roundToLong
             Choice("Output format", s.container, Container.entries, { it.name }) { update(s.copy(container = it, audio = when(it) { Container.WAV -> AudioEncoder.PCM_S16LE;Container.FLAC -> AudioEncoder.FLAC;Container.M4A,Container.MP4 -> AudioEncoder.AAC;else -> s.audio }),"export.container","audio.codec") }
             if (!s.container.audioOnly) {
                 Choice("Video encoder", s.video, VideoEncoder.entries, { it.label },
-                    enabled = { if (it.hardware) ui.capabilities.available && it.ffmpeg in ui.capabilities.encoders else !ui.capabilities.available || it.ffmpeg in ui.capabilities.encoders }) {
-                    update(if (it.hardware) s.copy(video = it, rateControl = RateControl.BITRATE, fps = if (s.fps == 0) 30 else s.fps) else s.copy(video = it),"video.codec","engine.encode_backend")
+                    enabled = { if (it.deviceRequested) ui.capabilities.available && it.isCompiled(ui.capabilities.encoders) else !ui.capabilities.available || it.isCompiled(ui.capabilities.encoders) }) {
+                    update(if (it.deviceRequested) s.copy(video = it, rateControl = RateControl.BITRATE, fps = if (s.fps == 0) 30 else s.fps) else s.copy(video = it),"video.codec","engine.encode_backend")
                 }
-                if (s.video.hardware) Text("Device encoder checked before conversion", style = MaterialTheme.typography.bodySmall)
+                if (s.video.deviceRequested) Text(if (s.video.automatic)
+                    "Tries device encoders, then software for codec failures. Constant quality or source frame rate uses software. Reports show the actual route."
+                else "Tries device configurations without software fallback. Older Android versions may not identify whether the component is hardware.", style = MaterialTheme.typography.bodySmall)
+                if (ui.targetBytes != null) Text("Remove the size limit to use these quality settings.", style=MaterialTheme.typography.bodySmall)
                 Choice("Rate control", s.rateControl, if (s.video.hardware) listOf(RateControl.BITRATE) else RateControl.entries,
                     { if (it == RateControl.QUALITY) "Constant quality" else "Average bitrate" }) { update(s.copy(rateControl = it),"video.rate_control") }
                 if (s.rateControl == RateControl.QUALITY) {

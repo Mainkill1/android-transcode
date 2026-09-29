@@ -80,6 +80,7 @@ sealed interface QueueJobSpec {
     val trim:dev.forma.core.Trim
     val settings:dev.forma.core.Settings
     val preferences:MediaPreferences
+    val targetBytes:Long?
     val mime:String
     val extension:String
     data class Av(val job:dev.forma.core.JobSpec):QueueJobSpec {
@@ -88,6 +89,7 @@ sealed interface QueueJobSpec {
         override val trim get()=job.trim
         override val settings get()=job.settings
         override val preferences get()=job.preferences
+        override val targetBytes get()=job.targetBytes
         override val mime get()=settings.container.mime
         override val extension get()=settings.container.extension
     }
@@ -98,13 +100,15 @@ sealed interface QueueJobSpec {
         override val trim get()=dev.forma.core.Trim()
         override val settings get()=dev.forma.core.Settings()
         override val preferences get()=job.preferences
+        override val targetBytes get()=job.document.output.targetBytes
         val format get()=job.resolvedFormat?:job.document.output.format.takeIf { it!=ImageFormat.AUTO }?:if(job.info?.alpha==ImageAlpha.PRESENT)ImageFormat.PNG else ImageFormat.JPEG
         override val mime get()=format.mime
         override val extension get()=format.extension
     }
     fun copy(id:String=this.id,source:dev.forma.core.Source=this.source,trim:dev.forma.core.Trim=this.trim,
-        settings:dev.forma.core.Settings=this.settings,preferences:MediaPreferences=this.preferences):QueueJobSpec = when(this) {
-        is Av->Av(job.copy(id=id,source=source,trim=trim,settings=settings,preferences=preferences))
-        is Image->{require(source==this.source && trim==this.trim && settings==this.settings){"Use the immutable image document to edit image jobs."};Image(job.copy(id=id,preferences=preferences))}
+        settings:dev.forma.core.Settings=this.settings,preferences:MediaPreferences=this.preferences,
+        targetBytes:Long?=this.targetBytes):QueueJobSpec = when(this) {
+        is Av->Av(job.copy(id=id,source=source,trim=trim,settings=settings,preferences=preferences,targetBytes=targetBytes))
+        is Image->{require(source==this.source && trim==this.trim && settings==this.settings && targetBytes==this.targetBytes){"Use the immutable image document to edit image jobs."};Image(job.copy(id=id,preferences=preferences))}
     }
 }

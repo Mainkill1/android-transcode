@@ -20,9 +20,9 @@ object NativePreferences {
     fun captureLegacy(s: Settings): PreferenceValues = PreferenceValues.legacyMedia(snapshotEntries(s))
     private fun snapshotEntries(s: Settings): Map<String,SettingValue> = mapOf(
         "video.codec" to c(when (s.video) {
-            VideoEncoder.X264, VideoEncoder.H264_HW -> "h264"
-            VideoEncoder.X265, VideoEncoder.H265_HW -> "hevc"
-            VideoEncoder.VP9 -> "vp9"; VideoEncoder.AV1 -> "av1"
+            VideoEncoder.X264, VideoEncoder.H264_HW, VideoEncoder.H264_AUTO -> "h264"
+            VideoEncoder.X265, VideoEncoder.H265_HW, VideoEncoder.H265_AUTO -> "hevc"
+            VideoEncoder.VP9, VideoEncoder.VP9_HW -> "vp9"; VideoEncoder.AV1, VideoEncoder.AV1_HW -> "av1"
         }),
         "video.rate_control" to c(if (s.rateControl == RateControl.QUALITY) "quality" else "bitrate"),
         "video.quality" to i(s.crf), "video.bitrate_kbps" to i(s.videoKbps), "video.max_height" to i(s.maxHeight),
@@ -30,7 +30,7 @@ object NativePreferences {
         "video.deinterlace" to c(if (s.deinterlace) "always" else "off"),
         "audio.codec" to c(s.audio.name.lowercase(java.util.Locale.ROOT)), "audio.bitrate_kbps" to i(s.audioKbps),
         "audio.channels" to c(channel(s)),
-        "engine.encode_backend" to c(if (s.video.hardware) "hardware" else "software"),
+        "engine.encode_backend" to c(when { s.video.automatic -> "auto"; s.video.hardware -> "hardware"; else -> "software" }),
         "engine.decode_backend" to c("software"), "engine.filter_backend" to c("cpu"),
         "export.container" to c(s.container.name.lowercase(java.util.Locale.ROOT))
     )
@@ -50,13 +50,14 @@ object NativePreferences {
         val codec = choice("video.codec")
         val channel = choice("audio.channels")
         val changedChannel = channel != channel(base)
-        val hardware = choice("engine.encode_backend") == "hardware"
-        // Honest conservative Auto: software only until the automatic hardware executor is qualified.
+        val backend = choice("engine.encode_backend")
+        val hardware = backend == "hardware"
+        // Automatic stays explicit; the runtime executor owns actual device trials and same-codec fallback.
         val encoder = when (codec) {
-            "h264" -> if (hardware) VideoEncoder.H264_HW else VideoEncoder.X264
-            "hevc" -> if (hardware) VideoEncoder.H265_HW else VideoEncoder.X265
-            "vp9" -> { require(!hardware) { "VP9 hardware encoding is not wired." }; VideoEncoder.VP9 }
-            "av1" -> { require(!hardware) { "AV1 hardware encoding is not wired." }; VideoEncoder.AV1 }
+            "h264" -> when(backend) { "auto" -> VideoEncoder.H264_AUTO; "hardware" -> VideoEncoder.H264_HW; else -> VideoEncoder.X264 }
+            "hevc" -> when(backend) { "auto" -> VideoEncoder.H265_AUTO; "hardware" -> VideoEncoder.H265_HW; else -> VideoEncoder.X265 }
+            "vp9" -> { require(backend != "auto") { "VP9 Automatic is unavailable. Choose Software or Hardware required." }; if(hardware) VideoEncoder.VP9_HW else VideoEncoder.VP9 }
+            "av1" -> { require(backend != "auto") { "AV1 Automatic is unavailable. Choose Software or Hardware required." }; if(hardware) VideoEncoder.AV1_HW else VideoEncoder.AV1 }
             else -> throw IllegalArgumentException("Unsupported video codec")
         }
         val result = base.copy(
@@ -78,7 +79,7 @@ object NativePreferences {
         when (result.container) {
             Container.MP4 -> require(result.audio in setOf(AudioEncoder.AAC, AudioEncoder.NONE)) { "MP4 requires AAC or no audio." }
             Container.M4A -> require(result.audio == AudioEncoder.AAC) { "M4A is audio-only and requires AAC." }
-            Container.WEBM -> require(result.video in setOf(VideoEncoder.VP9, VideoEncoder.AV1) && result.audio in setOf(AudioEncoder.OPUS, AudioEncoder.NONE)) { "WebM requires VP9/AV1 and Opus or no audio." }
+            Container.WEBM -> require(result.video.format in setOf(dev.forma.core.VideoFormat.VP9, dev.forma.core.VideoFormat.AV1) && result.audio in setOf(AudioEncoder.OPUS, AudioEncoder.NONE)) { "WebM requires VP9/AV1 and Opus or no audio." }
             Container.MKV -> Unit
             Container.WAV -> require(result.audio in setOf(AudioEncoder.PCM_S16LE,AudioEncoder.PCM_F32LE)) { "WAV requires PCM audio." }
             Container.FLAC -> require(result.audio == AudioEncoder.FLAC) { "FLAC requires FLAC audio." }

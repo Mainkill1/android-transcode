@@ -14,7 +14,7 @@ class AudioJobCodecTest {
 
     private fun legacyRoot(schema:Int):JSONObject=JSONObject(JobCodec.encode(listOf(oldEntry))).put("schema",schema).also {
         val job=it.getJSONArray("jobs").getJSONObject(0)
-        job.remove("kind");job.remove("preferences");job.remove("completedAtMs")
+        job.remove("kind");job.remove("preferences");job.remove("completedAtMs");job.remove("targetBytes")
     }
     @Test fun legacyJobsUpgradeToAudioSchemaWithoutChangingTheirSettings() {
         val root = legacyRoot(1)

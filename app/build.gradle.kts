@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+val accelerationTests = providers.gradleProperty("accelerationTests").orNull != "false"
 android {
     namespace = "dev.forma.app"
     compileSdk = 36
@@ -20,6 +21,10 @@ android {
         sourceSets.getByName("test").resources.srcDir(rootProject.file("testing/settings/fixtures"))
         sourceSets.getByName("androidTest").java.srcDir(rootProject.file("testing/settings/android"))
         sourceSets.getByName("androidTest").java.srcDir(rootProject.file("testing/settings/core"))
+    }
+    if (accelerationTests) {
+        sourceSets["test"].java.srcDir(rootProject.file("testing/acceleration/appTest"))
+        sourceSets["androidTest"].java.srcDir(rootProject.file("testing/acceleration/androidTest"))
     }
     buildFeatures { compose = true }
     if (providers.gradleProperty("audioTests").orNull != "false") {

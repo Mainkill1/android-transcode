@@ -19,7 +19,7 @@ class AndroidCodecCatalog {
 
     fun candidates(request: EncodeRequest): List<CodecCandidate> = codecs().filter {
         it.supportedTypes.any { mime -> mime == request.format.mime }
-    }.map { info ->
+    }.mapIndexed { rank, info ->
         try {
             val caps = info.getCapabilitiesForType(request.format.mime)
             val formats = caps.colorFormats.toSet()
@@ -51,12 +51,21 @@ class AndroidCodecCatalog {
             CodecCandidate(info.name, request.format, info.isEncoder, hardware(info),
                 if (supported) Support.YES else Support.NO, buffer,
                 if (supported) "Exact buffer/VBR configuration advertised; not device-qualified."
-                else "Unsupported buffer format, alignment, size/rate, bitrate or codec feature.", request)
+                else "Unsupported buffer format, alignment, size/rate, bitrate or codec feature.", request,
+                if (supported) performanceHint(vc, request) else null, rank)
         } catch (error: RuntimeException) {
             CodecCandidate(info.name, request.format, info.isEncoder, hardware(info), Support.UNKNOWN, null,
-                "Capability query failed: ${error.javaClass.simpleName}", request)
+                "Capability query failed: ${error.javaClass.simpleName}", request, platformRank = rank)
         }
     }
+
+    /** A broken/missing optional OEM estimate must not invalidate an otherwise supported request. */
+    private fun performanceHint(video: MediaCodecInfo.VideoCapabilities?, request: EncodeRequest): CodecPerformanceHint? =
+        try {
+            video?.getAchievableFrameRatesFor(request.width, request.height)?.let {
+                CodecPerformanceHint.from(it.lower, it.upper)
+            }
+        } catch (_: RuntimeException) { null }
 
     private fun codecs(): List<MediaCodecInfo> = try {
         MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter {
@@ -65,7 +74,7 @@ class AndroidCodecCatalog {
     } catch (_: RuntimeException) { emptyList() }
 
     private fun hardware(info: MediaCodecInfo): Support = if (Build.VERSION.SDK_INT >= 29)
-        if (info.isHardwareAccelerated && !info.isSoftwareOnly) Support.YES else Support.NO
+        when { info.isSoftwareOnly -> Support.NO; info.isHardwareAccelerated -> Support.YES; else -> Support.UNKNOWN }
     else Support.UNKNOWN // Never guess hardware from a vendor component's name.
 
     private fun software(info: MediaCodecInfo): Support = if (Build.VERSION.SDK_INT >= 29)

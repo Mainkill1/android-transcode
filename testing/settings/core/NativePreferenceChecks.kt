@@ -27,14 +27,14 @@ object NativePreferenceChecks {
             }
         },
         "legacy explicit hardware is preserved by capture and apply" to {
-            for (encoder in listOf(VideoEncoder.H264_HW, VideoEncoder.H265_HW)) {
+            for (encoder in VideoEncoder.entries.filter { it.hardware }) {
                 val old = Settings(video=encoder, rateControl=RateControl.BITRATE, fps=30, audioTrack=2, denoise=true, keepMetadata=true)
                 val result = NativePreferences.apply(old, SettingsResolver.resolve(job=NativePreferences.capture(old)))
                 check(result == old)
             }
         },
         "all legacy software encoders round trip without dropping unrelated fields" to {
-            for (encoder in VideoEncoder.entries.filterNot { it.hardware }) {
+            for (encoder in VideoEncoder.entries.filterNot { it.deviceRequested }) {
                 val old = Settings(video=encoder, audioTrack=2, denoise=true, keepMetadata=true)
                 check(NativePreferences.apply(old, SettingsResolver.resolve(job=NativePreferences.capture(old))) == old)
             }
@@ -45,16 +45,37 @@ object NativePreferenceChecks {
             val result = NativePreferences.apply(old, SettingsResolver.resolve(job=captured))
             check(result == old.copy(video=VideoEncoder.X264))
         },
-        "auto reports conservative CPU and never claims hardware" to {
+        "automatic choice stays explicit and uses the same codec family" to {
             val old = Settings(video=VideoEncoder.H264_HW, rateControl=RateControl.BITRATE, fps=30)
             val captured = NativePreferences.capture(old).with("engine.encode_backend", c("auto"))
-            check(NativePreferences.apply(old, SettingsResolver.resolve(job=captured)).video == VideoEncoder.X264)
+            check(NativePreferences.apply(old, SettingsResolver.resolve(job=captured)).video == VideoEncoder.H264_AUTO)
         },
-        "hardware does not silently coerce CRF fps or unsupported codec" to {
+        "automatic capture and apply retain quality or bitrate without manufacturing hardware constraints" to {
+            for(encoder in listOf(VideoEncoder.H264_AUTO,VideoEncoder.H265_AUTO))
+                for(control in RateControl.entries) {
+                    val old=Settings(video=encoder,rateControl=control,fps=if(control==RateControl.BITRATE)30 else 0,
+                        audioTrack=2,denoise=true,keepMetadata=true)
+                    val captured=NativePreferences.capture(old)
+                    check(captured["engine.encode_backend"]==c("auto"))
+                    check(NativePreferences.apply(old,SettingsResolver.resolve(job=captured))==old)
+                    check(MediaPreferences.legacy(old).resolve().getValue("engine.encode_backend").origin==ValueOrigin.JOB)
+                }
+        },
+        "unsupported VP9 and AV1 automatic routes require an explicit supported backend" to {
+            for(codec in listOf("vp9","av1")) {
+                val captured=NativePreferences.capture(Settings()).with("video.codec",c(codec)).with("engine.encode_backend",c("auto"))
+                rejects { NativePreferences.apply(Settings(),SettingsResolver.resolve(job=captured)) }
+                check(!NativePreferences.apply(Settings(),SettingsResolver.resolve(job=captured.with("engine.encode_backend",c("software")))).video.deviceRequested)
+            }
+        },
+        "hardware does not silently coerce CRF or source frame rate" to {
             val base = NativePreferences.capture(Settings()).with("engine.encode_backend", c("hardware"))
             rejects { NativePreferences.apply(Settings(), SettingsResolver.resolve(job=base)) }
             rejects { NativePreferences.apply(Settings(), SettingsResolver.resolve(job=base.with("video.rate_control", c("bitrate")))) }
-            rejects { NativePreferences.apply(Settings(), SettingsResolver.resolve(job=base.with("video.rate_control", c("bitrate")).with("video.frame_rate", c("30")).with("video.codec", c("av1")))) }
+            for(codec in listOf("vp9","av1")) {
+                val explicit=base.with("video.rate_control",c("bitrate")).with("video.frame_rate",c("30")).with("video.codec",c(codec))
+                check(NativePreferences.apply(Settings(),SettingsResolver.resolve(job=explicit)).video.hardware)
+            }
         },
         "container conflicts and planned media choices block apply" to {
             rejects { NativePreferences.apply(Settings(), SettingsResolver.resolve(job=values("export.container" to c("webm")))) }

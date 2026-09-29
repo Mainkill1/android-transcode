@@ -89,4 +89,26 @@ class OutputCompletenessTest {
         val unknown=OutputFactsReader.read("N/A",listOf(mapOf("codec_type" to "video","duration" to "N/A","nb_read_frames" to "149.9")))
         assertNull(unknown.originUs);assertNull(unknown.streams.single().durationUs);assertNull(unknown.streams.single().decodedFrames)
     }
+    @Test fun runtimeVerifierRetainsProcessedAudioRateAndAudioOnlyFormats():Unit=runBlocking {
+        val original=OutputFacts(0,listOf(audio()))
+        val audioSource=source.copy(videoTracks=0)
+        val settings=Settings(container=Container.M4A,audioEdit=dev.forma.core.audio.AudioEdit(rate=dev.forma.core.audio.AudioRate(2,1)))
+        val attempt=PreparedAttempt(listOf("-i","original","encoded.m4a"))
+        verifyEncodedOutput(Bridge(original,OutputFacts(0,listOf(audio(2_500_000)))),audioSource,Trim(),settings,File("encoded.m4a"),attempt)
+        assertTrue(runCatching { verifyEncodedOutput(Bridge(original,original),audioSource,Trim(),settings,File("encoded.m4a"),attempt) }.exceptionOrNull() is EncodedOutputRejected)
+        verifyEncodedOutput(Bridge(original,original),audioSource,Trim(),Settings(container=Container.WAV,audio=AudioEncoder.PCM_S16LE),File("encoded.wav"),attempt)
+    }
+    @Test fun runtimeVerifierRetainsDeviceGeometryAndTypedDecodeFailures():Unit=runBlocking {
+        val full=OutputFacts(0,listOf(video(),audio()))
+        val expected=EncodeRequest(VideoFormat.H264,640,480,30.0,1000000)
+        val attempt=PreparedAttempt(listOf("-i","original","encoded.mp4"),EncodeDecision(EncodeBackend.MEDIACODEC,"h264_mediacodec",reason="test",configuration=expected))
+        assertTrue(runCatching { verifyEncodedOutput(Bridge(full,full),source,Trim(),Settings(fps=30),File("encoded.mp4"),attempt) }.exceptionOrNull() is EncodedOutputRejected)
+        val failure=object:FfmpegBridge {
+            override suspend fun capabilities()=Capabilities(true)
+            override suspend fun probe(localPath:String)=source
+            override suspend fun execute(arguments:List<String>,onProgress:(Progress)->Unit)=NativeResult(1,"storage",FailureKind.IO)
+        }
+        assertTrue(runCatching { verifyEncodedOutput(failure,source,Trim(),Settings(),File("encoded.mp4"),attempt) }.exceptionOrNull() is java.io.IOException)
+    }
+
 }

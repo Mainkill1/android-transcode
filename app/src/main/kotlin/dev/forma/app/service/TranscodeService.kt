@@ -18,6 +18,9 @@ import dev.forma.app.data.LiveProgress
 import dev.forma.app.work.*
 import dev.forma.core.*
 import dev.forma.core.image.*
+import dev.forma.ffmpeg.AttemptEvent
+import dev.forma.ffmpeg.AttemptStatus
+import java.util.concurrent.atomic.AtomicReference
 import dev.forma.core.settings.PowerWorkerInstruction
 import dev.forma.core.settings.ConsumerSettings
 import dev.forma.core.settings.PreferenceValues
@@ -160,21 +163,36 @@ class TranscodeService : Service() {
                             graph.queue.progress.value = LiveProgress(spec.id, image = stage)
                             if (notificationGate.accept(spec.id)) notify("${stage.stage.name.lowercase().replaceFirstChar { it.uppercase() }} image · attempt ${stage.attempt}", stage.fraction,spec.source.name)
                         })
-                    } else graph.transcoder.run((spec as QueueJobSpec.Av).job, { state ->
-                        graph.queue.transition(spec.id, state)
-                        graph.queue.progress.value = null
-                        notify(when (state) { JobState.VERIFYING -> "Checking output"; JobState.COMPLETED -> "Output ready"; else -> "Converting media" }, null,spec.source.name)
-                    }, { progress ->
-                        if (uiGate.accept(spec.id)) graph.queue.progress.value = LiveProgress(spec.id, progress)
-                        if (notificationGate.accept(spec.id)) {
-                            val status = when (graph.runs.state.value.mode) {
-                                RunMode.DRAINING -> "Finishing current file"
-                                RunMode.STOPPING -> "Stopping safely…"
-                                else -> "Converting media"
+                    } else {
+                        val lastAttempt=AtomicReference<AttemptEvent?>(null)
+                        graph.transcoder.run((spec as QueueJobSpec.Av).job, { state ->
+                            graph.queue.transition(spec.id, state)
+                            graph.queue.progress.value = null
+                            notify(when (state) { JobState.VERIFYING -> "Checking output"; JobState.COMPLETED -> "Output ready"; else -> "Converting media" }, null,spec.source.name)
+                        }, { progress ->
+                            if (uiGate.accept(spec.id)) graph.queue.progress.value = LiveProgress(spec.id, progress,attempt=lastAttempt.get())
+                            if (notificationGate.accept(spec.id)) {
+                                val status = when (graph.runs.state.value.mode) {
+                                    RunMode.DRAINING -> "Finishing current file"
+                                    RunMode.STOPPING -> "Stopping safely…"
+                                    else -> "Converting media"
+                                }
+                                notify(status, WorkPolicy.fraction(progress.processedMs, Planner.outputDuration(spec.source,spec.trim,spec.settings)),spec.source.name)
                             }
-                            notify(status, WorkPolicy.fraction(progress.processedMs, Planner.duration(spec.source, spec.trim)),spec.source.name)
-                        }
-                    })
+                        }, onAttempt={ event ->
+                            lastAttempt.set(event)
+                            val current=graph.queue.progress.value?.takeIf { it.id==spec.id }
+                            val progress=if(event.status==AttemptStatus.STARTED) Progress(0) else current?.progress ?: Progress(0)
+                            graph.queue.progress.value=LiveProgress(spec.id,progress,attempt=event)
+                            val status=when(event.status) {
+                                AttemptStatus.STARTED -> "Converting media"
+                                AttemptStatus.REJECTED -> "Trying next encoder"
+                                AttemptStatus.VERIFIED -> "Checking size and output"
+                                AttemptStatus.FAILED -> "Conversion failed"
+                            }
+                            notify("$status · attempt ${event.number}/${event.total}",null,spec.source.name)
+                        })
+                    }
                     completed++
                 } catch (cancel: CancellationException) { throw cancel }
                 catch (error: LinkageError) { graph.queue.transition(spec.id, JobState.FAILED, "The native encoder could not load: ${error.message}") }

@@ -15,7 +15,7 @@ revision-bound in [device validation](advanced-settings-device-validation.md).
 | `ui.theme`, `ui.accent`, `ui.density`, `ui.technical_details` (4) | `FormaTheme`, `SettingsPanel` | Native theme/choice sheets; full theme contrast, RTL, TalkBack and 200% font qualification remain device gates |
 | `video.codec`, `video.rate_control`, `video.quality`, `video.bitrate_kbps`, `video.max_height`, `video.frame_rate`, `video.deinterlace` (7) | `NativePreferences.apply` → immutable `Settings` → existing planner/executor | Explicit hardware validates without coercion; fractional rates and detected deinterlacing are disabled choices |
 | `audio.codec`, `audio.bitrate_kbps`, `audio.channels` (3) | Native adapter and PR3 audio graph | Graph, tracks, timing and output policy preserved; MP3/copy choices remain unavailable |
-| `engine.encode_backend`, `engine.decode_backend`, `engine.filter_backend`, `export.container` (4) | Native adapter/preparation | Auto is currently conservative software; decode/filter accept CPU only. No automatic acceleration qualification is claimed |
+| `engine.encode_backend`, `engine.decode_backend`, `engine.filter_backend`, `export.container` (4) | Native adapter/preparation and merged PR6 executor | H.264/H.265 Auto remains explicit through bounded runtime trials and same-codec fallback; VP9/AV1 need an explicit backend. Decode/filter accept CPU only; combined-device qualification is separate |
 | `power.low_action`, `power.low_percent`, `power.only_when_not_charging`, `power.charging_only`, `power.resume_margin`, `power.unplug_action`, `power.thermal_action`, `power.thermal_threshold` (8) | `AndroidPowerMonitor` → `PowerRuntime` → `TranscodeService` / `RunCoordinator` | Synchronous refresh before every claim; cancellation holds native ownership until cleanup; user Stop beats power requeue. Physical unplug/thermal/service qualification is separate |
 | `queue.auto_start_added` | `TranscodeViewModel.enqueue` | Manual Add default; Convert explicitly starts. Auto Add starts only with an idle run slot, and retains queue/capability/power checks |
 | `queue.on_error` | Service queue boundary | Default waits for review after failure; explicit Continue advances. Stop/cancellation remains independent |
@@ -108,9 +108,11 @@ there is no consumer retaining completed work for 24 hours/7 days.
 `privacy.metered_downloads` stays Planned until a downloader exists.
 
 Other deferred media/appearance/backend rows remain Planned. In particular this
-branch does not claim upload byte fitting, automatic hardware fallback, a device
-component selector, HDR transformation or a metadata allowlist. Integrate their
-owners using deliberate model/schema changes; do not silently drop fields.
+combined tree retains PR6's per-job byte fitting and same-codec automatic fallback.
+The separate Settings rows for export goal/limit/attempt defaults and fallback policy
+remain Planned until they have their own bindings. A device component selector,
+HDR transformation and a metadata allowlist remain deferred. Integrate their owners
+using deliberate model/schema changes; do not silently drop fields.
 
 ## Verification and remaining gates
 

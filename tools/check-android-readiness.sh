@@ -8,6 +8,7 @@ command -v kotlinc >/dev/null || { echo 'Kotlin CLI is required.' >&2; exit 1; }
 command -v java >/dev/null || { echo 'Java is required.' >&2; exit 1; }
 command -v python3 >/dev/null || { echo 'Python 3 is required.' >&2; exit 1; }
 kotlinc "$ROOT/core/src/main/kotlin/dev/forma/core/Acceleration.kt" \
+  "$ROOT/core/src/main/kotlin/dev/forma/core/CodecRanking.kt" \
   "$ROOT/core/src/main/kotlin/dev/forma/core/MediaCodecCommand.kt" \
   "$ROOT/core/src/test/kotlin/dev/forma/core/AccelerationChecks.kt" \
   "$ROOT/core/src/test/kotlin/dev/forma/core/MediaCodecCommandChecks.kt" \

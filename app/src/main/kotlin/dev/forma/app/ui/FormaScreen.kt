@@ -23,6 +23,8 @@ import dev.forma.app.data.LiveProgress
 import dev.forma.app.work.*
 import dev.forma.core.*
 import dev.forma.core.image.*
+import dev.forma.ffmpeg.AttemptStatus
+import java.math.BigDecimal
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.ceil
@@ -94,7 +96,7 @@ import kotlin.math.ceil
                             val summary=if(image!=null && info!=null){
                                 val size=runCatching{ImageGeometry.resolve(info,image,ImageAttempt(0,ImageFormat.PNG,90)).outputSize}.getOrNull()
                                 "${size?.let{"${it.width} × ${it.height}"}?:"Check dimensions"} · ${image.output.format.name} · ${image.output.targetBytes?.let{"< $it bytes"}?:"No size limit"}"
-                            }else "${ui.sources.size} file(s) · ${ui.editor.settings.container.name}"
+                            }else "${ui.sources.size} file(s) · ${ui.editor.settings.container.name} · ${byteLimitLabel(ui.targetBytes)}"
                             Text(summary, style = MaterialTheme.typography.labelMedium)
                             val queueable = ui.ready && !ui.busy && !ui.validating && ui.problems.isEmpty()
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -139,6 +141,10 @@ import kotlin.math.ceil
                 } }
                 when (page) {
                     "home" -> {
+                        if(ui.sources.isEmpty() || ui.sources.any { it.source.imageInfo==null }) item(key="size-limit") {
+                            if(ui.sources.any { it.source.imageInfo!=null }) Text("Video/audio limit",style=MaterialTheme.typography.labelMedium)
+                            ByteLimitControl(ui.targetBytes) { onAction(UiAction.SetTargetBytes(it)) }
+                        }
                         if (ui.sources.isEmpty()) item(key = "empty-home") {
                             Column(Modifier.fillMaxWidth().padding(vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                 Text("Convert media", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
@@ -283,6 +289,7 @@ import kotlin.math.ceil
         Text(entry.spec.source.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(stateLabel(entry.state), style = MaterialTheme.typography.labelLarge)
         Text(if(entry.spec is QueueJobSpec.Image) "Image · ${(entry.spec as QueueJobSpec.Image).format.name}" else "${entry.spec.settings.container.name} · ${mediaTime(Planner.duration(entry.spec.source, entry.spec.trim))}", style = MaterialTheme.typography.bodySmall)
+        Text(byteLimitLabel(entry.spec.targetBytes),style=MaterialTheme.typography.bodySmall)
         TextButton(onClick={settingsDetails=!settingsDetails}) { Text(if(settingsDetails) "Hide settings" else "Settings snapshot") }
         if(settingsDetails) {
             Text("Defaults revision ${entry.spec.preferences.app.revision} · ${entry.spec.preferences.overrideCount} overrides",style=MaterialTheme.typography.labelSmall)
@@ -318,10 +325,18 @@ import kotlin.math.ceil
             if(fraction==null)LinearProgressIndicator(Modifier.fillMaxWidth())else LinearProgressIndicator(progress={fraction},modifier=Modifier.fillMaxWidth())}
         return
     }
-    val progress = live?.takeIf { it.id == entry.spec.id }?.progress
-    val stats = conversionStats(progress, Planner.duration(entry.spec.source, entry.spec.trim), entry.state == JobState.COMPLETED)
+    val current=live?.takeIf { it.id == entry.spec.id }
+    val progress = current?.progress
+    val stats = conversionStats(progress, Planner.outputDuration(entry.spec.source,entry.spec.trim,entry.spec.settings), entry.state == JobState.COMPLETED)
     val fraction = stats.percent?.div(100f)
     Column(Modifier.testTag("live-progress")) {
+        current?.attempt?.let { event ->
+            val route=event.attempt.decision
+            val backend=when(route?.backend) { EncodeBackend.MEDIACODEC->"MediaCodec";EncodeBackend.SOFTWARE->"Software";else->null }
+            Text("Attempt ${event.number}/${event.total}" + (backend?.let { " · $it" } ?: ""),style=MaterialTheme.typography.labelSmall)
+            route?.let { (it.codecName ?: it.encoder)?.let { name -> Text(name,maxLines=1,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodySmall) } }
+            if(event.status==AttemptStatus.REJECTED)Text("Trying next encoder",style=MaterialTheme.typography.bodySmall)
+        }
         if (fraction == null) LinearProgressIndicator(Modifier.fillMaxWidth())
         else LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -338,6 +353,7 @@ internal fun mediaTime(ms: Long): String {
 }
 private fun mediaSize(bytes: Long) = if (bytes >= 1_000_000) String.format(Locale.ROOT, "%.1f MB", bytes / 1_000_000.0)
     else if (bytes >= 1000) "${bytes / 1000} KB" else "$bytes B"
+private fun byteLimitLabel(bytes:Long?) = bytes?.let { "< ${BigDecimal(it).movePointLeft(6).stripTrailingZeros().toPlainString()} MB" } ?: "No size limit"
 private fun outputDescription(s: Settings) = "${s.container.name} · ${if (s.container.audioOnly) "Audio only" else if (s.maxHeight == 0) "Original picture size" else "Up to ${s.maxHeight}p"} · ${if (s.audio == AudioEncoder.NONE) "No sound" else s.audio.name}"
 private fun stateLabel(s: JobState) = when (s) {
     JobState.QUEUED -> "Waiting"; JobState.PREPARING -> "Preparing source"; JobState.RUNNING -> "Converting"

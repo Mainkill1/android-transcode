@@ -8,6 +8,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    if (providers.gradleProperty("accelerationTests").orNull != "false") sourceSets["test"].java.srcDir(rootProject.file("testing/acceleration/jvm"))
     sourceSets["main"].java.srcDir(if (nativeEnabled) "src/native/kotlin" else "src/missing/kotlin")
 }
 kotlin { jvmToolchain(17) }

@@ -4,8 +4,6 @@ import dev.forma.core.*
 import dev.forma.core.image.*
 import dev.forma.ffmpeg.image.ImageProbe
 
-data class NativeResult(val exitCode: Int, val diagnostics: String)
-
 /** No activity, document-picker or queue ownership crosses this boundary. */
 interface FfmpegBridge {
     suspend fun capabilities(): Capabilities
@@ -49,6 +47,9 @@ interface FfmpegBridge {
     }
     suspend fun prepare(spec: ImageJobSpec, actual: ImageInfo, attempt: ImageAttempt, input: String, output: String): List<String> =
         ImagePlanner.plan(actual, spec, attempt, capabilities()).arguments(input, output)
+    /** Complete native routes retain the same immutable media intent. */
+    suspend fun prepareAttempts(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<PreparedAttempt> =
+        listOf(PreparedAttempt(prepare(source, trim, settings, input, output)))
     suspend fun execute(arguments: List<String>, onProgress: (Progress) -> Unit): NativeResult
 }
 

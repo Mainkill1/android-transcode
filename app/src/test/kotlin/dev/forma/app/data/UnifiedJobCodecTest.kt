@@ -67,7 +67,7 @@ class UnifiedJobCodecTest {
         val legacy = root().put("schema", 3)
         for (index in 0 until legacy.getJSONArray("jobs").length()) {
             legacy.getJSONArray("jobs").getJSONObject(index).apply {
-                remove("preferences"); remove("completedAtMs")
+                remove("preferences"); remove("completedAtMs"); remove("targetBytes")
             }
         }
         val restored = JobCodec.decode(legacy.toString())
@@ -83,6 +83,7 @@ class UnifiedJobCodecTest {
     @Test fun untaggedSettingsSchemaThreeRetainsItsRequiredProvenanceAndTimestamp() {
         val legacy = JSONObject(JobCodec.encode(listOf(av))).put("schema", 3)
         legacy.getJSONArray("jobs").getJSONObject(0).remove("kind")
+        legacy.getJSONArray("jobs").getJSONObject(0).remove("targetBytes")
         assertEquals(listOf(av), JobCodec.decode(legacy.toString()))
         legacy.getJSONArray("jobs").getJSONObject(0).remove("preferences")
         assertTrue(runCatching { JobCodec.decode(legacy.toString()) }.isFailure)
@@ -94,6 +95,7 @@ class UnifiedJobCodecTest {
         for (field in listOf("info", "resolvedFormat"))
             reject { it.getJSONArray("jobs").getJSONObject(1).remove(field) }
         reject { it.getJSONArray("jobs").getJSONObject(0).getJSONObject("trim").remove("endMs") }
+        reject { it.getJSONArray("jobs").getJSONObject(0).remove("targetBytes") }
         reject { it.getJSONArray("jobs").getJSONObject(1).getJSONObject("preferences").remove("presetName") }
         for (value in listOf<Any>(1.5, "1700000000000", -1L))
             reject { it.getJSONArray("jobs").getJSONObject(0).put("completedAtMs", value) }
@@ -109,8 +111,24 @@ class UnifiedJobCodecTest {
         reject { it.getJSONArray("jobs").getJSONObject(1).put("id", av.spec.id) }
         val mixedLegacy = root().put("schema", 3)
         mixedLegacy.getJSONArray("jobs").getJSONObject(0).remove("kind")
+        mixedLegacy.getJSONArray("jobs").getJSONObject(0).remove("targetBytes")
         mixedLegacy.getJSONArray("jobs").getJSONObject(1).apply { remove("preferences"); remove("completedAtMs") }
         assertTrue("Different schema-3 envelopes must not be combined by guessing",
             runCatching { JobCodec.decode(mixedLegacy.toString()) }.isFailure)
+    }
+
+    @Test fun avRuntimeCapAndImagePolicyRemainSeparateWithTheirPreferences() {
+        val capped=av.copy(spec=av.spec.copy(targetBytes=250000))
+        val imageJob=(image.spec as QueueJobSpec.Image).job
+        val cappedImage=image.copy(spec=QueueJobSpec.Image(imageJob.copy(document=imageJob.document.copy(
+            output=imageJob.document.output.copy(targetBytes=900000)))))
+        val wire=JSONObject(JobCodec.encode(listOf(capped,cappedImage)))
+        assertEquals(250000L,wire.getJSONArray("jobs").getJSONObject(0).getLong("targetBytes"))
+        assertFalse(wire.getJSONArray("jobs").getJSONObject(1).has("targetBytes"))
+        val restored=JobCodec.decode(wire.toString())
+        assertEquals(listOf(capped,cappedImage),restored)
+        assertEquals(900000L,restored.last().spec.targetBytes)
+        assertEquals(preferences,restored.first().spec.preferences)
+        assertEquals(preferences,restored.last().spec.preferences)
     }
 }

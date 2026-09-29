@@ -66,3 +66,31 @@ suspend fun verifyOutputStreams(bridge: FfmpegBridge, source: Source, trim: Trim
         timing(sound,expected,tolerance,"Audio")
     }
 }
+
+/** Runtime retry uses only explicit output rejection as a recoverable codec failure. */
+suspend fun verifyEncodedOutput(bridge: FfmpegBridge, source: Source, trim: Trim, settings: Settings,
+                               output: java.io.File, attempt: PreparedAttempt) {
+    val decoded=bridge.execute(listOf("-hide_banner","-nostdin","-v","error","-xerror","-i",output.absolutePath,
+        "-map","0:v:0?","-map","0:a:0?","-f","null","-")) {}
+    if(decoded.exitCode!=0) when(decoded.failure) {
+        FailureKind.CANCELLED -> throw kotlinx.coroutines.CancellationException("Output verification cancelled.")
+        FailureKind.IO -> throw java.io.IOException("Output verification failed because of a storage/access error.")
+        FailureKind.INVALID_INPUT -> throw EncodedOutputRejected("The encoded output could not be fully decoded by this native build.")
+        else -> error("Output verification failed (${decoded.failure}). ${decoded.diagnostics}")
+    }
+    val inputs=attempt.arguments.indices.filter { attempt.arguments[it]=="-i" }.map { attempt.arguments.getOrNull(it+1) }
+    require(inputs.size==1 && inputs.single()!=null) { "Verify against the single original staged input." }
+    try {
+        verifyOutputStreams(bridge,source,trim,settings,requireNotNull(inputs.single()),output.absolutePath)
+    } catch(error:OutputCompletenessRejected) { throw EncodedOutputRejected(error.message.orEmpty()) }
+    if(!settings.container.audioOnly) {
+        val picture=bridge.inspectStreams(output.absolutePath,countFrames=true).streams.single { it.kind==StreamKind.VIDEO }
+        fun expect(ok:Boolean,reason:String) { if(!ok)throw EncodedOutputRejected(reason) }
+        expect(picture.width>0 && picture.height>0 && picture.width%2==0 && picture.height%2==0,"Output dimensions are invalid.")
+        expect(settings.maxHeight==0 || picture.height<=settings.maxHeight,"Output exceeds the requested height.")
+        attempt.decision?.configuration?.takeIf { attempt.decision.backend==EncodeBackend.MEDIACODEC }?.let { request ->
+            expect(picture.width==request.width && picture.height==request.height,"Device output dimensions do not match the exact requested dimensions.")
+        }
+        expect(!picture.hdr,"Unexpected output color precision/transfer; this route is SDR-only.")
+    }
+}

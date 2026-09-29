@@ -17,7 +17,7 @@ class ImageQueueCodecTest {
         for(schema in 1..4){val root=org.json.JSONObject(JobCodec.encode(listOf(entry)));root.put("schema",schema)
             val job=root.getJSONArray("jobs").getJSONObject(0)
             if(schema<3)job.remove("kind")
-            if(schema<4){job.remove("preferences");job.remove("completedAtMs")}
+            if(schema<4){job.remove("preferences");job.remove("completedAtMs");job.remove("targetBytes")}
             job.getJSONObject("trim").remove("endMs")
             try{JobCodec.decode(root.toString());fail("Missing endpoint extended schema $schema trim")}catch(_:IllegalArgumentException){}
         }

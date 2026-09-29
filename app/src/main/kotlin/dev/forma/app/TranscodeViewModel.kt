@@ -32,6 +32,7 @@ data class TranscodeUiState(
     val imageEditor: ImageEditorState = ImageEditorState(),
     val imageDocuments: Map<String, ImageEditDocument> = emptyMap(),
     val imagePreview: ImagePreviewState = ImagePreviewState(),
+    val targetBytes: Long? = 10_000_000,
     val sources: List<SourceEdit> = emptyList(),
     val selectedUri: String? = null,
     val capabilities: Capabilities = Capabilities(reason = "Checking the encoder build…"),
@@ -73,6 +74,7 @@ sealed interface UiAction {
     data object RetryInitialization : UiAction
     data object DismissMessage : UiAction
     data class DismissMessageIf(val message: String) : UiAction
+    data class SetTargetBytes(val targetBytes: Long?) : UiAction
     data class Preset(val goal: Goal, val quality: Quality, val keepOverrides: Boolean = false) : UiAction
     data class ChangeSettings(val settings: Settings, val preferences: MediaPreferences? = null, val explicitIds: Set<String> = emptySet()) : UiAction
     data class Select(val uri: String) : UiAction
@@ -105,8 +107,8 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     private val imageHistory = mutableMapOf<String, ImageHistory>()
     private val imageGestureBase = mutableMapOf<String, ImageEditDocument>()
     private var imageSave: Job? = null
-    private data class ValidationKey(val sources: List<SourceEdit>, val settings: Settings, val caps: Capabilities, val documents: Map<String, ImageEditDocument>)
-    private fun key(ui: TranscodeUiState) = ValidationKey(ui.sources, ui.editor.settings, ui.capabilities, ui.imageDocuments)
+    private data class ValidationKey(val sources: List<SourceEdit>, val settings: Settings, val caps: Capabilities, val documents: Map<String, ImageEditDocument>, val targetBytes: Long?)
+    private fun key(ui: TranscodeUiState) = ValidationKey(ui.sources, ui.editor.settings, ui.capabilities, ui.imageDocuments, ui.targetBytes)
 
     init {
         initialize()
@@ -115,7 +117,12 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             mutable.map(::key).distinctUntilChanged().collectLatest { input ->
                 mutable.update { it.copy(validating = true) }
                 val results = withContext(Dispatchers.Default) {
-                    val base = input.sources.flatMap { e -> ensureActive(); if (e.source.imageInfo != null) input.documents[e.source.uri]?.let { ImageValidation.validate(it).map { p->p.message } } ?: listOf("Image draft is missing.") else Planner.validate(e.source, e.trim, input.settings).map { "${e.source.name}: $it" } }.distinct()
+                    val base = input.sources.flatMap { e ->
+                        ensureActive()
+                        if (e.source.imageInfo != null) input.documents[e.source.uri]?.let { ImageValidation.validate(it).map { p->p.message } } ?: listOf("Image draft is missing.")
+                        else runCatching { Planner.validate(e.source,e.trim,UploadFit.effective(e.source,e.trim,input.settings,input.targetBytes)) }
+                            .getOrElse { listOf(it.message ?: "Invalid size limit") }.map { "${e.source.name}: $it" }
+                    }.distinct()
                     val native = if (input.caps.available) input.sources.flatMap { e ->
                         ensureActive()
                         if (e.source.imageInfo != null) {
@@ -125,7 +132,8 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                                 val attempt=ImageFitPolicy.candidates(spec,info,format).first().copy(markupPath=if(d.annotations.isNotEmpty())"pending-private-markup" else null)
                                 ImagePlanner.plan(info,spec,attempt,input.caps);emptyList()
                             }catch(error:Exception){listOf(error.message ?: "Image route unavailable.")}
-                        } else Planner.validate(e.source, e.trim, input.settings, input.caps).map { "${e.source.name}: $it" }
+                        } else runCatching { Planner.validate(e.source,e.trim,UploadFit.effective(e.source,e.trim,input.settings,input.targetBytes),input.caps) }
+                            .getOrElse { listOf(it.message ?: "Invalid size limit") }.map { "${e.source.name}: $it" }
                     }.distinct() else emptyList()
                     base to native
                 }
@@ -219,6 +227,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             is UiAction.Select -> { edit { it.copy(selectedUri = action.uri) }; if(mutable.value.imageEditor.open)renderImage(false) }
             is UiAction.RemoveSource -> edit { it.copy(validating = true, sources = it.sources.filterNot { e -> e.source.uri == action.uri }) }
             is UiAction.ChangeTrim -> edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(trim = action.trim) else e }) }
+            is UiAction.SetTargetBytes -> { action.targetBytes?.let(UploadFit::validateTarget); edit { it.copy(targetBytes=action.targetBytes) } }
             UiAction.Queue -> enqueue(false)
             UiAction.Convert -> enqueue(true)
             UiAction.StartQueue -> runOperation { startQueue() }
@@ -426,9 +435,10 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                     ImageValidation.requireMemory(info,geometry.outputSize,(Runtime.getRuntime().maxMemory()*.65).toLong(),d.annotations.isNotEmpty())
                     QueueJobSpec.Image(job)
                 } else {
-                    val problems=Planner.validate(e.source,e.trim,draft.editor.settings,if(start)draft.capabilities else null)
+                    val problems=Planner.validate(e.source,e.trim,UploadFit.effective(e.source,e.trim,draft.editor.settings,draft.targetBytes),if(start)draft.capabilities else null)
                     require(problems.isEmpty()){problems.joinToString("\n")}
-                    QueueJobSpec.Av(JobSpec(UUID.randomUUID().toString(),e.source,e.trim,draft.editor.settings,draft.editor.preferences))
+                    QueueJobSpec.Av(JobSpec(UUID.randomUUID().toString(),e.source,e.trim,draft.editor.settings,
+                        preferences=draft.editor.preferences,targetBytes=draft.targetBytes))
                 }
             }
             graph.queue.addTagged(prepared)
@@ -446,7 +456,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         val waiting = jobs.value.filter { it.state == JobState.QUEUED }
         require(waiting.isNotEmpty()) { "There are no waiting jobs." }
         val problems = withContext(Dispatchers.Default) { waiting.flatMap { e ->
-            if (e.spec is QueueJobSpec.Image) ImageValidation.validate((e.spec as QueueJobSpec.Image).job.document).map { it.message } else Planner.validate(e.spec.source, e.spec.trim, e.spec.settings, caps).map { "${e.spec.source.name}: $it" }
+            if (e.spec is QueueJobSpec.Image) ImageValidation.validate((e.spec as QueueJobSpec.Image).job.document).map { it.message } else Planner.validate(e.spec.source, e.spec.trim, UploadFit.effective(e.spec.source,e.spec.trim,e.spec.settings,e.spec.targetBytes), caps).map { "${e.spec.source.name}: $it" }
         } }
         require(problems.isEmpty()) { problems.joinToString("\n") }
         ContextCompat.startForegroundService(getApplication(), Intent(getApplication(), TranscodeService::class.java).setAction(TranscodeService.START))
