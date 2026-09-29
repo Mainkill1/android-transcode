@@ -1,0 +1,464 @@
+{
+  "schemaVersion": 1,
+  "kind": "planned-image-test-manifest",
+  "implemented": false,
+  "allSelectionRunOn": [
+    "android",
+    "native"
+  ],
+  "cases": [
+    {
+      "id": "geometry_identity",
+      "runOn": "native",
+      "features": [
+        "GEO-06",
+        "META-04"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Identity PNG preserves decoded pixels."
+      ]
+    },
+    {
+      "id": "orientation_all_eight",
+      "runOn": "native",
+      "features": [
+        "SRC-07",
+        "GEO-03",
+        "GEO-04"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "All eight orientations match independently labeled corner fixtures exactly once."
+      ]
+    },
+    {
+      "id": "geometry_crop_turn_resize",
+      "runOn": "native",
+      "features": [
+        "GEO-01",
+        "GEO-03",
+        "GEO-06"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "1200x800 crop 0.25,0.25,0.75,0.75 then clockwise quarter turn and longest edge 300 produces 200x300."
+      ]
+    },
+    {
+      "id": "geometry_odd_png",
+      "runOn": "native",
+      "features": [
+        "GEO-06",
+        "EXP-05"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "101x77 identity PNG remains 101x77 with exact pixels."
+      ]
+    },
+    {
+      "id": "invalid_crop",
+      "runOn": "host",
+      "features": [
+        "GEO-01",
+        "UX-04"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Out-of-bounds or empty crop is rejected before prepare."
+      ],
+      "expectedError": "INVALID_DOCUMENT"
+    },
+    {
+      "id": "nonfinite_numeric",
+      "runOn": "host",
+      "features": [
+        "COL-01",
+        "COL-02",
+        "COL-03",
+        "COL-04"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "NaN, infinity, wrong types and invalid gamma are rejected."
+      ],
+      "expectedError": "INVALID_DOCUMENT"
+    },
+    {
+      "id": "alpha_geometry",
+      "runOn": "native",
+      "features": [
+        "GEO-06",
+        "EXP-03",
+        "EXP-05"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Transparent and fractional-alpha pixels survive PNG geometry."
+      ]
+    },
+    {
+      "id": "alpha_blur_edges",
+      "runOn": "native",
+      "features": [
+        "FX-01",
+        "FX-02"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Declared premultiplied-edge oracle detects no added fringe."
+      ]
+    },
+    {
+      "id": "jpeg_alpha_block",
+      "runOn": "native",
+      "features": [
+        "EXP-06"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Without flatten consent no JPEG result is published."
+      ],
+      "expectedError": "ALPHA_WOULD_BE_LOST"
+    },
+    {
+      "id": "jpeg_flatten",
+      "runOn": "native",
+      "features": [
+        "EXP-06"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Explicit solid background is baked into output and independently decoded."
+      ]
+    },
+    {
+      "id": "adjustments_neutral",
+      "runOn": "native",
+      "features": [
+        "COL-01",
+        "COL-02",
+        "COL-03",
+        "COL-04"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Neutral PNG pipeline omits correction and retains decoded pixels."
+      ]
+    },
+    {
+      "id": "adjustments_known_pixels",
+      "runOn": "native",
+      "features": [
+        "COL-01",
+        "COL-02",
+        "COL-03",
+        "COL-04"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Defined formula golden values differ by at most one 8-bit code value before lossy encoding."
+      ]
+    },
+    {
+      "id": "markup_unicode",
+      "runOn": "native",
+      "features": [
+        "ANN-01",
+        "ANN-09"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Multiline, RTL and combining text remain present with correct layout bounds."
+      ]
+    },
+    {
+      "id": "solid_redaction",
+      "runOn": "native",
+      "features": [
+        "ANN-05",
+        "META-01"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Opaque region covers target; export contains no source thumbnail, project or original attachment."
+      ]
+    },
+    {
+      "id": "source_corrupt",
+      "runOn": "native",
+      "features": [
+        "SRC-09"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Truncated image never produces a published result."
+      ],
+      "expectedError": "DECODE_FAILED"
+    },
+    {
+      "id": "source_animation",
+      "runOn": "native",
+      "features": [
+        "SRC-08"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "GIF, APNG, animated WebP and multipage input are not silently flattened."
+      ],
+      "expectedError": "UNSUPPORTED_IMAGE"
+    },
+    {
+      "id": "source_too_large",
+      "runOn": "host",
+      "features": [
+        "SRC-09",
+        "BAT-06"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "40,000,001 pixels and overflow dimensions fail before allocation."
+      ],
+      "expectedError": "RESOURCE_LIMIT"
+    },
+    {
+      "id": "source_unsupported_color",
+      "runOn": "native",
+      "features": [
+        "META-04",
+        "META-08"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Unqualified high-precision, non-sRGB or gain-map input is not silently converted."
+      ],
+      "expectedError": "UNSUPPORTED_IMAGE"
+    },
+    {
+      "id": "source_uri_revoked",
+      "runOn": "android",
+      "features": [
+        "SRC-01",
+        "SRC-02",
+        "UX-05"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Revoked unstaged URI yields actionable failure and preserves draft."
+      ],
+      "expectedError": "SOURCE_ACCESS"
+    },
+    {
+      "id": "export_format_mismatch",
+      "runOn": "native",
+      "features": [
+        "EXP-01"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Wrong actual format or geometry fails verification despite native exit zero."
+      ],
+      "expectedError": "OUTPUT_INVALID"
+    },
+    {
+      "id": "export_cap_under",
+      "runOn": "host",
+      "features": [
+        "EXP-04"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Finalized 9999999-byte output fits a 10000000-byte cap."
+      ]
+    },
+    {
+      "id": "export_cap_equal",
+      "runOn": "host",
+      "features": [
+        "EXP-04"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Finalized 10000000-byte output does not fit an equal cap when no attempts remain."
+      ],
+      "expectedError": "CANNOT_FIT"
+    },
+    {
+      "id": "export_cap_retries",
+      "runOn": "native",
+      "features": [
+        "EXP-04",
+        "EXP-05"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Injected valid oversize candidate retries from original with all edits and fresh prepare; attempts are bounded."
+      ]
+    },
+    {
+      "id": "export_cap_exhausted",
+      "runOn": "native",
+      "features": [
+        "EXP-04",
+        "EXP-05"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Exhaustion under fixed alpha/geometry/format constraints publishes nothing."
+      ],
+      "expectedError": "CANNOT_FIT"
+    },
+    {
+      "id": "cancel_prepare",
+      "runOn": "native",
+      "features": [
+        "BAT-05",
+        "BAT-06"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Cancellation during preparation never publishes or leaks ownership."
+      ],
+      "expectedError": "CANCELLED"
+    },
+    {
+      "id": "cancel_encode",
+      "runOn": "native",
+      "features": [
+        "BAT-05",
+        "BAT-06"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Native teardown completes before cleanup and worker release."
+      ],
+      "expectedError": "CANCELLED"
+    },
+    {
+      "id": "cancel_verify",
+      "runOn": "native",
+      "features": [
+        "EXP-08",
+        "BAT-05"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Cancellation before commit does not publish an unverified result."
+      ],
+      "expectedError": "CANCELLED"
+    },
+    {
+      "id": "preview_stale",
+      "runOn": "android",
+      "features": [
+        "UX-02",
+        "UX-10"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Old revision finishing last cannot overwrite the current preview; Original is labeled."
+      ]
+    },
+    {
+      "id": "queue_snapshot",
+      "runOn": "host",
+      "features": [
+        "UX-04",
+        "BAT-05"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Changing editor/lists/defaults after enqueue leaves stored image job unchanged."
+      ]
+    },
+    {
+      "id": "queue_schema_migration",
+      "runOn": "host",
+      "features": [
+        "UX-05",
+        "BAT-05"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Known legacy AV payloads and new tagged image payloads retain semantics."
+      ]
+    },
+    {
+      "id": "draft_corrupt",
+      "runOn": "android",
+      "features": [
+        "UX-05"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Malformed or unsupported persisted data is retained for recovery, not overwritten."
+      ],
+      "expectedError": "DRAFT_CORRUPT"
+    },
+    {
+      "id": "release_no_tests",
+      "runOn": "artifact",
+      "features": [
+        "BAT-10"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Product-only build works with testing/image absent; shipped test classes/assets/entry points are absent."
+      ]
+    },
+    {
+      "id": "native_missing",
+      "runOn": "no-native",
+      "features": [
+        "BAT-09"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "No-native image export reports unavailable; an explicitly requested native suite does not skip to PASS."
+      ],
+      "expectedError": "CAPABILITY_UNAVAILABLE"
+    },
+    {
+      "id": "publication_collision",
+      "runOn": "native",
+      "features": [
+        "EXP-08"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Existing result and original remain unchanged."
+      ],
+      "expectedError": "OUTPUT_EXISTS"
+    },
+    {
+      "id": "memory_budget",
+      "runOn": "host",
+      "features": [
+        "SRC-09",
+        "BAT-06"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Peak native/Java buffer budget rejects work below the pixel ceiling when memory is insufficient."
+      ],
+      "expectedError": "RESOURCE_LIMIT"
+    },
+    {
+      "id": "full_device_roundtrip",
+      "runOn": "native",
+      "features": [
+        "SRC-01",
+        "GEO-01",
+        "ANN-01",
+        "EXP-01",
+        "EXP-04",
+        "EXP-08"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Real imported still is edited, queued, encoded, fully decoded, size-verified and saved as a new copy."
+      ]
+    }
+  ]
+}
