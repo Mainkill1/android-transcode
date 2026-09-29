@@ -48,6 +48,39 @@ suspend fun workRuntimeChecks() = coroutineScope {
     check(maximum.get() == 1)
     check(starts.size == 1)
     scope.cancel()
+
+    // A user pressing Stop during power-policy cleanup must prevent an automatic requeue.
+    val precedenceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val precedenceRuns = RunCoordinator(precedenceScope)
+    val precedenceEntered = CompletableDeferred<Unit>()
+    val precedenceCleanup = CompletableDeferred<Unit>()
+    val precedenceRelease = CompletableDeferred<Unit>()
+    val precedence = precedenceRuns.start {
+        precedenceEntered.complete(Unit)
+        try { awaitCancellation() }
+        finally {
+            withContext(NonCancellable) {
+                precedenceCleanup.complete(Unit)
+                precedenceRelease.await()
+            }
+        }
+    } ?: error("Precedence run rejected")
+    precedenceEntered.await()
+    precedenceRuns.stop(precedence.id, StopReason.POWER_POLICY)
+    precedenceCleanup.await()
+    check(precedence.stopReason == StopReason.POWER_POLICY)
+    precedenceRuns.stop(precedence.id, StopReason.USER)
+    check(precedence.stopReason == StopReason.USER) {
+        "Explicit user Stop must override a pending power-policy requeue"
+    }
+    precedenceRuns.stop(precedence.id, StopReason.TIME_LIMIT)
+    check(precedence.stopReason == StopReason.USER) {
+        "A later system signal must not replace explicit user intent"
+    }
+    precedenceRelease.complete(Unit)
+    precedence.job.join()
+    precedenceScope.cancel()
+
     var now = 0L
     var calls = 0
     val gate = ProgressGate(250) { now }
@@ -57,6 +90,6 @@ suspend fun workRuntimeChecks() = coroutineScope {
     now = 250; check(gate.accept("a"))
     check(gate.accept("b"))
     now = 0; check(gate.accept("b"))
-    println("Run exclusivity, cleanup race, drain, stale stop, error recovery, 100-way start race and progress flood checks passed")
+    println("Run exclusivity, cleanup race, stop precedence, drain, stale stop, error recovery, 100-way start race and progress flood checks passed")
 }
 fun main() = runBlocking { withTimeout(5000) { workRuntimeChecks() } }
