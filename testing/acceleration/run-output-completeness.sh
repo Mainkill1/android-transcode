@@ -11,4 +11,6 @@ export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$PWD/$pr6_run"
 kotlinc -cp "$pr6_coroutines" core/src/main/kotlin/dev/forma/core/*.kt \
   engine-ffmpeg/src/main/kotlin/dev/forma/ffmpeg/{FfmpegBridge,ExportRetry,OutputValidation}.kt \
   testing/acceleration/host/OutputCompletenessMain.kt -include-runtime -d "$pr6_run/checks.jar"
-java -cp "$pr6_run/checks.jar:$pr6_coroutines" dev.forma.ffmpeg.OutputCompletenessMainKt "$PWD/$pr6_run/media"
+pr6_input=()
+if [[ $# -gt 0 ]]; then pr6_input+=("$1"); fi
+java -cp "$pr6_run/checks.jar:$pr6_coroutines" dev.forma.ffmpeg.OutputCompletenessMainKt "$PWD/$pr6_run/media" "${pr6_input[@]}"

@@ -54,6 +54,20 @@ class OutputCompletenessTest {
         assertTrue(runCatching { verify(Bridge(full,OutputFacts(0,listOf(video().copy(durationUs=null),audio())))) }.exceptionOrNull() is EncodedOutputRejected)
         assertTrue(runCatching { verify(Bridge(full.copy(originUs=null),full)) }.isFailure)
     }
+    @Test fun clocklessMediaRequiresObservedPresentationClockAndRetainsSampleDuration() {
+        val fields=mapOf("codec_type" to "audio","time_base" to "1/44100","duration_ts" to "845568",
+            "sample_rate" to "44100","observed_start_pts" to "0","observed_start_time" to "0.000000")
+        val measured=OutputFactsReader.read(null,listOf(fields))
+        assertEquals(0L,measured.originUs);assertEquals(0L,measured.streams.single().startUs)
+        assertEquals(19_173_878L,measured.streams.single().durationUs)
+        val absent=OutputFactsReader.read(null,listOf(fields-filterKeysForObservation()))
+        assertNull(absent.originUs);assertNull(absent.streams.single().startUs)
+        val invalid=OutputFactsReader.read(null,listOf(fields+mapOf("observed_start_pts" to "N/A","observed_start_time" to "NaN")))
+        assertNull(invalid.originUs);assertNull(invalid.streams.single().startUs)
+        val nonzero=OutputFactsReader.read(null,listOf(fields+mapOf("observed_start_pts" to "44100","observed_start_time" to "1.000000")))
+        assertEquals(1_000_000L,nonzero.originUs)
+    }
+    private fun filterKeysForObservation()=setOf("observed_start_pts","observed_start_time")
     @Test fun ffprobeReaderRetainsRationalClocksAndMatroskaEndsWithoutCoercion() {
         val facts=OutputFactsReader.read("0",listOf(mapOf("codec_type" to "video","start_pts" to "300","duration_ts" to "4700",
             "time_base" to "1/1000","width" to "320","height" to "240","pix_fmt" to "yuv420p","nb_read_frames" to "141")))

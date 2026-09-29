@@ -13,7 +13,7 @@ private class DesktopCompletenessBridge:FfmpegBridge {
     }
     private fun fields(path:String,count:Boolean):List<Map<String,String>> {
         val argv=mutableListOf("ffprobe","-v","error","-show_entries",
-            "stream=codec_type,width,height,pix_fmt,color_transfer,bits_per_raw_sample,start_time,start_pts,time_base,duration,duration_ts,nb_read_frames,sample_rate:stream_tags=DURATION:format=start_time,duration","-of","compact=p=0")
+            "stream=index,codec_type,width,height,pix_fmt,color_transfer,bits_per_raw_sample,start_time,start_pts,time_base,duration,duration_ts,nb_read_frames,sample_rate:stream_tags=DURATION:format=start_time,duration","-of","compact=p=0")
         if(count) argv+="-count_frames"
         argv+=path
         return command(*argv.toTypedArray()).lineSequence().filter { it.isNotBlank() }.map { line ->
@@ -29,7 +29,18 @@ private class DesktopCompletenessBridge:FfmpegBridge {
     }
     override suspend fun inspectStreams(localPath:String,countFrames:Boolean):OutputFacts {
         val rows=fields(localPath,countFrames)
-        return OutputFactsReader.read(rows.first { "codec_type" !in it }["start_time"],rows.filter { "codec_type" in it })
+        val origin=rows.first { "codec_type" !in it }["start_time"]
+        val streams=rows.filter { "codec_type" in it }
+        val first=OutputFactsReader.read(origin,streams)
+        val observed=streams.mapIndexed { index,s ->
+            if(first.streams[index].kind==StreamKind.OTHER || first.streams[index].startUs!=null) s else {
+                val packet=command("ffprobe","-v","error","-select_streams",s.getValue("index"),"-read_intervals","%+#1",
+                    "-show_packets","-show_entries","packet=pts,pts_time","-of","compact=p=0",localPath).lineSequence().first { it.isNotBlank() }
+                    .split('|').associate { it.substringBefore('=') to it.substringAfter('=') }
+                s+mapOf("observed_start_pts" to packet["pts"].orEmpty(),"observed_start_time" to packet["pts_time"].orEmpty())
+            }
+        }
+        return OutputFactsReader.read(origin,observed)
     }
     override suspend fun execute(arguments:List<String>,onProgress:(Progress)->Unit):NativeResult {
         val p=ProcessBuilder(listOf("ffmpeg")+arguments).redirectErrorStream(true).start();val log=p.inputStream.bufferedReader().readText()
@@ -37,7 +48,7 @@ private class DesktopCompletenessBridge:FfmpegBridge {
     }
 }
 fun main(args:Array<String>)=runBlocking {
-    val dir=File(args.single()).apply { check(mkdirs()) };val bridge=DesktopCompletenessBridge()
+    val dir=File(args.first()).apply { check(mkdirs()) };val bridge=DesktopCompletenessBridge()
     fun hash(file:File)=MessageDigest.getInstance("SHA-256").digest(file.readBytes()).joinToString(""){"%02x".format(it)}
     fun fixture(name:String,vSeconds:String="5",aSeconds:String="5",videoDelay:Boolean=false,audioDelay:Boolean=false,drop:Boolean=false):File {
         val out=File(dir,"$name.mp4")
@@ -76,6 +87,22 @@ fun main(args:Array<String>)=runBlocking {
     checkOutput("lost-video-offset",delayedVideo,original,reject=true)
     val mkv=File(dir,"whole.mkv");bridge.command("ffmpeg","-v","error","-nostdin","-n","-i",original.path,"-c","copy",mkv.path)
     checkOutput("matroska-clock",original,mkv)
+    val wave=File(dir,"clockless.wav")
+    if(args.size>1) File(args[1]).copyTo(wave) else bridge.command("ffmpeg","-v","error","-nostdin","-n","-f","lavfi","-i","sine=frequency=330:sample_rate=44100:duration=5.12345","-c:a","pcm_s16le",wave.path)
+    val waveHash=hash(wave)
+    val lossless=File(dir,"clockless.flac");bridge.command("ffmpeg","-v","error","-nostdin","-n","-i",wave.path,"-c:a","flac",lossless.path)
+    val audioSettings=settings.copy(container=Container.M4A,audio=AudioEncoder.AAC)
+    val audioTrim=Trim(1007,4111)
+    for(input in listOf(wave,lossless)) {
+        val output=File(dir,"trim-${input.extension}.m4a")
+        bridge.command(*(listOf("ffmpeg")+Planner.arguments(bridge.probe(input.path),audioTrim,audioSettings,input.path,output.path)).toTypedArray())
+        checkOutput("${input.extension}-trim-m4a",input,output,audioTrim,audioSettings)
+    }
+    val flacTrim=File(dir,"trimmed.flac")
+    bridge.command("ffmpeg","-v","error","-nostdin","-n","-i",wave.path,"-ss","1.007","-t","3.104","-c:a","flac",flacTrim.path)
+    // Completeness of a real standalone FLAC stream; this does not add a product container option.
+    checkOutput("wav-trim-flac-stream",wave,flacTrim,audioTrim,audioSettings.copy(audio=AudioEncoder.FLAC))
+    check(hash(wave)==waveHash);println("WAV SHA-256 retained: $waveHash")
     check(hash(original)==originalHash)
     println("Original SHA-256 retained: $originalHash")
 }
