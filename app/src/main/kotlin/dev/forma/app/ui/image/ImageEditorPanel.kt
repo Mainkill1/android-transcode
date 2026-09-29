@@ -7,6 +7,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -28,19 +29,24 @@ import dev.forma.core.image.*
         Text("Image · ${info.width} × ${info.height} · ${info.bytes} bytes · ${info.format.name}",style=MaterialTheme.typography.titleSmall)
         Text("${info.bitDepth}-bit · ${info.alpha.name.lowercase()} alpha · EXIF ${info.orientation} · ${if(info.profile==ImageProfile.ASSUMED_SRGB)"Assumed sRGB" else "sRGB"}",style=MaterialTheme.typography.bodySmall)
         if(info.format.decoder !in caps.decoders)Text("Unavailable · native ${info.format.decoder} decoder is missing.",style=MaterialTheme.typography.bodySmall)
-        if(!state.open)Button(onClick={action(UiAction.ToggleImageEditor)}){Text("Edit image")}
+        if(!state.open) {
+            ImageOriginalThumbnail(document,info)
+            Button(onClick={action(UiAction.ToggleImageEditor)}){Text("Edit image")}
+        }
         else {
             FlowRow {TextButton(onClick={if(state.dirty)close=true else action(UiAction.ToggleImageEditor)}){Text("Back")};TextButton(onClick={action(UiAction.UndoImage)},enabled=state.canUndo){Text("Undo")};TextButton(onClick={action(UiAction.RedoImage)},enabled=state.canRedo){Text("Redo")};TextButton(onClick={action(UiAction.ChangeImage(ImageEditDocument(source=document.source,revision=document.revision)))}){Text("Reset all")}}
             val canvas: @Composable () -> Unit={ImageCanvas(document,info,preview,state.tool,action)}
-            val tools: @Composable () -> Unit={
-                FlowRow {listOf("Crop","Adjust","Markup","Export").forEach{tool->FilterChip(onClick={action(UiAction.ImageTool(tool))},selected=state.tool==tool,label={Text(tool)},modifier=Modifier.heightIn(min=52.dp))}}
+            val inspector: @Composable () -> Unit={
                 Column(Modifier.heightIn(max=480.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
                     when(state.tool){"Crop"->ImageCropPanel(document,info,action);"Adjust"->ImageAdjustPanel(document,caps,action);"Markup"->ImageMarkupPanel(document,action);else->ImageExportPanel(document,info,caps,action)}
                 }
             }
+            @Composable fun tool(tool:String)=FilterChip(onClick={action(UiAction.ImageTool(tool))},selected=state.tool==tool,label={Text(tool)},modifier=Modifier.heightIn(min=52.dp))
             BoxWithConstraints(Modifier.fillMaxWidth()){
-                if(maxWidth>=840.dp)Row(horizontalArrangement=Arrangement.spacedBy(16.dp)){Column(Modifier.weight(1f)){canvas()};Column(Modifier.width(320.dp)){tools()}}
-                else Column{canvas();tools()}
+                if(maxWidth>=840.dp)Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                    Column(Modifier.width(104.dp)){listOf("Crop","Adjust","Markup","Export").forEach{tool(it)}}
+                    Column(Modifier.weight(1f)){canvas()};Column(Modifier.width(320.dp)){inspector()}
+                } else Column{canvas();FlowRow{listOf("Crop","Adjust","Markup","Export").forEach{tool(it)}};inspector()}
             }
             val errors=ImageValidation.validate(document)
             errors.forEach{Text(it.message,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
@@ -51,6 +57,13 @@ import dev.forma.core.image.*
             if(roadmap)Text("Planned: straighten, perspective, profile conversion, masks, layers, retouching, batch recipes, RAW, animation and AI. These require separate qualification.",style=MaterialTheme.typography.bodySmall)
         }
     }
+}
+@Composable private fun ImageOriginalThumbnail(d:ImageEditDocument,info:ImageInfo) {
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val bitmap by produceState<android.graphics.Bitmap?>(null,d.source.uri){value=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){runCatching{ImageDisplayAdapter.original(context,d.source.uri,info).bitmap}.getOrNull()}}
+    DisposableEffect(bitmap){onDispose{bitmap?.recycle()}}
+    Text("Original",style=MaterialTheme.typography.labelLarge)
+    bitmap?.let{androidx.compose.foundation.Image(it.asImageBitmap(),contentDescription="Original image preview",contentScale=androidx.compose.ui.layout.ContentScale.Fit,modifier=Modifier.fillMaxWidth().height(220.dp))}
 }
 @Composable internal fun NumberField(label:String,value:Double,min:Double=-Double.MAX_VALUE,max:Double=Double.MAX_VALUE,integer:Boolean=false,enabled:Boolean=true,onChange:(Double)->Unit) {
     var text by remember(value){mutableStateOf(if(integer)value.toLong().toString() else "%.3f".format(java.util.Locale.ROOT,value).trimEnd('0').trimEnd('.'))}

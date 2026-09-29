@@ -38,7 +38,7 @@ data class ImageOutputPolicy(val format: ImageFormat = ImageFormat.AUTO, val jpe
 data class ImageEditDocument(val schema: Int = 1, val source: ImageSource, val revision: Long = 0,
     val crop: NormalizedCrop = NormalizedCrop(), val quarterTurns: Int = 0, val flipHorizontal: Boolean = false,
     val flipVertical: Boolean = false, val adjustments: ImageAdjustments = ImageAdjustments(),
-    val annotations: List<ImageAnnotation> = emptyList(), val output: ImageOutputPolicy = ImageOutputPolicy()) {
+    val annotations: List<ImageAnnotation> = emptyList(), val output: ImageOutputPolicy = ImageOutputPolicy(), val cropAspectRatio: Double? = null) {
     fun frozen() = copy(annotations=Collections.unmodifiableList(ArrayList(annotations)))
     fun estimatedBytes(): Long = 1024L + source.uri.length*4L + source.name.length*4L + annotations.sumOf { 384L+it.text.length*4L }
 }
@@ -55,7 +55,14 @@ data class ImageAttempt(val index: Int, val format: ImageFormat, val quality: In
 data class ImageProblem(val code: String, val field: String?, val message: String)
 class ImageFailure(val code: String, message: String) : IllegalArgumentException("$code: $message")
 enum class ImageStage { STAGING, INSPECTING, PREPARING, RENDERING, ENCODING, VERIFYING, PUBLISHING }
-data class ImageStageProgress(val stage: ImageStage, val attempt: Int = 1, val fraction: Float? = null)
+data class ImageExportDiagnostics(val requestedFormat:ImageFormat,val effectiveFormat:ImageFormat,
+    val requestedSize:ImageSize,val effectiveSize:ImageSize,val requestedQuality:Int?,val effectiveQuality:Int?,
+    val attempts:Int,val bytes:Long,val alpha:ImageAlpha,val nativeBuild:String) {
+    fun summary()="Requested $requestedFormat ${requestedSize.width} × ${requestedSize.height}"+
+        (requestedQuality?.let{" quality $it"}?:"")+"; effective $effectiveFormat ${effectiveSize.width} × ${effectiveSize.height}"+
+        (effectiveQuality?.let{" quality $it"}?:" lossless")+" · $bytes bytes · $attempts attempt(s) · ${alpha.name.lowercase()} alpha · ancillary metadata stripped · $nativeBuild"
+}
+data class ImageStageProgress(val stage: ImageStage, val attempt: Int = 1, val fraction: Float? = null,val diagnostics:ImageExportDiagnostics?=null)
 
 /** The queue tag, never duration or a video setting, selects the processing path. */
 sealed interface QueueJobSpec {

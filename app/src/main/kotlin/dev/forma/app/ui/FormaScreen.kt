@@ -81,12 +81,17 @@ import kotlin.math.ceil
                                 TextButton(onClick = { onAction(UiAction.StopQueue) }, enabled = run.mode != RunMode.STOPPING,
                                     modifier = Modifier.testTag("stop-queue")) { Text("Stop conversion") }
                             }
-                            if (active != null && active.state == JobState.RUNNING) progressContent(active)
+                            if (active != null && (active.state == JobState.RUNNING || (active.spec is QueueJobSpec.Image && active.state == JobState.VERIFYING))) progressContent(active)
                         }
                     }
                     if (page == "home" && ui.sources.isNotEmpty()) Surface(tonalElevation = 3.dp) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("${ui.sources.size} file(s) · ${if(ui.selected?.source?.imageInfo!=null) "Image" else ui.editor.settings.container.name}", style = MaterialTheme.typography.labelMedium)
+                            val image=ui.imageDocument;val info=ui.selected?.source?.imageInfo
+                            val summary=if(image!=null && info!=null){
+                                val size=runCatching{ImageGeometry.resolve(info,image,ImageAttempt(0,ImageFormat.PNG,90)).outputSize}.getOrNull()
+                                "${size?.let{"${it.width} × ${it.height}"}?:"Check dimensions"} · ${image.output.format.name} · ${image.output.targetBytes?.let{"< $it bytes"}?:"No size limit"}"
+                            }else "${ui.sources.size} file(s) · ${ui.editor.settings.container.name}"
+                            Text(summary, style = MaterialTheme.typography.labelMedium)
                             val queueable = ui.ready && !ui.busy && !ui.validating && ui.problems.isEmpty()
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = { onAction(UiAction.Queue) }, enabled = queueable, modifier = Modifier.weight(1f)) { Text("Add to queue") }
@@ -148,7 +153,9 @@ import kotlin.math.ceil
                                 SourceCard(source, ui.selected?.source?.uri == source.source.uri, onAction)
                             }
                             if(ui.selected?.source?.imageInfo != null && ui.imageDocument != null) {
-                                item(key="image-editor") { dev.forma.app.ui.image.ImageEditorPanel(ui.imageDocument!!,ui.selected!!.source.imageInfo!!,ui.imageEditor,ui.imagePreview,ui.capabilities,onAction) }
+                                item(key="image-editor") { dev.forma.app.ui.image.ImageEditorPanel(ui.imageDocument!!,ui.selected!!.source.imageInfo!!,ui.imageEditor,ui.imagePreview,ui.capabilities,onAction)
+                                    (ui.problems+ui.runtimeProblems).distinct().take(3).forEach{Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
+                                }
                             } else {
                             item(key = "audio-editor") { dev.forma.app.ui.audio.AudioEditorPanel(ui, onAction) }
                             item(key = "simple-options") { SimpleOptions(ui.editor, onAction) }

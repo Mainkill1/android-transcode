@@ -22,18 +22,32 @@ object ImageProbe {
         fun be32(i:Int):Long=(u(i).toLong() shl 24)+(u(i+1).toLong() shl 16)+(u(i+2).toLong() shl 8)+u(i+3)
         fun le32(i:Int):Long=u(i).toLong()+(u(i+1).toLong() shl 8)+(u(i+2).toLong() shl 16)+(u(i+3).toLong() shl 24)
         fun text(i:Int,n:Int):String{checkRange(i,n);return String(b,i,n,Charsets.ISO_8859_1)}
-        fun exif(i:Int,n:Int):Pair<Int,Boolean> {
+        fun exif(i:Int,n:Int):Triple<Int,Boolean,Boolean> {
             checkRange(i,n);var t=i;if(n>=6 && text(i,6)=="Exif\u0000\u0000")t+=6
-            if(t+8>i+n)return 1 to false
+            val end=i+n
+            if(t+8>end)malformed()
             val little=text(t,2)=="II";if(!little && text(t,2)!="MM")malformed()
-            fun s(x:Int)=if(little)u(x)+u(x+1)*256 else be16(x)
-            fun l(x:Int)=if(little)le32(x) else be32(x)
+            fun range(x:Int,length:Int){if(x<t || x.toLong()+length>end)malformed()}
+            fun s(x:Int):Int {range(x,2);return if(little)u(x)+u(x+1)*256 else be16(x)}
+            fun l(x:Int):Long {range(x,4);return if(little)le32(x) else be32(x)}
+            fun directory(offset:Long):Int {
+                if(offset<8 || offset>Int.MAX_VALUE || t.toLong()+offset+2>end)malformed()
+                val dir=t+offset.toInt();val count=s(dir)
+                if(count>1024 || dir.toLong()+2+count*12L+4>end)malformed()
+                return dir
+            }
             if(s(t+2)!=42)malformed()
-            val offset=l(t+4);if(offset>n-2)malformed();val dir=t+offset.toInt();val count=s(dir)
-            if(count>1024 || dir.toLong()+2+count*12L>i+n)malformed()
-            var o=1;var bad=false
-            repeat(count){j->val p=dir+2+j*12;val tag=s(p);if(tag==0x112){if(s(p+2)!=3 || l(p+4)!=1L)malformed();o=s(p+8)};if(tag==0xA001 && s(p+8)!=1)bad=true}
-            return o to bad
+            var orientation=1;var bad=false;var srgb=false;var sub:Long?=null
+            fun fields(dir:Int,primary:Boolean) {
+                repeat(s(dir)){j->val p=dir+2+j*12;val tag=s(p)
+                    if(primary && tag==0x112){if(s(p+2)!=3 || l(p+4)!=1L)malformed();orientation=s(p+8)}
+                    if(tag==0xA001){if(s(p+2)!=3 || l(p+4)!=1L)malformed();val color=s(p+8);bad=bad || color!=1;srgb=srgb || color==1}
+                    if(primary && tag==0x8769){if(s(p+2)!=4 || l(p+4)!=1L)malformed();sub=l(p+8)}
+                }
+            }
+            fields(directory(l(t+4)),true)
+            sub?.let {fields(directory(it),false)}
+            return Triple(orientation,bad,srgb)
         }
         val info=when {
             b.size>=8 && b.copyOfRange(0,8).contentEquals(byteArrayOf(-119,80,78,71,13,10,26,10))->{
@@ -56,12 +70,12 @@ object ImageProbe {
                 ImageInfo(w,h,ImageFormat.PNG,orientation,1,depth,alpha,profile)
             }
             b.size>=2 && u(0)==255 && u(1)==216->{
-                var i=2;var w=0;var h=0;var depth=0;var components=0;var orientation=1;var frames=0;var eoi=false
+                var i=2;var w=0;var h=0;var depth=0;var components=0;var orientation=1;var profile=ImageProfile.ASSUMED_SRGB;var frames=0;var eoi=false
                 while(i<b.size){if(u(i)!=255)malformed();while(i<b.size && u(i)==255)i++;val marker=u(i++);if(marker==217){eoi=true;if(i!=b.size)unsupported("Multiple-image JPEG/MPO is Planned.");break};if(marker==216)unsupported("Multiple-image JPEG.");if(marker==1 || marker in 208..215)continue
                     val n=be16(i);if(n<2)malformed();checkRange(i,n)
                     when(marker){
                         in 192..195,in 197..199,in 201..203,in 205..207->{frames++;depth=u(i+2);h=be16(i+3);w=be16(i+5);components=u(i+7)}
-                        225->{val t=text(i+2,n-2);if(t.startsWith("Exif\u0000\u0000")){val(o,bad)=exif(i+2,n-2);orientation=o;if(bad)unsupported("Non-sRGB EXIF image.")};if(t.contains("hdrgm",true) || t.contains("GainMap",true))unsupported("Ultra HDR gain maps are Planned.")}
+                        225->{val t=text(i+2,n-2);if(t.startsWith("Exif\u0000\u0000")){val(o,bad,srgb)=exif(i+2,n-2);orientation=o;if(srgb)profile=ImageProfile.SRGB;if(bad)unsupported("Non-sRGB EXIF image.")};if(t.contains("hdrgm",true) || t.contains("GainMap",true))unsupported("Ultra HDR gain maps are Planned.")}
                         226->{val t=text(i+2,n-2);if(t.startsWith("MPF"))unsupported("MPO/multiple-image JPEG is Planned.");if(t.startsWith("ICC_PROFILE"))unsupported("ICC conversion is not qualified.")}
                         238->{if(components==4 || text(i+2,n-2).startsWith("Adobe"))unsupported("Adobe/CMYK JPEG is not qualified.")}
                     }
@@ -69,7 +83,7 @@ object ImageProbe {
                     if(marker==218){while(i<b.size-1){if(u(i)==255 && u(i+1)!=0 && u(i+1) !in 208..215)break;i++}}
                 }
                 if(!eoi || frames!=1 || w<=0 || h<=0)malformed();if(components !in 1..3)unsupported("CMYK JPEG is Planned.")
-                ImageInfo(w,h,ImageFormat.JPEG,orientation,1,depth,ImageAlpha.OPAQUE)
+                ImageInfo(w,h,ImageFormat.JPEG,orientation,1,depth,ImageAlpha.OPAQUE,profile)
             }
             b.size>=12 && text(0,4)=="RIFF" && text(8,4)=="WEBP"->{
                 if(le32(4)+8!=b.size.toLong())malformed()

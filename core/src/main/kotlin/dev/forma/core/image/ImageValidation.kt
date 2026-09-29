@@ -13,6 +13,7 @@ object ImageValidation {
         val c=d.crop
         listOf(c.left,c.top,c.right,c.bottom).forEach { number(it,0.0,1.0,"crop") }
         check(c.left<c.right && c.top<c.bottom,"crop","Crop must have positive area.")
+        d.cropAspectRatio?.let { number(it,.01,100.0,"cropAspectRatio") }
         val a=d.adjustments
         number(a.brightness,-1.0,1.0,"brightness");number(a.contrast,0.0,2.0,"contrast")
         number(a.saturation,0.0,3.0,"saturation");number(a.gamma,0.1,3.0,"gamma")

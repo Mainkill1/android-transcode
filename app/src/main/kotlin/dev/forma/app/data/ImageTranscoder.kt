@@ -51,7 +51,12 @@ class ImageTranscoder(private val files:MediaFiles,private val bridge:FfmpegBrid
                 if(ImageProbe.hash(input)!=spec.document.source.hash)throw ImageFailure("SOURCE_CHANGED","Original changed during export.")
                 plane?.let { File(it.path).delete() }
                 if(!ImageFitPolicy.fits(verified.bytes,spec.document.output.targetBytes)){temp.delete();continue}
-                currentCoroutineContext().ensureActive();onProgress(ImageStageProgress(ImageStage.PUBLISHING,candidate.index+1))
+                currentCoroutineContext().ensureActive()
+                val requestedSize=ImageGeometry.resolve(actual,spec.document,ImageAttempt(0,format,candidate.quality)).outputSize
+                val requestedQuality=when(format){ImageFormat.JPEG->spec.document.output.jpegQuality;ImageFormat.WEBP->if(spec.document.output.lossless)null else spec.document.output.webpQuality;else->null}
+                val diagnostics=ImageExportDiagnostics(spec.document.output.format,format,requestedSize,geometry.outputSize,requestedQuality,
+                    if(requestedQuality==null)null else candidate.quality,candidate.index+1,verified.bytes,verified.info.alpha,caps.build)
+                onProgress(ImageStageProgress(ImageStage.PUBLISHING,candidate.index+1,diagnostics=diagnostics))
                 withContext(NonCancellable){
                     if(output.exists())throw ImageFailure("OUTPUT_EXISTS","The destination already exists.")
                     if(!temp.renameTo(output))throw ImageFailure("OUTPUT_INVALID","Could not publish the verified image.")

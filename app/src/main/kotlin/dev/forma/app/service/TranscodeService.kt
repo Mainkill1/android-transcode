@@ -116,11 +116,13 @@ class TranscodeService : Service() {
                 try {
                     notify("Preparing ${spec.source.name}", null)
                     if (spec is QueueJobSpec.Image) {
+                        var diagnostics:ImageExportDiagnostics?=null
                         graph.imageTranscoder.run(spec.job, { state ->
-                            graph.queue.transition(spec.id, state)
+                            graph.queue.transition(spec.id, state,if(state==JobState.COMPLETED)diagnostics?.summary().orEmpty() else "")
                             graph.queue.progress.value = null
                             notify(if (state == JobState.COMPLETED) "Ready: ${spec.source.name}" else "Processing ${spec.source.name}", null)
                         }, { stage ->
+                            stage.diagnostics?.let { diagnostics=it }
                             graph.queue.progress.value = LiveProgress(spec.id, image = stage)
                             if (notificationGate.accept(spec.id)) notify("${stage.stage.name.lowercase().replaceFirstChar { it.uppercase() }} ${spec.source.name} · attempt ${stage.attempt}", stage.fraction)
                         })

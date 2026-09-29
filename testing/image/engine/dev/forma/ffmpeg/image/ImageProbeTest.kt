@@ -16,4 +16,23 @@ class ImageProbeTest {
     @Test fun animationAndPrecisionAreRejected() { for(bytes in listOf(png(animated=true),png(depth=16),"GIF89a".toByteArray())) { try { ImageProbe.inspectBytes(bytes);fail() }catch(e:ImageFailure){assertEquals("UNSUPPORTED_IMAGE",e.code)} } }
     @Test fun truncatedAndBadCrcAreRejected() { val bytes=png();for(b in listOf(bytes.copyOf(20),bytes.copyOf().also { it[20]=9 })) { try { ImageProbe.inspectBytes(b);fail() }catch(e:ImageFailure){assertEquals("DECODE_FAILED",e.code)} } }
     @Test fun pixelCeilingUsesLongArithmetic() { for(size in listOf(40_000_001 to 1,Int.MAX_VALUE to Int.MAX_VALUE)) { try { ImageProbe.inspectBytes(png(size.first,size.second));fail() }catch(e:ImageFailure){assertEquals("RESOURCE_LIMIT",e.code)} } }
+    @Test fun nestedExifColorSpaceIsCheckedInsideItsSegment() {
+        fun jpeg(colorSpace:Int,offset:Int=38):ByteArray {
+            val bytes=ByteArrayOutputStream();val out=DataOutputStream(bytes)
+            out.writeShort(0xffd8)
+            val exif=ByteArrayOutputStream();DataOutputStream(exif).apply {
+                write("Exif\u0000\u0000MM".toByteArray());writeShort(42);writeInt(8)
+                writeShort(2);writeShort(0x112);writeShort(3);writeInt(1);writeShort(6);writeShort(0)
+                writeShort(0x8769);writeShort(4);writeInt(1);writeInt(offset);writeInt(0)
+                writeShort(1);writeShort(0xA001);writeShort(3);writeInt(1);writeShort(colorSpace);writeShort(0);writeInt(0)
+            }
+            val e=exif.toByteArray();out.writeShort(0xffe1);out.writeShort(e.size+2);out.write(e)
+            out.writeShort(0xffc0);out.writeShort(11);out.writeByte(8);out.writeShort(77);out.writeShort(101);out.writeByte(1);out.write(byteArrayOf(1,0x11,0))
+            out.writeShort(0xffd9);return bytes.toByteArray()
+        }
+        assertEquals(6,ImageProbe.inspectBytes(jpeg(1)).orientation)
+        for((bytes,code) in listOf(jpeg(65535) to "UNSUPPORTED_IMAGE",jpeg(1,200) to "DECODE_FAILED")) {
+            try {ImageProbe.inspectBytes(bytes);fail("Unsafe EXIF admitted")}catch(e:ImageFailure){assertEquals(code,e.code)}
+        }
+    }
 }

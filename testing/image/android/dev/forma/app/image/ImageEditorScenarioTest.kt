@@ -49,7 +49,7 @@ class ImageEditorScenarioTest {
     private suspend fun runCase(context:Context,id:String,runId:String,caps:Capabilities,bridge:FfmpegBridge):JSONObject {
         val graph=(context.applicationContext as FormaApplication).graph
         val dir=File(context.filesDir,"imports/image-$runId-$id")
-        val (input,info)=ImageFixtures.png(context,dir,if(id=="geometry_crop_turn_resize")1200 else 101,if(id=="geometry_crop_turn_resize")800 else 77,alpha=id!="adjustments_known_pixels")
+        val (input,info)=if(id=="alpha_blur_edges")ImageFixtures.transparentEdges(dir)else ImageFixtures.png(context,dir,if(id=="geometry_crop_turn_resize")1200 else 101,if(id=="geometry_crop_turn_resize")800 else 77,alpha=id!="adjustments_known_pixels")
         val source=ImageFixtures.source(context,input,info)
         var d=ImageEditDocument(source=source,output=ImageOutputPolicy(format=ImageFormat.PNG,targetBytes=null))
         if(id=="native_missing"){assertFalse(caps.available);expect("CAPABILITY_UNAVAILABLE"){graph.imageTranscoder.run(ImageJobSpec(UUID.randomUUID().toString(),d,info),{}, {})};return JSONObject().put("expectedError","CAPABILITY_UNAVAILABLE")}
@@ -63,22 +63,50 @@ class ImageEditorScenarioTest {
         if(id=="source_uri_revoked"){expect("SOURCE_ACCESS"){ImageInputAdapter(context).stage("content://revoked-provider/missing",UUID.randomUUID().toString())};return JSONObject().put("expectedError","SOURCE_ACCESS")}
         if(id=="source_corrupt"){input.writeBytes(input.readBytes().copyOf(30));expect("DECODE_FAILED"){ImageInputAdapter(context).stage(source.uri,UUID.randomUUID().toString())};return JSONObject().put("expectedError","DECODE_FAILED")}
         if(id=="source_animation"){input.writeText("GIF89a");expect("UNSUPPORTED_IMAGE"){ImageInputAdapter(context).stage(source.uri,UUID.randomUUID().toString())};return JSONObject().put("expectedError","UNSUPPORTED_IMAGE")}
-        if(id=="source_unsupported_color"){expect("UNSUPPORTED_IMAGE"){ImageValidation.requireSupported(info.copy(bitDepth=16))};return JSONObject().put("expectedError","UNSUPPORTED_IMAGE")}
+        if(id=="source_unsupported_color"){
+            val tagged=ImageFixtures.orientedJpeg(dir,1,65535)
+            expect("UNSUPPORTED_IMAGE"){ImageInputAdapter(context).stage(ImageFixtures.source(context,tagged,info).uri,UUID.randomUUID().toString())}
+            return JSONObject().put("expectedError","UNSUPPORTED_IMAGE").put("actualExifColorSpace",65535)
+        }
         if(id=="draft_corrupt"){val directory=File(dir,"drafts").apply{mkdirs()};val f=File(directory,"${source.hash}.json").apply{writeText("broken")};val repo=ImageDraftRepository(directory);assertTrue(repo.load(source.hash) is ImageDraftLoadResult.Corrupt);assertTrue(repo.save(d,0) is ImageDraftSaveResult.Preserved);assertEquals("broken",f.readText());return JSONObject().put("expectedError","DRAFT_CORRUPT")}
         if(id=="preview_stale"){val p=ImagePreviewState(2,"current","Updating");assertEquals(p,p.accept(1,"old","stale.png",false));return JSONObject().put("staleRevisionRejected",true)}
-        if(id=="export_format_mismatch"){expect("OUTPUT_INVALID"){ImageVerifier.requireFacts(info.copy(width=100),ImageFormat.PNG,ImageSize(101,77),ImageAlpha.PRESENT)};return JSONObject().put("expectedError","OUTPUT_INVALID")}
+        if(id=="export_format_mismatch"){
+            val wrong=object:FfmpegBridge by bridge {
+                override suspend fun execute(arguments:List<String>,onProgress:(Progress)->Unit):NativeResult {
+                    val result=bridge.execute(arguments,onProgress)
+                    if(arguments.last().endsWith("candidate.png")){
+                        val (other,_)=ImageFixtures.png(context,File(dir,"wrong-size"),100,77)
+                        other.copyTo(File(arguments.last()),overwrite=true)
+                    }
+                    return result
+                }
+            }
+            val rejected=ImageJobSpec(UUID.randomUUID().toString(),d,info)
+            expect("OUTPUT_INVALID"){ImageTranscoder(graph.files,wrong,graph.imageMarkup).run(rejected,{}, {})}
+            assertFalse(graph.files.output(QueueJobSpec.Image(rejected)).exists())
+            return JSONObject().put("expectedError","OUTPUT_INVALID").put("nativeEncodeBeforeMismatch",true).put("publication",false)
+        }
         if(id=="orientation_all_eight"){
-            val sourceBitmap=BitmapFactory.decodeFile(input.path)
             for(o in 1..8){
-                val oriented=info.copy(orientation=o);val job=ImageJobSpec(UUID.randomUUID().toString(),d,oriented)
-                // Preserve EXIF at the source boundary, then let typed native preparation normalize it exactly once.
-                val output=File(dir,"orientation-$o.png")
-                val args=bridge.prepare(job,oriented,ImageAttempt(0,ImageFormat.PNG,90),input.path,output.path)
-                assertEquals(0,bridge.execute(args){}.exitCode)
+                val encoded=ImageFixtures.orientedJpeg(dir,o);val actual=bridge.inspectImage(encoded.path)
+                assertEquals(o,actual.orientation)
+                val sourceBitmap=BitmapFactory.decodeFile(encoded.path)
+                val src=ImageFixtures.source(context,encoded,actual);val doc=d.copy(source=src)
+                val job=ImageJobSpec(UUID.randomUUID().toString(),doc,actual)
+                graph.imageTranscoder.run(job,{},{});val output=graph.files.output(QueueJobSpec.Image(job))
                 val b=BitmapFactory.decodeFile(output.path)
                 val expected=when(o){1->sourceBitmap.getPixel(5,5);2->sourceBitmap.getPixel(sourceBitmap.width-6,5);3->sourceBitmap.getPixel(sourceBitmap.width-6,sourceBitmap.height-6);4->sourceBitmap.getPixel(5,sourceBitmap.height-6);5->sourceBitmap.getPixel(5,5);6->sourceBitmap.getPixel(5,sourceBitmap.height-6);7->sourceBitmap.getPixel(sourceBitmap.width-6,sourceBitmap.height-6);else->sourceBitmap.getPixel(sourceBitmap.width-6,5)}
-                assertEquals("Orientation $o",expected,b.getPixel(5,5));b.recycle();output.delete()
-            };sourceBitmap.recycle();return JSONObject().put("orientations",8)
+                val width=if(o>=5)77 else 101;val height=if(o>=5)101 else 77
+                assertEquals(width,b.width);assertEquals(height,b.height);assertColorClose("Native orientation $o",expected,b.getPixel(5,5),2)
+                for(modern in if(android.os.Build.VERSION.SDK_INT>=28)listOf(false,true)else listOf(false)){
+                    val displayed=ImageDisplayAdapter.original(context,src.uri,actual,modern)
+                    assertTrue(displayed.orientationApplied);assertEquals(width,displayed.bitmap.width);assertEquals(height,displayed.bitmap.height)
+                    assertColorClose("Adapter orientation $o modern=$modern",expected,displayed.bitmap.getPixel(5,5),2);displayed.bitmap.recycle()
+                }
+                assertEquals(1,bridge.inspectImage(output.path).orientation)
+                b.recycle();sourceBitmap.recycle();output.delete()
+            }
+            return JSONObject().put("actualExifOrientations",8).put("nativeNormalizeOnce",true).put("legacyAdapter",true).put("modernAdapter",android.os.Build.VERSION.SDK_INT>=28)
         }
         if(id.startsWith("cancel_")){
             val phase=id.removePrefix("cancel_");val wrapped=object:FfmpegBridge by bridge {
@@ -127,12 +155,34 @@ class ImageEditorScenarioTest {
             assertEquals(expected.width,decoded.width);assertEquals(expected.height,decoded.height)
             if(id in listOf("geometry_identity","geometry_odd_png","adjustments_neutral","alpha_geometry")){val before=BitmapFactory.decodeFile(input.path);for(y in 0 until before.height)for(x in 0 until before.width)assertEquals("Pixel $x,$y",before.getPixel(x,y),decoded.getPixel(x,y));before.recycle()}
             if(id=="adjustments_known_pixels"){val c=decoded.getPixel(5,5);assertTrue(kotlin.math.abs(Color.red(c)-54)<=1);assertEquals(Color.red(c),Color.green(c));assertEquals(Color.red(c),Color.blue(c))}
+            if(id=="alpha_blur_edges") {
+                assertTransparentRedEdges(decoded)
+                val sharpen=ImageJobSpec(UUID.randomUUID().toString(),d.copy(adjustments=ImageAdjustments(sharpenAmount=1.0)),info)
+                graph.imageTranscoder.run(sharpen,{},{});val sharpened=BitmapFactory.decodeFile(graph.files.output(QueueJobSpec.Image(sharpen)).path)
+                assertTransparentRedEdges(sharpened,requireFractional=false);sharpened.recycle();graph.files.output(QueueJobSpec.Image(sharpen)).delete()
+            }
+            if(id=="markup_unicode") {
+                val before=BitmapFactory.decodeFile(input.path);var changed=0
+                for(y in 7..23)for(x in 10..69)if(before.getPixel(x,y)!=decoded.getPixel(x,y))changed++
+                assertTrue("Unicode label must visibly rasterize",changed>15);before.recycle()
+            }
             if(id=="jpeg_flatten") {val pixel=decoded.getPixel(5,5);assertTrue(Color.red(pixel)>=247);assertTrue(kotlin.math.abs(Color.green(pixel)-127)<=8);assertTrue(kotlin.math.abs(Color.blue(pixel)-127)<=8)}
             if(id=="solid_redaction" || id=="full_device_roundtrip")assertEquals(Color.BLACK,decoded.getPixel(70,50))
             ImageMetadata.requireClean(output,d.output.format)
             assertEquals(source.hash,ImageProbe.hash(input))
             return JSONObject().put("sourceHash",source.hash).put("documentHash",d.hashCode().toString()).put("format",d.output.format.name).put("width",decoded.width).put("height",decoded.height).put("bytes",output.length()).put("outputHash",ImageProbe.hash(output)).put("fullyDecoded",true).put("sourceUnchanged",true).put("nativeBuild",caps.build)
         }finally{decoded.recycle()}
+    }
+    private fun assertColorClose(label:String,expected:Int,actual:Int,tolerance:Int) {
+        for(channel in listOf<(Int)->Int>(Color::red,Color::green,Color::blue,Color::alpha))assertTrue(label+" expected=$expected actual=$actual",kotlin.math.abs(channel(expected)-channel(actual))<=tolerance)
+    }
+    private fun assertTransparentRedEdges(bitmap:Bitmap,requireFractional:Boolean=true) {
+        var fractional=0
+        for(y in 0 until bitmap.height)for(x in 0 until bitmap.width){val c=bitmap.getPixel(x,y);val a=Color.alpha(c)
+            if(a in 8..247){fractional++;assertTrue("Red fringe $x,$y alpha=$a red=${Color.red(c)}",Color.red(c)>=240);assertTrue(Color.green(c)<=3);assertTrue(Color.blue(c)<=3)}
+            if(a==0)assertEquals("Hidden RGB cleared",0,c)
+        }
+        if(requireFractional)assertTrue("Blur must produce fractional transparent edges",fractional>40)
     }
     private suspend fun expect(code:String,block:suspend()->Unit){try{block();fail("Expected $code")}catch(e:ImageFailure){assertEquals(code,e.code)}}
 }

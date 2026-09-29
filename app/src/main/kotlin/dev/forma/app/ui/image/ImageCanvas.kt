@@ -44,19 +44,35 @@ import kotlin.math.*
     val geometry=remember(d,info){runCatching{ImageGeometry.resolve(info,d,ImageAttempt(0,ImageFormat.PNG,90))}.getOrNull()}
     val currentDocument by rememberUpdatedState(d)
     val currentGeometry by rememberUpdatedState(geometry)
+    val currentBitmap by rememberUpdatedState(bitmap)
+    val currentOriginal by rememberUpdatedState(original || edited==null)
+    val currentActual by rememberUpdatedState(preview.actualPixels)
     var dimensions by remember {mutableStateOf(IntSize.Zero)}
     fun displayScale():Float {
-        val b=bitmap ?:return 1f
+        val b=currentBitmap ?:return 1f
         if(dimensions.width==0)return 1f
         val fit=min(dimensions.width.toFloat()/b.width,dimensions.height.toFloat()/b.height)
-        return if(preview.actualPixels && !original)zoom else fit*zoom
+        return if(currentActual && !currentOriginal)zoom else fit*zoom
     }
     fun sourceAt(screen:Offset):ImagePoint? {
-        val g=currentGeometry ?:return null;val b=bitmap ?:return null;val s=displayScale()
+        val g=currentGeometry ?:return null;val b=currentBitmap ?:return null;val s=displayScale()
         val px=(screen.x-(dimensions.width-b.width*s)/2-pan.x)/s
         val py=(screen.y-(dimensions.height-b.height*s)/2-pan.y)/s
-        return g.outputToSource.map(ImagePoint((px*g.outputSize.width/b.width).toDouble(),(py*g.outputSize.height/b.height).toDouble()))
+        return if(currentOriginal)ImagePoint(px.toDouble()*g.orientedSize.width/b.width,py.toDouble()*g.orientedSize.height/b.height)
+        else g.outputToSource.map(ImagePoint((px*g.outputSize.width/b.width).toDouble(),(py*g.outputSize.height/b.height).toDouble()))
     }
+    fun cropScreenCorners():List<Offset> {
+        val g=currentGeometry ?:return emptyList();val b=currentBitmap ?:return emptyList();val c=currentDocument.crop;val scale=displayScale()
+        val start=Offset((dimensions.width-b.width*scale)/2+pan.x,(dimensions.height-b.height*scale)/2+pan.y)
+        return listOf(c.left to c.top,c.right to c.top,c.right to c.bottom,c.left to c.bottom).map{(x,y)->
+            val canonical=ImagePoint(x*g.orientedSize.width,y*g.orientedSize.height)
+            val p=if(currentOriginal)canonical else g.sourceToOutput.map(canonical)
+            val size=if(currentOriginal)g.orientedSize else g.outputSize
+            start+Offset((p.x/size.width*b.width*scale).toFloat(),(p.y/size.height*b.height*scale).toFloat())
+        }
+    }
+    val density=androidx.compose.ui.platform.LocalDensity.current
+    val hitRadius=with(density){28.dp.toPx()}
     var dragCorner by remember {mutableStateOf<Int?>(null)}
     var dragBase by remember {mutableStateOf<NormalizedCrop?>(null)}
     Column(Modifier.fillMaxWidth()){
@@ -64,18 +80,17 @@ import kotlin.math.*
         Canvas(Modifier.fillMaxWidth().height(300.dp).testTag("image-canvas").semantics{contentDescription="Image canvas. Pinch to zoom and drag to pan. Crop corners also have exact numeric fields."}
             .pointerInput(tool,preview.actualPixels){
                 if(tool=="Crop" && !preview.actualPixels)detectDragGestures(onDragStart={point->
-                    val p=sourceAt(point);val g=currentGeometry
-                    if(p!=null && g!=null){val cx=p.x/g.orientedSize.width;val cy=p.y/g.orientedSize.height;val c=currentDocument.crop
-                        val corners=listOf(c.left to c.top,c.right to c.top,c.right to c.bottom,c.left to c.bottom)
-                        val nearest=corners.indices.minByOrNull{(corners[it].first-cx).pow(2)+(corners[it].second-cy).pow(2)}
-                        dragCorner=nearest;dragBase=c
-                    }
-                },onDragEnd={dragCorner=null;dragBase=null;action(UiAction.ChangeImage(currentDocument,true))},onDragCancel={dragCorner=null;dragBase=null},onDrag={change,delta->
+                    val corners=cropScreenCorners()
+                    dragCorner=corners.indices.minByOrNull{(corners[it]-point).getDistanceSquared()}?.takeIf{(corners[it]-point).getDistance()<=hitRadius}
+                    dragBase=if(dragCorner!=null)currentDocument.crop else null
+                },onDragEnd={if(dragCorner!=null)action(UiAction.ChangeImage(currentDocument,true));dragCorner=null;dragBase=null},onDragCancel={
+                    dragBase?.let{action(UiAction.ChangeImage(currentDocument.copy(crop=it),true))};dragCorner=null;dragBase=null
+                },onDrag={change,delta->
                     val corner=dragCorner;val p=sourceAt(change.position);val g=currentGeometry
-                    if(corner!=null && p!=null && g!=null){val x=(p.x/g.orientedSize.width).coerceIn(0.0,1.0);val y=(p.y/g.orientedSize.height).coerceIn(0.0,1.0);val c=currentDocument.crop
-                        val crop=when(corner){0->c.copy(left=min(x,c.right-.001),top=min(y,c.bottom-.001));1->c.copy(right=max(x,c.left+.001),top=min(y,c.bottom-.001));2->c.copy(right=max(x,c.left+.001),bottom=max(y,c.top+.001));else->c.copy(left=min(x,c.right-.001),bottom=max(y,c.top+.001))}
+                    if(corner!=null && p!=null && g!=null){
+                        val crop=ImageCropEditing.drag(dragBase ?:currentDocument.crop,corner,ImagePoint(p.x/g.orientedSize.width,p.y/g.orientedSize.height),g.orientedSize,currentDocument.cropAspectRatio)
                         action(UiAction.ChangeImage(currentDocument.copy(crop=crop),false));change.consume()
-                    }else pan+=delta
+                    }else {pan+=delta;change.consume()}
                 })else detectTransformGestures{_,delta,factor,_->zoom=(zoom*factor).coerceIn(.1f,16f);pan+=delta}
             }
             .pointerInput(tool){if(tool=="Crop")detectTransformGestures{_,delta,factor,_->if(factor!=1f){zoom=(zoom*factor).coerceIn(.1f,16f);pan+=delta}}}
@@ -87,9 +102,11 @@ import kotlin.math.*
             if(bitmap!=null && !bitmap.isRecycled){
                 val s=displayScale();val start=Offset((size.width-bitmap.width*s)/2+pan.x,(size.height-bitmap.height*s)/2+pan.y)
                 drawImage(bitmap.asImageBitmap(),dstOffset=IntOffset(start.x.toInt(),start.y.toInt()),dstSize=IntSize((bitmap.width*s).toInt().coerceAtLeast(1),(bitmap.height*s).toInt().coerceAtLeast(1)))
-                if(split && source!=null && !source!!.isRecycled){clipRect(right=size.width/2){drawImage(source!!.asImageBitmap(),dstOffset=IntOffset(start.x.toInt(),start.y.toInt()),dstSize=IntSize((bitmap.width*s).toInt().coerceAtLeast(1),(bitmap.height*s).toInt().coerceAtLeast(1)))};drawLine(Color.White,Offset(size.width/2,0f),Offset(size.width/2,size.height),2f)}
+                if(split && !preview.actualPixels && source!=null && !source!!.isRecycled){clipRect(right=size.width/2){drawImage(source!!.asImageBitmap(),dstOffset=IntOffset(start.x.toInt(),start.y.toInt()),dstSize=IntSize((bitmap.width*s).toInt().coerceAtLeast(1),(bitmap.height*s).toInt().coerceAtLeast(1)))};drawLine(Color.White,Offset(size.width/2,0f),Offset(size.width/2,size.height),2f)}
                 if(grid)for(i in 1..2){drawLine(Color.White.copy(alpha=.6f),Offset(start.x+bitmap.width*s*i/3,start.y),Offset(start.x+bitmap.width*s*i/3,start.y+bitmap.height*s),1f);drawLine(Color.White.copy(alpha=.6f),Offset(start.x,start.y+bitmap.height*s*i/3),Offset(start.x+bitmap.width*s,start.y+bitmap.height*s*i/3),1f)}
-                if(tool=="Crop" && geometry!=null && !preview.actualPixels){drawRect(Color(0xff55bbee),start,androidx.compose.ui.geometry.Size(bitmap.width*s,bitmap.height*s),style=Stroke(2f));for(x in listOf(0f,bitmap.width*s))for(y in listOf(0f,bitmap.height*s))drawCircle(Color(0xff55bbee),10.dp.toPx(),start+Offset(x,y))}
+                if(tool=="Crop" && geometry!=null && !preview.actualPixels){
+                    val corners=cropScreenCorners();if(corners.size==4){for(i in corners.indices)drawLine(Color(0xff55bbee),corners[i],corners[(i+1)%4],2f);corners.forEach{drawCircle(Color(0xff55bbee),10.dp.toPx(),it)}}
+                }
             }
         }
         FlowRow{
@@ -97,7 +114,7 @@ import kotlin.math.*
             TextButton(onClick={zoom=1f;pan=Offset.Zero;action(UiAction.RenderImage(true))}){Text("100%")}
             TextButton(onClick={zoom=(zoom/1.25f).coerceAtLeast(.1f)}){Text("−")};TextButton(onClick={zoom=(zoom*1.25f).coerceAtMost(16f)}){Text("+")}
             TextButton(onClick={original=!original},modifier=Modifier.pointerInput(Unit){detectTapGestures(onPress={original=true;tryAwaitRelease();original=false})}){Text("Hold Original")}
-            TextButton(onClick={split=!split}){Text(if(split)"Edited only" else "Split")}
+            TextButton(onClick={split=!split},enabled=!preview.actualPixels){Text(if(split)"Edited only" else "Split")}
         }
         preview.region?.let{r->
             Text("Actual output pixels · ${r.left}, ${r.top} · ${r.width} × ${r.height}",style=MaterialTheme.typography.bodySmall)
@@ -108,7 +125,7 @@ import kotlin.math.*
                 TextButton(onClick={action(UiAction.RenderImage(true,r.left+r.width/2,r.top+r.height*3/2))}){Text("Inspect down")}
             }
         }
-        if(split)Text("Split · Original left / edited Preview right",style=MaterialTheme.typography.bodySmall)
+        if(split && !preview.actualPixels)Text("Split · Original left / edited Preview right",style=MaterialTheme.typography.bodySmall)
         NumberField("Zoom multiplier",zoom.toDouble(),.1,16.0){zoom=it.toFloat()}
         Toggle("Thirds grid",grid){grid=it}
         FlowRow{listOf("Checkerboard","Light","Dark","Custom").forEach{value->FilterChip(onClick={background=value},selected=background==value,label={Text(value)})}}
