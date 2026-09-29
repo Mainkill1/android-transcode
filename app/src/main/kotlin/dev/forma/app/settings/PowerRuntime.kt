@@ -76,6 +76,7 @@ class PowerRuntime(
     private val evaluationLock = Any()
     private val signal = Channel<Unit>(Channel.CONFLATED)
     private var timer: Job? = null
+    private var lastReadableDocument: SettingsDocument? = null
     private val mutable = MutableStateFlow(evaluateCurrent())
     val state: StateFlow<PowerRuntimeSnapshot> = mutable.asStateFlow()
 
@@ -125,7 +126,9 @@ class PowerRuntime(
             // Mandatory thermal safety and its recovery latch remain active even
             // when an optional saved policy cannot be read. Never downgrade Critical
             // to finishing the file, nor erase a Critical episode on Unknown telemetry.
-            val safety=evaluator.evaluate(loaded.document,sample,activeAttempt,clock().coerceAtLeast(0L))
+            val safetyDocument=loaded.document ?: lastReadableDocument ?: SettingsDocument(values=
+                PreferenceValues.EMPTY.with("power.thermal_threshold",SettingValue.Choice("moderate")))
+            val safety=evaluator.evaluate(safetyDocument,sample,activeAttempt,clock().coerceAtLeast(0L))
             val decision = safety.decision.copy(
                 canStart = false,
                 action = if(safety.decision.state.criticalLatched) PowerAction.STOP
@@ -145,6 +148,7 @@ class PowerRuntime(
                 warningMessage = error
             )
         }
+        loaded.document?.let { lastReadableDocument=it }
         return evaluator.evaluate(
             document = loaded.document,
             sample = sample,

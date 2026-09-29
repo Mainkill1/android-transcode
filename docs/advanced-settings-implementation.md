@@ -116,7 +116,9 @@ other-vendor codec qualification remain separate gates.
 Upstream `00a5a807` makes unreadable saved power policy fail closed: no new queue
 claim substitutes factory safeguards; an active run drains for Settings review.
 Mandatory Critical thermal cancellation and its recovery latch remain in force
-even while preference storage is unreadable. Automatic background continuation
+even while preference storage is unreadable. The last readable thermal recovery
+threshold is retained; a cold unreadable policy uses the conservative Moderate
+recovery boundary only for mandatory Critical safety, while all starts remain blocked. Automatic background continuation
 and Battery Saver thread-budget integration remain Planned.
 
 `AndroidPowerMonitor` treats framework callbacks as invalidations and rereads
@@ -129,3 +131,11 @@ Upstream historical evidence is retained: `7fcda00` workflow `36571847155` passe
 wrapper/no-native unit/build/lint/emulator gates; `cf87fc2` workflow `36572511109`
 reproduced the unreadable-policy failure before its fix. These are separate from
 this session's source-built native packaging and the parent phone qualification.
+
+Local merged-head gate record: 142 JVM tests passed, core CLI39, settings/consumer/
+provenance and power CLI suites passed, readiness13 Python and UX ownership/race
+checks passed. Native-enabled debug/release build/lint and Android-test assembly
+passed. Both APKs pass arm64 payload/16 KiB alignment checks. With the external
+test tree physically absent and both test references disabled, release rebuild
+and structural DEX exclusion checks passed. Device tests for this head remain
+owned by the parent session; no local device execution is claimed here.
