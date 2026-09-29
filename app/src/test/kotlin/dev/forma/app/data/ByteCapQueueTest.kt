@@ -22,5 +22,38 @@ class ByteCapQueueTest {
             json.getJSONArray("jobs").getJSONObject(0).put("targetBytes",bad)
             assertThrows(IllegalArgumentException::class.java) { JobCodec.decode(json.toString()) }
         }
+    }    @Test fun schemaOneCapAndUnknownNestedIntentAreRejectedInsteadOfLost() {
+        val cap=JSONObject(JobCodec.encode(listOf(entry(10000000)))).put("schema",1)
+        assertThrows(IllegalArgumentException::class.java) { JobCodec.decode(cap.toString()) }
+        for (path in listOf("root","source","trim")) {
+            val json=JSONObject(JobCodec.encode(listOf(entry(10000000))))
+            val row=json.getJSONArray("jobs").getJSONObject(0)
+            val target=if(path=="root")json else row.getJSONObject(path)
+            target.put("futureIntent",200)
+            assertThrows(IllegalArgumentException::class.java) { JobCodec.decode(json.toString()) }
+        }
     }
+    @Test fun fractionalOutOfRangeOrStringIntegersAndStringBooleansAreRejected() {
+        for ((part,key) in listOf("settings" to "fps","trim" to "startMs","source" to "width")) {
+            for(value in listOf<Any>(12.9,"12",true) + if(part=="trim") emptyList() else listOf(2147483648L)) {
+                val json=JSONObject(JobCodec.encode(listOf(entry(10000000))))
+                json.getJSONArray("jobs").getJSONObject(0).getJSONObject(part).put(key,value)
+                assertThrows(IllegalArgumentException::class.java) { JobCodec.decode(json.toString()) }
+            }
+        }
+        val json=JSONObject(JobCodec.encode(listOf(entry(10000000))))
+        json.getJSONArray("jobs").getJSONObject(0).getJSONObject("source").put("hdr","true")
+        assertThrows(IllegalArgumentException::class.java) { JobCodec.decode(json.toString()) }
+    }
+    @Test fun missingSchemaTwoCapIntentIsRejected() {
+        val json=JSONObject(JobCodec.encode(listOf(entry(10000000))))
+        json.getJSONArray("jobs").getJSONObject(0).remove("targetBytes")
+        assertThrows(IllegalArgumentException::class.java) { JobCodec.decode(json.toString()) }
+    }
+    @Test fun missingTrimEndIntentIsRejected() {
+        val json=JSONObject(JobCodec.encode(listOf(entry(10000000))))
+        json.getJSONArray("jobs").getJSONObject(0).getJSONObject("trim").remove("endMs")
+        assertThrows(IllegalArgumentException::class.java) { JobCodec.decode(json.toString()) }
+    }
+
 }

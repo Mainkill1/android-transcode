@@ -22,7 +22,7 @@ android {
     buildFeatures { compose = true }
     buildTypes {
         getByName("debug") {
-            if (providers.gradleProperty("formaLab").orNull == "true") applicationIdSuffix = ".lab"
+            if (providers.gradleProperty("formaLab").orNull == "true") applicationIdSuffix = ".lab.codec"
         }
         release {
             isMinifyEnabled = true

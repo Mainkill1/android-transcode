@@ -50,10 +50,7 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
             onState(JobState.VERIFYING)
             // Per-attempt checks are complete; the existing final-publication state is retained.
             currentCoroutineContext().ensureActive()
-            withContext(NonCancellable) {
-                check(temporary.renameTo(published)) { "The verified output could not be published." }
-                onState(JobState.COMPLETED)
-            }
+            publishVerified(temporary,published) { onState(JobState.COMPLETED) }
         } finally { directory.deleteRecursively() }
     }
 }

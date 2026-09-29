@@ -11,7 +11,6 @@ import android.os.SystemClock
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.app.ServiceCompat
 import dev.forma.app.FormaApplication
 import dev.forma.app.MainActivity
 import dev.forma.app.R
@@ -49,7 +48,12 @@ class TranscodeService : Service() {
             Build.VERSION.SDK_INT >= 29 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             else -> 0
         }
-        try { ServiceCompat.startForeground(this, NOTIFICATION, notification("Preparing queue", null), type) }
+        try {
+            val initial = notification("Preparing queue", null)
+            // The compat API 34 mask strips MEDIA_PROCESSING on API 35+.
+            if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, initial, type)
+            else startForeground(NOTIFICATION, initial)
+        }
         catch (error: Exception) {
             graph.queue.error.value = "Android could not start background conversion. Return to the app and try again. ${error.message.orEmpty()}"
             stopSelfResult(startId)

@@ -51,6 +51,10 @@ class NativeByteCapTest {
             val cancelled=job.copy(id=UUID.randomUUID().toString())
             try { FfmpegTranscoder(files,native).run(cancelled,{ if(it==JobState.VERIFYING) throw CancellationException("Stop before publication") },{});error("Cancelled job completed") }
             catch(_:CancellationException) { check(!files.output(cancelled).exists()) }
+            val failedCommit=job.copy(id=UUID.randomUUID().toString())
+            val commitError=runCatching { FfmpegTranscoder(files,native).run(failedCommit,{ if(it==JobState.COMPLETED) error("Durable completion failed") },{}) }.exceptionOrNull()
+            check(commitError != null && !files.output(failedCommit).exists())
+            report.put("publicationFailureLeftNoOutput",true)
             report.put("passed",true).put("nativeBuild",native.capabilities().build).put("encodes",encodes)
                 .put("outputFile",output.name).put("outputBytes",output.length()).put("outputSha256",hash(output))
                 .put("prepared",prepared).put("states",JSONArray(states.map { it.name })).put("cancellationLeftNoOutput",true)
