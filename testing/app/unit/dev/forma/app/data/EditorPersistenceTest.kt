@@ -23,6 +23,15 @@ class EditorPersistenceTest {
     @Test fun futureSchemaIsNotSilentlyLoaded() {
         assertThrows(IllegalArgumentException::class.java) { JobCodec.decode("{\"schema\":999}") }
     }
+    @Test fun schemaCoercionIsRejected() {
+        listOf("2.5", "\"2\"", "true", "null").forEach { value ->
+            assertThrows(IllegalArgumentException::class.java) { JobCodec.decode("{\"schema\":$value,\"jobs\":[]}") }
+        }
+    }
+    @Test fun invalidSavedTimingFailsAtLoadRatherThanInTheUi() {
+        val corrupt = job.copy(spec = job.spec.copy(trim = Trim(9000, 1000)))
+        assertThrows(IllegalArgumentException::class.java) { JobCodec.decode(JobCodec.encode(listOf(corrupt))) }
+    }
     @Test fun missingNewSchemaEffectsFailRatherThanResetEdits() {
         val root = JSONObject(JobCodec.encode(listOf(job)))
         root.getJSONArray("jobs").getJSONObject(0).getJSONObject("settings").remove("effects")

@@ -27,8 +27,10 @@ object JobCodec {
 
     fun decode(text: String): List<QueueEntry> {
         val root = JSONObject(text)
-        val schema = root.getInt("schema")
-        require(schema in 1..2) { "Unsupported queue schema. The original file has been preserved." }
+        val schemaValue = root.get("schema")
+        require(schemaValue is Int || schemaValue is Long) { "Queue schema must be an integer." }
+        val schema = (schemaValue as Number).toLong()
+        require(schema in 1L..2L) { "Unsupported queue schema. The original file has been preserved." }
         val jobs = root.getJSONArray("jobs")
         return (0 until jobs.length()).map { i ->
             val j = jobs.getJSONObject(i)
@@ -46,8 +48,15 @@ object JobCodec {
                     s.getInt("maxHeight"), s.getInt("fps"), AudioEncoder.valueOf(s.getString("audio")),
                     s.getInt("audioKbps"), s.getInt("audioTrack"), s.getBoolean("stereo"), s.getBoolean("denoise"),
                     s.getBoolean("deinterlace"), s.getBoolean("keepMetadata"),
-                    if (schema == 1) ClipEffects() else ClipEffectsCodec.decode(s.getJSONObject("effects")))),
+                    if (schema == 1L) ClipEffects() else ClipEffectsCodec.decode(s.getJSONObject("effects")))),
                 JobState.valueOf(j.getString("state")), j.getString("message"))
-        }.also { require(it.map { j -> j.spec.id }.distinct().size == it.size) { "Duplicate job identifiers." } }
+        }.also { entries ->
+            require(entries.map { it.spec.id }.distinct().size == entries.size) { "Duplicate job identifiers." }
+            entries.forEach { entry ->
+                val spec = entry.spec
+                val problems = Planner.validate(spec.source, spec.trim, spec.settings)
+                require(problems.isEmpty()) { "Invalid saved job ${spec.id}: ${problems.joinToString("; ")}" }
+            }
+        }
     }
 }
