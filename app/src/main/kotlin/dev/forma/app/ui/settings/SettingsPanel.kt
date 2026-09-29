@@ -48,7 +48,7 @@ import dev.forma.core.settings.*
     val categories = SettingCategory.entries.filter { c -> SettingCatalog.all.any { it.category == c && (!jobScope || it.scope == SettingScope.JOB) } }
     val matches = remember(query, filter, draft.values, jobScope) {
         SettingCatalog.search(query).filter { (!jobScope || it.scope == SettingScope.JOB) &&
-            when (filter) { "Changed" -> draft.values[it.id] != null; "Planned" -> !it.wired; else -> true } }
+            when (filter) { "Changed" -> draft.values[it.id] != null; "Planned" -> !it.implemented; else -> true } }
     }
     val compact = (resolved.getValue("ui.density").value as SettingValue.Choice).value == "compact"
     val technical = (resolved.getValue("ui.technical_details").value as SettingValue.Choice).value == "always"
@@ -58,7 +58,6 @@ import dev.forma.core.settings.*
             category != null -> categoryId = null; else -> onClose() }
     }
     BackHandler { back() }
-    // Dialog window Back reaches onDismissRequest, not necessarily the Activity dispatcher.
     LaunchedEffect(backRequest) { if (backRequest > 0) back() }
     Scaffold(
         topBar = { Surface(tonalElevation=1.dp) {
@@ -134,7 +133,7 @@ import dev.forma.core.settings.*
                                     .padding(horizontal=12.dp, vertical=if (compact) 8.dp else 14.dp)) {
                                     Text(spec.label, style=MaterialTheme.typography.titleSmall)
                                     Text(spec.display(value.value), style=MaterialTheme.typography.bodyLarge)
-                                    Text(if (spec.wired) provenance else "Planned · $provenance", style=MaterialTheme.typography.labelMedium,
+                                    Text(if (spec.implemented) provenance else "Planned · $provenance", style=MaterialTheme.typography.labelMedium,
                                         color=MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (showResults) Text(spec.category.title, style=MaterialTheme.typography.bodySmall)
                                     if (technical) Text(spec.id, style=MaterialTheme.typography.bodySmall)
@@ -169,23 +168,21 @@ import dev.forma.core.settings.*
     fun choose(next: SettingValue) { keyboard?.hide(); onChange(next) }
     ModalBottomSheet(onDismissRequest={ keyboard?.hide(); onClose() },
         sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
-        // One scroll owner includes help, all finite choices and Reset. Fixed headers/footers
-        // previously overflowed small windows and large-font layouts outside the inner list.
         Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding()
             .verticalScroll(rememberScrollState()).padding(horizontal=20.dp)) {
             Text(spec.label, style=MaterialTheme.typography.titleLarge)
-            Text(spec.help, Modifier.padding(vertical=8.dp), style=MaterialTheme.typography.bodyMedium)
+            Text(spec.effectiveHelp, Modifier.padding(vertical=8.dp), style=MaterialTheme.typography.bodyMedium)
             Text(spec.id, style=MaterialTheme.typography.labelSmall)
             Text("${if (jobScope) "Inherited" else "Factory default"}: ${spec.display(inheritedValue)}",
                 Modifier.padding(vertical=8.dp), style=MaterialTheme.typography.bodySmall)
-            if (!spec.wired) Text("Planned — not active in exports.", Modifier.padding(vertical=8.dp))
+            if (!spec.implemented) Text("Planned — not active in exports.", Modifier.padding(vertical=8.dp))
             when (value) {
                 is SettingValue.Choice -> {
                     if (spec.options.size > 8) OutlinedTextField(value=query, onValueChange={ query=it }, singleLine=true,
                         label={ Text("Search choices") }, modifier=Modifier.fillMaxWidth().testTag("settings-choice-search"))
                     if (options.isEmpty()) Text("No matching choices.", Modifier.padding(vertical=16.dp))
                     options.forEach { option ->
-                        val enabled = spec.wired && option.available
+                        val enabled = spec.implemented && option.available
                         Row(Modifier.fillMaxWidth().heightIn(min=56.dp).testTag("settings-option:${spec.id}:${option.id}")
                             .selectable(selected=value.value == option.id, enabled=enabled, role=Role.RadioButton,
                                 onClick={ choose(SettingValue.Choice(option.id)) }), verticalAlignment=Alignment.CenterVertically) {
@@ -195,10 +192,10 @@ import dev.forma.core.settings.*
                     }
                 }
                 is SettingValue.Flag -> Row(Modifier.fillMaxWidth().heightIn(min=56.dp)
-                    .toggleable(value=value.value, enabled=spec.wired, role=Role.Switch,
+                    .toggleable(value=value.value, enabled=spec.implemented, role=Role.Switch,
                         onValueChange={ choose(SettingValue.Flag(it)) }), verticalAlignment=Alignment.CenterVertically) {
                     Text(if (value.value) "On" else "Off", Modifier.weight(1f))
-                    Switch(checked=value.value, onCheckedChange=null, enabled=spec.wired)
+                    Switch(checked=value.value, onCheckedChange=null, enabled=spec.implemented)
                 }
                 else -> NumericOrTextEditor(spec, value, ::choose)
             }
@@ -220,12 +217,12 @@ import dev.forma.core.settings.*
         else -> null
     }
     val error = parsed?.let(spec::error) ?: if (parsed == null) "Enter a valid value" else null
-    OutlinedTextField(value=text, onValueChange={ text=it }, enabled=spec.wired,
+    OutlinedTextField(value=text, onValueChange={ text=it }, enabled=spec.implemented,
         keyboardOptions=KeyboardOptions(keyboardType=if (value is SettingValue.Text) KeyboardType.Text else KeyboardType.Decimal),
         label={ Text("Value") }, isError=error != null, modifier=Modifier.fillMaxWidth().padding(top=8.dp))
     if (error != null) Text(error, color=MaterialTheme.colorScheme.error)
     if (spec.allowedIntegers.isNotEmpty()) Text("Choices: ${spec.allowedIntegers.joinToString()}", style=MaterialTheme.typography.bodySmall)
-    Button(onClick={ parsed?.let(onChange) }, enabled=spec.wired && parsed != null && error == null,
+    Button(onClick={ parsed?.let(onChange) }, enabled=spec.implemented && parsed != null && error == null,
         modifier=Modifier.fillMaxWidth().padding(top=12.dp)) { Text("Use value") }
 }
 
