@@ -37,7 +37,7 @@ class ImageEditorScenarioTest {
             }catch(e:Throwable){row.put("observedOutcome","failure").put("assertionsPassed",false).put("error",e.toString())}
             row.put("finishedMs",SystemClock.elapsedRealtime());cases.put(row)
         }
-        val report=ImageReport.artifacts(context).put("schema",1).put("runId",runId).put("requestedSelection",requested).put("selectedCases",JSONArray(selected)).put("selectedCount",selected.size).put("executedCount",cases.length()).put("passedCount",passed).put("status",if(passed==selected.size)"PASS" else "FAIL").put("startedMs",started).put("finishedMs",SystemClock.elapsedRealtime()).put("declaredRevision",args.getString("formaDeclaredRevision")?:JSONObject.NULL).put("nativeBuild",caps.build).put("cases",cases)
+        val report=ImageReport.artifacts(context).put("schema",1).put("runId",runId).put("requestedSelection",requested).put("selectedCases",JSONArray(selected)).put("selectedCount",selected.size).put("executedCount",cases.length()).put("passedCount",passed).put("status",if(passed==selected.size)"PASS" else "FAIL").put("startedMs",started).put("finishedMs",SystemClock.elapsedRealtime()).put("declaredRevision",args.getString("formaDeclaredRevision")?:JSONObject.NULL).put("nativeBuild",caps.build).put("nativeConfiguration",caps.configuration).put("decoders",JSONArray(caps.decoders.toList())).put("encoders",JSONArray(caps.encoders.toList())).put("cases",cases)
         ImageReport.write(root,report)
         if(passed==selected.size){
             val actual=ImageReport.artifacts(context).getJSONArray("installedApks")

@@ -14,6 +14,6 @@ fi
 [[ "$(git -C "$SOURCE" rev-parse HEAD)" == "$REV" ]] || { echo 'Existing native checkout does not match the pinned revision.' >&2; exit 1; }
 [[ -z "$(git -C "$SOURCE" status --porcelain --untracked-files=no)" ]] || { echo 'Native checkout has tracked modifications; refusing to build.' >&2; exit 1; }
 cd "$SOURCE"
-./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-android-media-codec "$@"
+./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-android-media-codec --enable-lib-android-zlib --enable-lib-libwebp "$@"
 printf '\nNative Maven repository: %s/prebuilt/bundle-android-aar-24-maven\n' "$SOURCE"
 printf 'Required next: verify the AAR/APK with tools/verify_android_native.py, then run the physical-device smoke test.\n'

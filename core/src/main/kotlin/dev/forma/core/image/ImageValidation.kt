@@ -24,7 +24,8 @@ object ImageValidation {
         d.annotations.forEach { o ->
             check(o.id.isNotBlank() && o.id.length<=128,"id","Invalid object identifier.")
             listOf(o.left,o.top,o.right,o.bottom).forEach { number(it,0.0,1.0,"annotation.bounds") }
-            check(o.left<o.right && o.top<o.bottom,"annotation.bounds","Bounds must have positive area.")
+            if(o.kind in setOf(AnnotationKind.LINE,AnnotationKind.ARROW))check(o.left!=o.right || o.top!=o.bottom,"annotation.bounds","Line endpoints must be distinct.")
+            else check(o.left<o.right && o.top<o.bottom,"annotation.bounds","Bounds must have positive area.")
             check(o.text.codePointCount(0,o.text.length)<=4096,"text","Text is limited to 4096 Unicode code points.")
             check(o.font in setOf("sans-serif","serif","monospace"),"font","Choose a bundled system font.")
             number(o.textSize,1.0,2048.0,"textSize");number(o.strokeWidth,0.0,256.0,"strokeWidth");number(o.opacity,0.0,1.0,"opacity")

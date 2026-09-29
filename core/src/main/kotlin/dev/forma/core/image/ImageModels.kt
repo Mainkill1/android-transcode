@@ -3,7 +3,9 @@ package dev.forma.core.image
 import java.util.Collections
 
 enum class ImageFormat(val extension: String, val mime: String, val encoder: String) {
-    AUTO("", "image/*", ""), JPEG("jpg", "image/jpeg", "mjpeg"), PNG("png", "image/png", "png"), WEBP("webp", "image/webp", "libwebp")
+    AUTO("", "image/*", ""), JPEG("jpg", "image/jpeg", "mjpeg"), PNG("png", "image/png", "png"), WEBP("webp", "image/webp", "libwebp");
+    val decoder get()=when(this){PNG->"png";JPEG->"mjpeg";WEBP->"webp";AUTO->""}
+    val demuxer get()=when(this){PNG->"png_pipe";JPEG->"jpeg_pipe";WEBP->"webp_pipe";AUTO->""}
 }
 enum class ImageAlpha { OPAQUE, PRESENT, UNKNOWN }
 enum class ImageProfile { SRGB, ASSUMED_SRGB, UNSUPPORTED, UNKNOWN }

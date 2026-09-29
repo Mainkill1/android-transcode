@@ -24,4 +24,8 @@ class ImageModelsTest {
         repeat(100) { h=h.apply(document().copy(revision=(it+1).toLong())) }
         assertTrue(h.estimatedBytes<=1000)
     }
+    @Test fun linesAllowHorizontalVerticalAndReversedEndpoints() {
+        for(o in listOf(ImageAnnotation("line",AnnotationKind.LINE,left=.8,top=.5,right=.2,bottom=.5),ImageAnnotation("line",AnnotationKind.ARROW,left=.5,top=.8,right=.5,bottom=.2)))assertTrue(ImageValidation.validate(document().copy(annotations=listOf(o))).isEmpty())
+        assertTrue(ImageValidation.validate(document().copy(annotations=listOf(ImageAnnotation("point",AnnotationKind.LINE,left=.5,top=.5,right=.5,bottom=.5)))).isNotEmpty())
+    }
 }

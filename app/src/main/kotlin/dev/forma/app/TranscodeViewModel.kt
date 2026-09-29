@@ -101,8 +101,8 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     private val imageHistory = mutableMapOf<String, ImageHistory>()
     private val imageGestureBase = mutableMapOf<String, ImageEditDocument>()
     private var imageSave: Job? = null
-    private data class ValidationKey(val sources: List<SourceEdit>, val settings: Settings, val caps: Capabilities)
-    private fun key(ui: TranscodeUiState) = ValidationKey(ui.sources, ui.editor.settings, ui.capabilities)
+    private data class ValidationKey(val sources: List<SourceEdit>, val settings: Settings, val caps: Capabilities, val documents: Map<String, ImageEditDocument>)
+    private fun key(ui: TranscodeUiState) = ValidationKey(ui.sources, ui.editor.settings, ui.capabilities, ui.imageDocuments)
 
     init {
         initialize()
@@ -111,10 +111,17 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             mutable.map(::key).distinctUntilChanged().collectLatest { input ->
                 mutable.update { it.copy(validating = true) }
                 val results = withContext(Dispatchers.Default) {
-                    val base = input.sources.flatMap { e -> ensureActive(); if (e.source.imageInfo != null) emptyList() else Planner.validate(e.source, e.trim, input.settings).map { "${e.source.name}: $it" } }.distinct()
+                    val base = input.sources.flatMap { e -> ensureActive(); if (e.source.imageInfo != null) input.documents[e.source.uri]?.let { ImageValidation.validate(it).map { p->p.message } } ?: listOf("Image draft is missing.") else Planner.validate(e.source, e.trim, input.settings).map { "${e.source.name}: $it" } }.distinct()
                     val native = if (input.caps.available) input.sources.flatMap { e ->
                         ensureActive()
-                        if (e.source.imageInfo != null) emptyList() else Planner.validate(e.source, e.trim, input.settings, input.caps).map { "${e.source.name}: $it" }
+                        if (e.source.imageInfo != null) {
+                            val info=e.source.imageInfo!!;val d=input.documents[e.source.uri]
+                            if(d==null)listOf("Image draft is missing.") else try {
+                                val spec=ImageJobSpec("validation",d,info);val format=ImagePlanner.resolveFormat(info,spec,input.caps)
+                                val attempt=ImageFitPolicy.candidates(spec,info,format).first().copy(markupPath=if(d.annotations.isNotEmpty())"pending-private-markup" else null)
+                                ImagePlanner.plan(info,spec,attempt,input.caps);emptyList()
+                            }catch(error:Exception){listOf(error.message ?: "Image route unavailable.")}
+                        } else Planner.validate(e.source, e.trim, input.settings, input.caps).map { "${e.source.name}: $it" }
                     }.distinct() else emptyList()
                     base to native
                 }

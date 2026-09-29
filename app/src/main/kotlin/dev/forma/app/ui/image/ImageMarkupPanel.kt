@@ -25,8 +25,8 @@ import java.util.UUID
                 if(dx==0.0 && dy==0.0)false else {val x=dx.coerceIn(-o.left,1-o.right);val y=dy.coerceIn(-o.top,1-o.bottom);edit(o.copy(left=o.left+x,right=o.right+x,top=o.top+y,bottom=o.bottom+y));true}
             }
         }){
-            NumberField("Object left",o.left,0.0,1.0){if(it<o.right)edit(o.copy(left=it))};NumberField("Object top",o.top,0.0,1.0){if(it<o.bottom)edit(o.copy(top=it))}
-            NumberField("Object right",o.right,0.0,1.0){if(it>o.left)edit(o.copy(right=it))};NumberField("Object bottom",o.bottom,0.0,1.0){if(it>o.top)edit(o.copy(bottom=it))}
+            NumberField("Object left",o.left,0.0,1.0){if(o.kind in setOf(AnnotationKind.LINE,AnnotationKind.ARROW) || it<o.right)edit(o.copy(left=it))};NumberField("Object top",o.top,0.0,1.0){if(o.kind in setOf(AnnotationKind.LINE,AnnotationKind.ARROW) || it<o.bottom)edit(o.copy(top=it))}
+            NumberField("Object right",o.right,0.0,1.0){if(o.kind in setOf(AnnotationKind.LINE,AnnotationKind.ARROW) || it>o.left)edit(o.copy(right=it))};NumberField("Object bottom",o.bottom,0.0,1.0){if(o.kind in setOf(AnnotationKind.LINE,AnnotationKind.ARROW) || it>o.top)edit(o.copy(bottom=it))}
             if(o.kind==AnnotationKind.TEXT){OutlinedTextField(o.text,{if(it.codePointCount(0,it.length)<=4096)edit(o.copy(text=it))},label={Text("Text")},modifier=Modifier.fillMaxWidth())
                 NumberField("Text size · source px",o.textSize,1.0,2048.0){edit(o.copy(textSize=it))}
                 FlowRow{TextAlignment.entries.forEach{a->FilterChip(onClick={edit(o.copy(alignment=a))},selected=o.alignment==a,label={Text(a.name.lowercase())})}}

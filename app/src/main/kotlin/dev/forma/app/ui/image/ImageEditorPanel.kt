@@ -27,6 +27,7 @@ import dev.forma.core.image.*
     },verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Text("Image · ${info.width} × ${info.height} · ${info.bytes} bytes · ${info.format.name}",style=MaterialTheme.typography.titleSmall)
         Text("${info.bitDepth}-bit · ${info.alpha.name.lowercase()} alpha · EXIF ${info.orientation} · ${if(info.profile==ImageProfile.ASSUMED_SRGB)"Assumed sRGB" else "sRGB"}",style=MaterialTheme.typography.bodySmall)
+        if(info.format.decoder !in caps.decoders)Text("Unavailable · native ${info.format.decoder} decoder is missing.",style=MaterialTheme.typography.bodySmall)
         if(!state.open)Button(onClick={action(UiAction.ToggleImageEditor)}){Text("Edit image")}
         else {
             FlowRow {TextButton(onClick={if(state.dirty)close=true else action(UiAction.ToggleImageEditor)}){Text("Back")};TextButton(onClick={action(UiAction.UndoImage)},enabled=state.canUndo){Text("Undo")};TextButton(onClick={action(UiAction.RedoImage)},enabled=state.canRedo){Text("Redo")};TextButton(onClick={action(UiAction.ChangeImage(ImageEditDocument(source=document.source,revision=document.revision)))}){Text("Reset all")}}
@@ -34,7 +35,7 @@ import dev.forma.core.image.*
             val tools: @Composable () -> Unit={
                 FlowRow {listOf("Crop","Adjust","Markup","Export").forEach{tool->FilterChip(onClick={action(UiAction.ImageTool(tool))},selected=state.tool==tool,label={Text(tool)},modifier=Modifier.heightIn(min=52.dp))}}
                 Column(Modifier.heightIn(max=480.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
-                    when(state.tool){"Crop"->ImageCropPanel(document,info,action);"Adjust"->ImageAdjustPanel(document,action);"Markup"->ImageMarkupPanel(document,action);else->ImageExportPanel(document,info,caps,action)}
+                    when(state.tool){"Crop"->ImageCropPanel(document,info,action);"Adjust"->ImageAdjustPanel(document,caps,action);"Markup"->ImageMarkupPanel(document,action);else->ImageExportPanel(document,info,caps,action)}
                 }
             }
             BoxWithConstraints(Modifier.fillMaxWidth()){
@@ -51,10 +52,10 @@ import dev.forma.core.image.*
         }
     }
 }
-@Composable internal fun NumberField(label:String,value:Double,min:Double=-Double.MAX_VALUE,max:Double=Double.MAX_VALUE,integer:Boolean=false,onChange:(Double)->Unit) {
+@Composable internal fun NumberField(label:String,value:Double,min:Double=-Double.MAX_VALUE,max:Double=Double.MAX_VALUE,integer:Boolean=false,enabled:Boolean=true,onChange:(Double)->Unit) {
     var text by remember(value){mutableStateOf(if(integer)value.toLong().toString() else "%.3f".format(java.util.Locale.ROOT,value).trimEnd('0').trimEnd('.'))}
     var invalid by remember{mutableStateOf(false)}
-    OutlinedTextField(text,{raw->text=raw;val n=raw.toDoubleOrNull();invalid=n==null || !n.isFinite() || n !in min..max || (integer && n%1!=0.0);if(!invalid)onChange(n!!)},label={Text(label)},isError=invalid,singleLine=true,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp))
+    OutlinedTextField(text,{raw->text=raw;val n=raw.toDoubleOrNull();invalid=n==null || !n.isFinite() || n !in min..max || (integer && n%1!=0.0);if(!invalid)onChange(n!!)},label={Text(label)},isError=invalid,singleLine=true,enabled=enabled,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp))
 }
 @Composable internal fun ColorField(label:String,value:Rgba,onChange:(Rgba)->Unit) {
     var text by remember(value){mutableStateOf("%02X%02X%02X%02X".format(value.red,value.green,value.blue,value.alpha))}

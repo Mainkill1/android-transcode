@@ -79,7 +79,11 @@ data class Capabilities(
     val encoders: Set<String> = emptySet(),
     val muxers: Set<String> = emptySet(),
     val filters: Set<String> = emptySet(),
-    val build: String = "Not loaded"
+    val build: String = "Not loaded",
+    val decoders: Set<String> = emptySet(),
+    val demuxers: Set<String> = emptySet(),
+    val pixelFormats: Set<String> = emptySet(),
+    val configuration: String = ""
 )
 data class Progress(val processedMs: Long, val speed: Double? = null) {
     fun fraction(durationMs: Long): Float? = if (durationMs <= 0) null else

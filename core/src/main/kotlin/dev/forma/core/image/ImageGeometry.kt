@@ -1,5 +1,6 @@
 package dev.forma.core.image
 import kotlin.math.*
+data class ImagePixelRect(val left:Int,val top:Int,val right:Int,val bottom:Int)
 data class ImagePoint(val x: Double, val y: Double)
 data class ImageMatrix(val a: Double=1.0,val b: Double=0.0,val c: Double=0.0,val d: Double=1.0,val tx: Double=0.0,val ty: Double=0.0) {
     fun map(p: ImagePoint)=ImagePoint(a*p.x+c*p.y+tx,b*p.x+d*p.y+ty)
@@ -11,6 +12,14 @@ data class ImageGeometryResult(val orientedSize:ImageSize,val cropLeft:Int,val c
     val contentSize:ImageSize,val outputSize:ImageSize,val padX:Int,val padY:Int,val sourceToOutput:ImageMatrix,val encodedToOutput:ImageMatrix,
     val filters:List<String>) { val outputToSource get()=sourceToOutput.inverse() }
 object ImageGeometry {
+    fun annotationBounds(g:ImageGeometryResult,o:ImageAnnotation):ImagePixelRect? {
+        val w=g.orientedSize.width.toDouble();val h=g.orientedSize.height.toDouble()
+        val left=maxOf(o.left*w,g.cropLeft.toDouble());val top=maxOf(o.top*h,g.cropTop.toDouble())
+        val right=minOf(o.right*w,(g.cropLeft+g.cropWidth).toDouble());val bottom=minOf(o.bottom*h,(g.cropTop+g.cropHeight).toDouble())
+        if(right<=left || bottom<=top)return null
+        val points=listOf(ImagePoint(left,top),ImagePoint(right,top),ImagePoint(right,bottom),ImagePoint(left,bottom)).map(g.sourceToOutput::map)
+        return ImagePixelRect(floor(points.minOf{it.x}).toInt().coerceIn(0,g.outputSize.width),floor(points.minOf{it.y}).toInt().coerceIn(0,g.outputSize.height),ceil(points.maxOf{it.x}).toInt().coerceIn(0,g.outputSize.width),ceil(points.maxOf{it.y}).toInt().coerceIn(0,g.outputSize.height))
+    }
     private fun rounded(v:Double)=floor(v+.5).toInt().coerceAtLeast(1)
     fun orientation(info:ImageInfo):Pair<ImageSize,ImageMatrix> {
         val w=info.width.toDouble();val h=info.height.toDouble();val o=if(info.orientationApplied)1 else info.orientation

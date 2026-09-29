@@ -24,4 +24,10 @@ class ImageGeometryTest {
         assertEquals(11,g.cropLeft);assertEquals(16,g.cropTop);assertEquals(81,g.cropWidth);assertEquals(47,g.cropHeight)
         assertEquals(119,g.padX);assertEquals(153,g.padY)
     }
+    @Test fun solidRedactionCoversPartialOutputPixelsAfterResize() {
+        val d=ImageEditDocument(source=source,output=ImageOutputPolicy(resizeMode=ResizeMode.PIXELS,width=53))
+        val g=ImageGeometry.resolve(info(101,77),d,attempt())
+        val o=ImageAnnotation("redact",AnnotationKind.REDACTION,left=.13,top=.13,right=.9,bottom=.9)
+        assertEquals(ImagePixelRect(6,5,48,36),ImageGeometry.annotationBounds(g,o))
+    }
 }

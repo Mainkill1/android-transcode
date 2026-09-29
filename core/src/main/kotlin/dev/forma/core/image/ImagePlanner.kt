@@ -30,7 +30,7 @@ data class ImagePlan(val spec:ImageJobSpec,val attempt:ImageAttempt,val geometry
         when(attempt.format){
             ImageFormat.PNG->args+=listOf("-pix_fmt","rgba","-compression_level",p.pngCompression.toString())
             ImageFormat.JPEG->args+=listOf("-pix_fmt","yuvj444p","-q:v",(2+(100-attempt.quality)*29/99).toString())
-            ImageFormat.WEBP->args+=listOf("-pix_fmt",if(expectedAlpha==ImageAlpha.PRESENT)"yuva420p" else "yuv420p","-quality",attempt.quality.toString(),"-lossless",if(p.lossless)"1" else "0")
+            ImageFormat.WEBP->args+=listOf("-pix_fmt",if(p.lossless)"bgra" else if(expectedAlpha==ImageAlpha.PRESENT)"yuva420p" else "yuv420p","-quality",attempt.quality.toString(),"-lossless",if(p.lossless)"1" else "0")
             ImageFormat.AUTO->error("Unresolved format")
         }
         args+=listOf("-f","image2","-update","1",output)
@@ -48,6 +48,8 @@ object ImagePlanner {
         ((g.outputSize.width>g.contentSize.width || g.outputSize.height>g.contentSize.height) && p.padding.alpha<255)
     fun plan(info:ImageInfo,spec:ImageJobSpec,attempt:ImageAttempt,caps:Capabilities):ImagePlan {
         ImageValidation.requireValid(spec.document);ImageValidation.requireSupported(info)
+        if(info.format.decoder !in caps.decoders || info.format.demuxer !in caps.demuxers)
+            throw ImageFailure("CAPABILITY_UNAVAILABLE","${info.format.name} requires native ${info.format.decoder} decoding and ${info.format.demuxer} input; this video/audio build does not supply the image route.")
         if(!caps.available || attempt.format.encoder !in caps.encoders || "image2" !in caps.muxers)throw ImageFailure("CAPABILITY_UNAVAILABLE","${attempt.format} needs its native encoder and image2 muxer. ${caps.reason}")
         if(info.hash!=spec.document.source.hash || info.bytes!=spec.document.source.bytes)throw ImageFailure("SOURCE_CHANGED","Original identity changed. Reselect the source.")
         val g=ImageGeometry.resolve(info,spec.document,attempt);val effects=ImageEffects.compile(spec.document.adjustments,g,if(attempt.rendererIdentity.contains("proxy"))attempt.scale else 1.0)
@@ -56,6 +58,14 @@ object ImagePlanner {
         val needed=(g.filters.map { it.substringBefore('=') }+effects.requiredFilters+
             if(effects.filters.isNotEmpty())listOf("format") else emptyList()).toMutableSet()
         if(attempt.markupPath!=null || (spec.document.output.flatten!=null && (attempt.format==ImageFormat.JPEG || spec.document.output.format==ImageFormat.JPEG)))needed+=setOf("format","overlay","color")
+        val requiredPixels=buildSet {
+            if(attempt.format==ImageFormat.PNG)add("rgba")
+            if(attempt.format==ImageFormat.JPEG)add("yuvj444p")
+            if(attempt.format==ImageFormat.WEBP)add(if(spec.document.output.lossless)"bgra" else if(hasAlpha(info,g,spec.document.output))"yuva420p" else "yuv420p")
+            if("premultiply" in needed || effects.filters.isNotEmpty())add("gbrap")
+        }
+        val missingPixels=requiredPixels-caps.pixelFormats
+        if(missingPixels.isNotEmpty())throw ImageFailure("CAPABILITY_UNAVAILABLE","Native pixel formats unavailable: ${missingPixels.joinToString()}.")
         val missing=needed-caps.filters
         if(missing.isNotEmpty())throw ImageFailure("CAPABILITY_UNAVAILABLE","Native filters unavailable: ${missing.joinToString()}.")
         val alpha=if(attempt.format==ImageFormat.JPEG)ImageAlpha.OPAQUE else if(hasAlpha(info,g,spec.document.output))ImageAlpha.PRESENT else ImageAlpha.OPAQUE

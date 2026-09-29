@@ -14,11 +14,19 @@ class ImageMarkupRenderer {
         try {
             val canvas=Canvas(bitmap);canvas.clipRect(0,0,size.width,size.height)
             val m=geometry.sourceToOutput;val matrix=Matrix().apply { setValues(floatArrayOf(m.a.toFloat(),m.c.toFloat(),m.tx.toFloat(),m.b.toFloat(),m.d.toFloat(),m.ty.toFloat(),0f,0f,1f)) }
+            canvas.save()
             canvas.concat(matrix)
             val w=geometry.orientedSize.width.toFloat();val h=geometry.orientedSize.height.toFloat()
-            val clip=document.crop;canvas.clipRect((clip.left*w).toFloat(),(clip.top*h).toFloat(),(clip.right*w).toFloat(),(clip.bottom*h).toFloat())
-            val ordered=document.annotations.filter { it.kind!=AnnotationKind.REDACTION }+document.annotations.filter { it.kind==AnnotationKind.REDACTION }
+            canvas.clipRect(geometry.cropLeft.toFloat(),geometry.cropTop.toFloat(),(geometry.cropLeft+geometry.cropWidth).toFloat(),(geometry.cropTop+geometry.cropHeight).toFloat())
+            val ordered=document.annotations.filter { it.kind!=AnnotationKind.REDACTION }
             for(o in ordered){currentCoroutineContext().ensureActive();draw(canvas,o,w,h)}
+            canvas.restore()
+            for(o in document.annotations.filter{it.kind==AnnotationKind.REDACTION}) {
+                currentCoroutineContext().ensureActive()
+                val r=ImageGeometry.annotationBounds(geometry,o)?:continue
+                val paint=Paint().apply {style=Paint.Style.FILL;color=Color.rgb(o.color.red,o.color.green,o.color.blue);isAntiAlias=false}
+                canvas.drawRect(r.left.toFloat(),r.top.toFloat(),r.right.toFloat(),r.bottom.toFloat(),paint)
+            }
             val output=File(directory,"markup.png")
             output.outputStream().use { out->check(bitmap.compress(Bitmap.CompressFormat.PNG,100,out)){"Markup plane could not be stored."} }
             MarkupPlane(output.path,"android-static-layout-v1:${document.annotations.hashCode()}:${size.width}x${size.height}")

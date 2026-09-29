@@ -27,7 +27,9 @@ internal class KitNextBridge : FfmpegBridge {
         val muxers = FfmpegListing.muxers(listing("-muxers"))
         val filters = FfmpegListing.filters(listing("-filters"))
         Capabilities(true, "Device encoding requires a compatible Android component and checked bitrate plan.", encoders, muxers, filters,
-            "FFmpegKitNext 9.0.0 · ${FFmpegKitConfig.getFFmpegVersion()}")
+            "FFmpegKitNext 9.0.0 · ${FFmpegKitConfig.getFFmpegVersion()}",
+            decoders=FfmpegListing.decoders(listing("-decoders")),demuxers=FfmpegListing.demuxers(listing("-demuxers")),
+            pixelFormats=FfmpegListing.pixelFormats(listing("-pix_fmts")),configuration=listing("-buildconf"))
     }
 
     private fun probeJson(localPath: String): JSONObject {
