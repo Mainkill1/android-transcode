@@ -30,7 +30,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val queue = intent.getBooleanExtra("open_queue", false)
-        setContent { FormaTheme { FormaRoute(initiallyQueue = queue) } }
+        setContent {
+            val settings by (application as FormaApplication).graph.settings.state.collectAsStateWithLifecycle()
+            FormaTheme(settings.document?.values ?: dev.forma.core.settings.PreferenceValues.EMPTY) {
+                FormaRoute(initiallyQueue = queue)
+            }
+        }
     }
 }
 private data class ExportRequest(val name: String, val mime: String)

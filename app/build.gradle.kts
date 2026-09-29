@@ -14,6 +14,9 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    // External test sources are packaged only in the instrumentation APK, never in main/release.
+    sourceSets.getByName("androidTest").java.srcDir(rootProject.file("testing/settings/android"))
+    sourceSets.getByName("androidTest").java.srcDir(rootProject.file("testing/settings/core"))
     buildFeatures { compose = true }
     buildTypes {
         release {

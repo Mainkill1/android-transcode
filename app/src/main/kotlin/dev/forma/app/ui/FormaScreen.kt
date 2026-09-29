@@ -38,6 +38,7 @@ import kotlinx.coroutines.launch
     progressContent: @Composable (QueueEntry) -> Unit
 ) {
     var page by rememberSaveable { mutableStateOf(if (initiallyQueue) "queue" else "home") }
+    var settingsScope by rememberSaveable { mutableStateOf<String?>(null) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val active = remember(jobs) { jobs.firstOrNull { it.state in ACTIVE_STATES } }
@@ -54,6 +55,8 @@ import kotlinx.coroutines.launch
             NavigationDrawerItem(label = { Text("Advanced controls") }, selected = page == "home" && ui.editor.advanced,
                 onClick = { page = "home"; if (!ui.editor.advanced) onAction(UiAction.ToggleAdvanced); scope.launch { drawer.close() } })
             NavigationDrawerItem(label = { Text("Engine & background work") }, selected = page == "engine", onClick = { page = "engine"; scope.launch { drawer.close() } })
+            NavigationDrawerItem(label = { Text("Settings") }, selected = false,
+                onClick = { settingsScope = "app"; scope.launch { drawer.close() } }, modifier = Modifier.testTag("open-settings"))
             Text("Original files stay untouched.", Modifier.padding(24.dp), style = MaterialTheme.typography.bodySmall)
         }
     }) {
@@ -142,7 +145,10 @@ import kotlinx.coroutines.launch
                                 Text(if (ui.editor.custom) "Custom settings are active" else "Need more control?", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                                 TextButton(onClick = { onAction(UiAction.ToggleAdvanced) }, modifier = Modifier.testTag("mode-toggle")) { Text(if (ui.editor.advanced) "Fewer settings" else "More settings") }
                             } }
-                            if (ui.editor.advanced) item(key = "advanced-controls") { AdvancedControls(ui, onAction) }
+                            if (ui.editor.advanced) item(key = "advanced-controls") { Column {
+                                TextButton(onClick = { settingsScope = "job" }, modifier = Modifier.testTag("job-settings")) { Text("Defaults & overrides") }
+                                AdvancedControls(ui, onAction)
+                            } }
                             item(key = "output-plan") { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text("Output", style = MaterialTheme.typography.titleMedium)
                                 Text(outputDescription(ui.editor.settings))
@@ -182,6 +188,14 @@ import kotlinx.coroutines.launch
                 item { Spacer(Modifier.height(16.dp)) }
             }
         }
+    }
+    settingsScope?.let { selectedScope ->
+        dev.forma.app.ui.settings.SettingsDialog(ui.editor.settings, selectedScope == "job",
+            onApplyToJob = { settings ->
+                val problems = ui.sources.flatMap { Planner.validate(it.source, it.trim, settings) }.distinct()
+                require(problems.isEmpty()) { problems.joinToString("\n") }
+                onAction(UiAction.ChangeSettings(settings))
+            }, onDismiss = { settingsScope = null })
     }
 }
 

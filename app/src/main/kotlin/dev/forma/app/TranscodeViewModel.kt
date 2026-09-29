@@ -66,6 +66,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     val runState = graph.runs.state
     private var fileJob: Job? = null
     private var initialization: Job? = null
+    private var defaultsSeeded = false
     private data class ValidationKey(val sources: List<SourceEdit>, val settings: Settings, val caps: Capabilities)
     private fun key(ui: TranscodeUiState) = ValidationKey(ui.sources, ui.editor.settings, ui.capabilities)
 
@@ -93,6 +94,20 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         initialization = viewModelScope.launch {
             try {
                 graph.initialize()
+                // Seed once per new editor. Reloading capabilities or saving preferences cannot rebase an existing draft.
+                if (!defaultsSeeded) {
+                    defaultsSeeded = true
+                    graph.settings.state.value.document?.let { saved ->
+                        val defaults = dev.forma.core.settings.NativePreferences.apply(Settings(),
+                            dev.forma.core.settings.SettingsResolver.resolve(saved.values))
+                        edit { old -> if (old.sources.isEmpty() && !old.editor.custom && old.editor.settings == Settings())
+                            old.copy(editor = old.editor.copy(settings = defaults,
+                                custom = defaults != Planner.preset(old.editor.goal, old.editor.quality))) else old }
+                    }
+                    if (graph.settings.state.value.document == null) graph.settings.state.value.error?.let { problem ->
+                        mutable.update { it.copy(message = problem) }
+                    }
+                }
                 val caps = graph.bridge.capabilities()
                 mutable.update { it.copy(ready = true, capabilities = caps) }
             } catch (cancel: CancellationException) { throw cancel }

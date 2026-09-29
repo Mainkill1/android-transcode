@@ -16,6 +16,7 @@ class FormaApplication : Application() {
 /** UI lifecycles never own native encoding. The foreground service owns its run ticket. */
 class AppGraph(application: Application) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val settings = dev.forma.app.settings.SettingsRepository(application, scope)
     val files = MediaFiles(application)
     val queue = QueueRepository(application)
     val runs = RunCoordinator(scope)
@@ -26,6 +27,7 @@ class AppGraph(application: Application) {
     suspend fun initialize() = withContext(Dispatchers.IO) {
         initialization.withLock {
             if (!initialized) {
+                settings.load()
                 queue.load()
                 files.cleanupWork()
                 initialized = true
