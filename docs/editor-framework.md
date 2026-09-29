@@ -77,7 +77,7 @@ The [movie integration plan](superpowers/plans/2026-09-29-movie-integration.md) 
 
 The attached OnePlus 9 Pro LE2125, API 36, arm64, 4 KB pages ran the actual pinned source-built FFmpeg through the production renderer. Matching lab APK identities are recorded below.
 
-- **50 JVM tests** pass in the current saved-intent/Save-guard follow-up; native lab/test assembly and lint pass. Desktop verification passed **22 exports**, including WebM/MKV and clockless WAV; those are desktop results.
+- **51 JVM tests** pass after the test-only completion-order follow-up; native lab/test assembly and lint passed at the product qualification checkpoint. Desktop verification passed **22 exports**, including WebM/MKV and clockless WAV; those are desktop results.
 - **13 physical exports passed at native checkpoint `106c049`, before the Save-guard follow-up**: seven movies (cut, dissolve, speed, mixed-silent audio-only, strict byte cap, rendered preview and delayed video), five clip-effect cases and a downloaded WAV trimmed to 3.5-second M4A. All thirteen pulled files passed an independent strict full decode. Movie decoded frames were exactly 120/105/90/120/120/120 for their selected durations; delayed video retained a black opening gap then its red picture.
 - Native movies reread unchanged originals and passed queue round-trip, cancellation, impossible-cap rejection and failed durable-completion rollback checks. Per-stream verification rejects full-length audio hiding truncated video; source-rate video must supply positive decoded-frame evidence. Missing WAV clocks use observed packet/frame timestamps.
 - **Four instrumentation tests passed with no skips at that earlier checkpoint**: two MovieControls cases, real foreground MovieService completion and byte-exact preservation of incomplete saved intent. Sparse external recipes stay supported; saved trim/effect snapshots are strict.
@@ -129,3 +129,11 @@ Matching final Save-guard APK identities (workspace `vendor/pr-readiness/pr2-sav
 lab   2c1fd96b41a4e44a1c464e59b9e53d12eb6c530babe07a82cb346af5b756e75c
 test  59ec8233b5b4ea679e18bb2e7bf0df47af4fb19bac4051bb3c8d0eb1847c5d8c
 ```
+
+The completion-order follow-up changes tests only. A monitor-held regression proves
+that a worker's `job.join()` can return before the coordinator callback publishes
+IDLE/error; checks now await that published state with a bounded flow wait before
+checking recovery or starting another run. Error, cleanup and exclusivity assertions
+remain. Full JVM tests (core 8, engine 4, app 39) and the UX CLI passed; evidence is
+under `build/pr2-review/runtime-publication-{full,cli}.log`. Production code and
+the qualified lab/test/release APK identities above are unchanged.
