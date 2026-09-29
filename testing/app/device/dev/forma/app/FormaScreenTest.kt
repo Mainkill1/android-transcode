@@ -79,6 +79,18 @@ class FormaScreenTest {
         compose.onNodeWithText("Your queue").assertIsDisplayed()
         compose.onNodeWithText("No queued files").assertExists()
     }
+    @Test fun failedConversionIsEasyToFindAndShowsItsReason() {
+        val completed = (1..18).map { QueueEntry(JobSpec("done-$it", source, Trim(), Settings()), JobState.COMPLETED) }
+        val reason = "HDR/high-bit-depth or an unqualified pixel format needs a tested color pipeline."
+        val failed = QueueEntry(JobSpec("failed", source, Trim(), Settings()), JobState.FAILED, reason)
+        compose.setContent { FormaTheme { FormaWorkspace(
+            TranscodeUiState(ready = true, message = "A conversion failed. Review the item before starting remaining jobs."),
+            completed + failed, RunState(RunMode.IDLE), onAction = {}, progressContent = {}) } }
+        compose.onNodeWithText("Queue · 1 failed").assertIsDisplayed()
+        compose.onNodeWithText("View failed job").assertIsDisplayed().performClick()
+        compose.onNodeWithText(reason).assertIsDisplayed()
+        compose.onNodeWithText("Add retry to queue").assertIsDisplayed()
+    }
     @Test fun preservedFutureAudioJobRemainsVisibleInQueue() {
         val opaque = dev.forma.core.audio.AudioEdit(schemaVersion=99)
         val job=QueueEntry(JobSpec("future",source,Trim(),Settings(container=Container.WAV,audio=AudioEncoder.PCM_F32LE,audioEdit=opaque)),JobState.FAILED)

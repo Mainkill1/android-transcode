@@ -22,6 +22,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.Assume.assumeTrue
 import java.util.UUID
+import dev.forma.app.data.MediaFiles
+import dev.forma.ffmpeg.ManagedFfmpegBridge
+import dev.forma.ffmpeg.createFfmpegBridge
 
 class ShareImportTest {
     @get:Rule val compose = createEmptyComposeRule()
@@ -36,6 +39,19 @@ class ShareImportTest {
         val token = UUID.randomUUID().toString()
         context.startActivity(sender().putExtra("grantOnly", true).putExtra("setupToken", token))
         compose.waitUntil(10_000) { runCatching { context.contentResolver.call(one, "state", null, null)?.getString("setupToken") }.getOrNull() == token }
+    }
+
+    @Test fun providerWithoutReportedSizeCanStillStageItsMedia() = runBlocking {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("formaNative") == "true")
+        context.contentResolver.call(one,"omitSize",null,null)
+        val files=MediaFiles(context,ManagedFfmpegBridge(createFfmpegBridge()))
+        try {
+            val source=files.inspect(one,persistPermission=false)
+            assertEquals(-1L,source.bytes)
+            val job=JobSpec(UUID.randomUUID().toString(),source,Trim(),Settings(container=Container.M4A))
+            try { assertTrue(files.stage(job).length()>0) }
+            finally { files.workDir(job).deleteRecursively() }
+        } finally { context.contentResolver.call(one,"includeSize",null,null) }
     }
 
     @Test fun restoredActivityWithFreshViewModelRetriesSharedIntent() {

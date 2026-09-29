@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 public class SharedMediaTestProvider extends ContentProvider {
     private volatile boolean blocked;
     private volatile String setupToken;
+    private volatile boolean omitSize;
     @Override public boolean onCreate() { return true; }
     private synchronized File file(Uri uri) {
         String name = uri.getLastPathSegment();
@@ -52,7 +53,7 @@ public class SharedMediaTestProvider extends ContentProvider {
         Object[] row = new Object[columns.length];
         for (int i = 0; i < columns.length; i++) {
             if (OpenableColumns.DISPLAY_NAME.equals(columns[i])) row[i] = source.getName();
-            if (OpenableColumns.SIZE.equals(columns[i])) row[i] = source.length();
+            if (OpenableColumns.SIZE.equals(columns[i]) && !omitSize) row[i] = source.length();
         }
         cursor.addRow(row);
         return cursor;
@@ -62,6 +63,8 @@ public class SharedMediaTestProvider extends ContentProvider {
         if ("reset".equals(method)) blocked = false;
         if ("block".equals(method)) blocked = true;
         if ("setup".equals(method)) setupToken = arg;
+        if ("omitSize".equals(method)) omitSize = true;
+        if ("includeSize".equals(method)) omitSize = false;
         Bundle result = new Bundle();
         result.putString("setupToken", setupToken);
         return result;

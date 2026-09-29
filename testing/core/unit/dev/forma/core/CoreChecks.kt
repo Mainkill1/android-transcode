@@ -13,12 +13,25 @@ object CoreChecks {
     val cases: List<Pair<String, () -> Unit>> = listOf(
         "nv12 is eight bit, not twelve bit" to { check(!ColorRules.needsQualifiedPipeline("nv12", "bt709")) },
         "nv21 is eight bit" to { check(!ColorRules.needsQualifiedPipeline("nv21", "bt709")) },
-        "planar ten bit is held" to { check(ColorRules.needsQualifiedPipeline("yuv420p10le", "bt709")) },
+        "SDR planar ten bit can enter the tested 8-bit output path" to {
+            check(!ColorRules.needsQualifiedPipeline("yuv420p10le", "bt709", 10))
+            check(!ColorRules.needsQualifiedPipeline("yuv420p10le", "", 10))
+        },
+        "Main10 wide gamut and HDR metadata are held" to {
+            check(ColorRules.needsQualifiedPipeline("yuv420p10le", "", 10, "bt2020", "bt2020nc"))
+            check(ColorRules.needsQualifiedPipeline("yuv420p10le", "", 10, hdrMetadata = true))
+        },
+        "PQ planar ten bit remains blocked" to { check(ColorRules.needsQualifiedPipeline("yuv420p10le", "smpte2084", 10)) },
         "p010 is held" to { check(ColorRules.needsQualifiedPipeline("p010le", "bt709")) },
         "pq transfer is held" to { check(ColorRules.needsQualifiedPipeline("yuv420p", "smpte2084")) },
         "explicit bit depth is held" to { check(ColorRules.needsQualifiedPipeline("unknown", "bt709", 12)) },
         "reject inverted trim" to { rejects(t = Trim(20_000, 10_000)) },
         "accept default video plan" to { check(Planner.validate(source, Trim(), defaults).isEmpty()) },
+        "video plan explicitly converts to eight-bit 420" to {
+            val plan=args()
+            val filter=plan[plan.indexOf("-vf")+1]
+            check("format=yuv420p" in filter)
+        },
         "reject negative trim" to { rejects(t = Trim(-1)) },
         "reject trim after EOF" to { rejects(t = Trim(0, 61_000)) },
         "reject zero duration" to { rejects(src = source.copy(durationMs = 0)) },

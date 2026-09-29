@@ -17,7 +17,7 @@ import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.*
 
-class MediaFiles(private val context: Context,private val imageBridge: dev.forma.ffmpeg.FfmpegBridge? = null) {
+class MediaFiles(private val context: Context,private val nativeBridge: dev.forma.ffmpeg.FfmpegBridge? = null) {
     private val resolver get() = context.contentResolver
     private val workRoot get() = File(context.filesDir, "work").apply { mkdirs() }
     private val outputRoot get() = File(context.filesDir, "outputs").apply { mkdirs() }
@@ -99,6 +99,16 @@ class MediaFiles(private val context: Context,private val imageBridge: dev.forma
         if (persistPermission) resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         val (name, bytes) = metadata(uri)
         currentCoroutineContext().ensureActive()
+        // FFprobe sees codecs and color formats that Android's extractor omits (notably
+        // E-AC-3 alongside HEVC Main 10). The native SAF protocol avoids copying
+        // a multi-gigabyte movie merely to prepare its editor snapshot.
+        if (nativeBridge?.capabilities()?.available == true) {
+            val inspected = probeDocument(context, uri, nativeBridge)
+            require(inspected.videoTracks + inspected.audioTracks > 0 && inspected.durationMs > 0) {
+                "The selected media has no readable audio, video, or duration."
+            }
+            return@withContext inspected.copy(uri = uri.toString(), name = name, bytes = bytes)
+        }
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(context, uri, null)
@@ -172,10 +182,10 @@ class MediaFiles(private val context: Context,private val imageBridge: dev.forma
         val name=metadata(uri).first
         val staged=ImageInputAdapter(context).stage(uri.toString(), UUID.randomUUID().toString())
         try {
-        val caps=imageBridge?.capabilities()
-        val info=if(imageBridge!=null && caps?.available==true && staged.info.format.decoder in caps.decoders){
+        val caps=nativeBridge?.capabilities()
+        val info=if(nativeBridge!=null && caps?.available==true && staged.info.format.decoder in caps.decoders){
             ImageValidation.requireMemory(staged.info,ImageSize(staged.info.width,staged.info.height),(Runtime.getRuntime().maxMemory()*.65).toLong(),false)
-            imageBridge.inspectImage(staged.path)
+            nativeBridge.inspectImage(staged.path)
         }else staged.info
         return Source(staged.source.uri,name,0,info.width,info.height,bytes=info.bytes,imageInfo=info,imageOriginalUri=uri.toString())
         }catch(error:Throwable){File(staged.path).parentFile?.deleteRecursively();throw error}

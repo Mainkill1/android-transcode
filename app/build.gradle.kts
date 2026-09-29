@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 val formaTests = providers.gradleProperty("formaTests").orNull != "false"
+val nativeEnabled = providers.gradleProperty("ffmpegEnabled").orNull == "true"
 val selectedTestBuild = providers.gradleProperty("formaTestBuildType").orElse("debug").get()
 require(selectedTestBuild == "debug" || (formaTests && selectedTestBuild == "lab"))
 val accelerationTests = providers.gradleProperty("accelerationTests").orNull != "false"
@@ -14,13 +15,14 @@ android {
         applicationId = "dev.forma.transcode"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.1.0-ready.20260929"
+        versionCode = 3
+        versionName = "0.1.1-sdr10.20260929"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     testBuildType = selectedTestBuild
     sourceSets["test"].java.setSrcDirs(if (formaTests) listOf(rootProject.file("testing/app/unit")) else emptyList<File>())
     sourceSets["androidTest"].java.setSrcDirs(if (formaTests) listOf(rootProject.file("testing/app/device"), rootProject.file("testing/shared")) else emptyList<File>())
+    sourceSets["main"].java.srcDir(if (nativeEnabled) "src/native/kotlin" else "src/missing/kotlin")
     if (formaTests) sourceSets["androidTest"].manifest.srcFile(rootProject.file("testing/shared/AndroidManifest.xml"))
     // External test sources are packaged only in the instrumentation APK, never in main/release.
     if (formaTests && providers.gradleProperty("settingsTests").orNull != "false") {
@@ -64,6 +66,7 @@ kotlin { jvmToolchain(17) }
 dependencies {
     implementation(project(":core"))
     implementation(project(":engine-ffmpeg"))
+    if (nativeEnabled) implementation("com.arthenica:ffmpeg-kit-next:9.0.0")
     implementation(libs.androidx.core)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.lifecycle.compose)

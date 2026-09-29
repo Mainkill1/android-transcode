@@ -31,7 +31,7 @@ Input/output strings are distinct argument tokens, not a shell command. The plan
 
 A build property selects `src/native` or `src/missing`; both provide `createFfmpegBridge()`. Only the native source set depends on the local AAR. Missing native support is a visible unavailable state, never a fake implementation. The interface permits a future directly maintained JNI/libav backend without coupling Compose to that choice.
 
-Device MediaCodec encoders are withheld even when listed by FFmpeg: codec names do not prove a device supports a requested size, profile or color mode. HDR, high-depth and unrecognized pixel formats require a qualified color pipeline. Unknown is not treated as supported.
+Device MediaCodec encoders are withheld even when listed by FFmpeg: codec names do not prove a device supports a requested size, profile or color mode. Planar Main 10 (`yuv420p10le`, up to 10 bits) with absent/BT.709 transfer, primaries and matrix, and no HDR side metadata is accepted for explicit 8-bit `yuv420p` output. Untagged Main 10 is an SDR assumption, not proof of color intent. Explicit wide-gamut/HDR metadata, other high-depth layouts and unrecognized pixel formats require a separate qualified color pipeline. Output verification independently rejects high-bit-depth video.
 
 ## Adding features without hidden behavior
 
@@ -41,7 +41,7 @@ Device MediaCodec encoders are withheld even when listed by FFmpeg: codec names 
 4. Add the control to the existing advanced section and give Simple a reasonable mapping.
 5. Qualify actual media output on devices; a UI toggle or successful API compilation is not evidence of codec support.
 
-Current limits are deliberate first-slice boundaries, not a claim that the full HTML prototype has been ported. Source preview is external; multi-track, subtitle, chapter, custom filtergraph and HDR editors still need model and engine work. `MediaExtractor` import, disk-space budgeting, queue history cleanup, foreground-service lifecycle races and provider-specific exports need device tests before production use.
+Current limits are deliberate first-slice boundaries, not a claim that the full HTML prototype has been ported. Source preview is external; multi-track, subtitle, chapter, custom filtergraph and HDR editors still need model and engine work. Native FFprobe inspects document-provider media through FFmpegKit's SAF protocol; UI-only builds fall back to `MediaExtractor`. Disk-space budgeting, queue history cleanup, foreground-service lifecycle races and provider-specific exports need further device tests before production use.
 
 ## Platform references
 

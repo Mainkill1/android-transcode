@@ -123,6 +123,7 @@ object Planner {
                     }else addAll(EditPipeline.videoFilters(source,trim,settings,forceTrim=audioEditActive))
                     val h=if(settings.maxHeight==0)"ih" else "min(ih,${settings.maxHeight})"
                     add("scale=-2:'trunc($h/2)*2'")
+                    add("format=yuv420p")
                     if(settings.fps>0)add("fps=${settings.fps}")
                 }
                 addAll(listOf("-vf",filters.joinToString(",")))

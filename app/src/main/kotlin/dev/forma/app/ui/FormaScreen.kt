@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import dev.forma.app.ui.FormaButton as Button
 import dev.forma.app.ui.FormaTextButton as TextButton
@@ -44,6 +45,8 @@ import kotlin.math.ceil
     progressContent: @Composable (QueueEntry) -> Unit
 ) {
     var page by rememberSaveable { mutableStateOf(if (initiallyQueue) "queue" else "home") }
+    val listState = rememberLazyListState()
+    LaunchedEffect(page) { listState.scrollToItem(0) }
     var settingsScope by rememberSaveable { mutableStateOf<String?>(null) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     LaunchedEffect(workspaceRequest) {
@@ -52,6 +55,12 @@ import kotlin.math.ceil
     val scope = rememberCoroutineScope()
     val active = remember(jobs) { jobs.firstOrNull { it.state in ACTIVE_STATES } }
     val waiting = remember(jobs) { jobs.count { it.state == JobState.QUEUED } }
+    val failed = remember(jobs) { jobs.count { it.state == JobState.FAILED } }
+    val queueLabel = when {
+        failed > 0 && waiting == 0 -> "Queue · $failed failed"
+        failed > 0 -> "Queue ($waiting) · $failed failed"
+        else -> "Queue ($waiting)"
+    }
     val running = run.mode != RunMode.IDLE
     BackHandler(drawer.isOpen || page != "home") {
         if (drawer.isOpen) scope.launch { drawer.close() } else page = "home"
@@ -73,7 +82,7 @@ import kotlin.math.ceil
         Scaffold(
             topBar = { TopAppBar(title = { Text(if (page == "queue") "Your queue" else if (page == "engine") "App info" else if (page == "movie") "Your movie" else "Forma") },
                 navigationIcon = { TextButton(onClick = { scope.launch { drawer.open() } }, modifier = Modifier.testTag("open-shelf").semantics { contentDescription = "Open navigation" }) { Text("Menu") } },
-                actions = { if (page != "queue" && jobs.isNotEmpty()) TextButton(onClick = { page = "queue" }) { Text("Queue ($waiting)") } }) },
+                actions = { if (page != "queue" && jobs.isNotEmpty()) TextButton(onClick = { page = "queue" }) { Text(queueLabel) } }) },
             bottomBar = {
                 Column(Modifier.imePadding().navigationBarsPadding()) {
                     if (running || active != null) Surface(tonalElevation = 4.dp) {
@@ -111,7 +120,7 @@ import kotlin.math.ceil
                 }
             }
         ) { padding ->
-            LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("editor"),
+            LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("editor"), state = listState,
                 contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 ui.message?.let { message -> item(key = "message") {
                     var expanded by rememberSaveable(message) { mutableStateOf(false) }
@@ -122,6 +131,7 @@ import kotlin.math.ceil
                                 overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                             FlowRow {
                                 if (message.length > 140 || '\n' in message) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide details" else "Show details") }
+                                if (failed > 0) TextButton(onClick = { page = "queue" }) { Text("View failed job") }
                                 if (!ui.ready) TextButton(onClick = { onAction(UiAction.RetryInitialization) }) { Text("Try again") }
                                 TextButton(onClick = { onAction(UiAction.DismissMessageIf(message)) }) { Text("Dismiss") }
                             }
@@ -211,7 +221,8 @@ import kotlin.math.ceil
                             if (run.mode == RunMode.STOPPING) Text("Stopping…")
                             if (jobs.isEmpty()) Text("No queued files")
                         }
-                        items(jobs, key = { "job:${it.spec.id}" }, contentType = { "job" }) { entry -> QueueCard(entry, onAction) }
+                        items(jobs.filter { it.state == JobState.FAILED } + jobs.filterNot { it.state == JobState.FAILED },
+                            key = { "job:${it.spec.id}" }, contentType = { "job" }) { entry -> QueueCard(entry, onAction) }
                     }
                     else -> item(key = "engine") {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -310,8 +321,11 @@ import kotlin.math.ceil
             }
         }
         if (entry.state == JobState.FAILED || entry.state == JobState.INTERRUPTED) {
-            TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Show details") }
-            if (details) Text(entry.message.take(1200), style = MaterialTheme.typography.bodySmall)
+            Text(if (details) entry.message.take(1200) else entry.message.lineSequence().first().take(180),
+                style = MaterialTheme.typography.bodySmall, maxLines = if (details) Int.MAX_VALUE else 3,
+                overflow = TextOverflow.Ellipsis)
+            if (entry.message.length > 180 || '\n' in entry.message)
+                TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Show details") }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             when (entry.state) {
@@ -320,7 +334,7 @@ import kotlin.math.ceil
                     TextButton(onClick = { action(UiAction.OpenOutput(entry.spec.id)) }) { Text(if(entry.spec is QueueJobSpec.Image)"View output" else "Play output") }
                     TextButton(onClick = { action(UiAction.Export(entry.spec.id)) }) { Text("Save copy") }
                 }
-                JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED -> TextButton(onClick = { action(UiAction.Retry(entry.spec.id)) }) { Text("Retry conversion") }
+                JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED -> TextButton(onClick = { action(UiAction.Retry(entry.spec.id)) }) { Text("Add retry to queue") }
                 JobState.QUEUED -> TextButton(onClick = { action(UiAction.RemoveJob(entry.spec.id)) }) { Text("Remove queued file") }
                 else -> Unit
             }
