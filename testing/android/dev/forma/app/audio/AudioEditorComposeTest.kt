@@ -31,4 +31,22 @@ class AudioEditorComposeTest {
         compose.onNodeWithTag("bypass-eq").performClick()
         compose.runOnIdle { assertFalse(state.editor.settings.audioEdit.nodes.single().enabled) }
     }
+
+    @Test fun unsupportedAudioDefaultsCanChooseACompatibleFormat() {
+        var state by mutableStateOf(TranscodeUiState(ready=true,audioEditor=AudioEditorState(open=true),
+            sources=listOf(SourceEdit(Source("content://test/audio","tone.wav",10000,videoTracks=0,audioTracks=1))),
+            editor=Editor(settings=Settings(container=Container.WEBM,video=VideoEncoder.VP9,audio=AudioEncoder.OPUS))))
+        compose.setContent { FormaTheme { FormaScreen(state,emptyList(),null) { action ->
+            if(action is UiAction.ChangeSettings) state=state.copy(editor=state.editor.copy(settings=action.settings))
+        } } }
+        compose.onNodeWithTag("editor").performScrollToNode(hasText("Audio output settings"))
+        compose.onNodeWithText("Audio output settings").performClick()
+        compose.onNodeWithTag("editor").performScrollToNode(hasText("Audio file format"))
+        compose.onNode(hasText("Audio file format")).performClick()
+        compose.onNodeWithText("WAV").performClick()
+        compose.runOnIdle {
+            assertEquals(Container.WAV,state.editor.settings.container)
+            assertEquals(AudioEncoder.PCM_S16LE,state.editor.settings.audio)
+        }
+    }
 }

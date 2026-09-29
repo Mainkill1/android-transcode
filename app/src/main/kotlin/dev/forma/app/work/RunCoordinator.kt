@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 enum class RunMode { IDLE, RUNNING, DRAINING, STOPPING }
-enum class StopReason { USER, SERVICE_STOPPED, TIME_LIMIT }
+enum class StopReason { USER, SERVICE_STOPPED, TIME_LIMIT, POWER_POLICY }
 data class RunState(val mode: RunMode = RunMode.IDLE, val id: Long? = null, val error: String? = null)
 
 /** Process-wide ownership outlives Activity/Service recreation and native cancellation cleanup. */
@@ -56,7 +56,16 @@ class RunCoordinator(private val scope: CoroutineScope) {
     /** A stale service may only stop its own ticket. Cancellation is not slot release. */
     @Synchronized fun stop(id: Long? = null, reason: StopReason = StopReason.USER) {
         val ticket = current ?: return
-        if (id != null && ticket.id != id || ticket.stopReason != null) return
+        if (id != null && ticket.id != id) return
+        val existing = ticket.stopReason
+        if (existing != null) {
+            // Explicit user intent wins over a recoverable power wait while native cleanup
+            // still owns the slot. System/service signals never replace a user cancellation.
+            if (existing == StopReason.POWER_POLICY && reason == StopReason.USER) {
+                ticket.stopReason = StopReason.USER
+            }
+            return
+        }
         ticket.stopReason = reason
         mutable.value = RunState(RunMode.STOPPING, ticket.id)
         ticket.job.cancel()

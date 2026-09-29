@@ -157,11 +157,11 @@ import kotlin.math.*
     TextButton(onClick={open=!open},modifier=Modifier.fillMaxWidth()) { Text(if(open)"Hide audio output settings" else "Audio output settings") }
     if(open) {
         val s=ui.editor.settings;val edit=s.audioEdit;val output=edit.output
-        if(s.container.audioOnly) Choice("Audio file format",s.container,listOf(Container.M4A,Container.WAV,Container.FLAC),{it.name},enabled={c->!ui.capabilities.available || c.muxer in ui.capabilities.muxers}) {
+        if(s.container.audioOnly || ui.selected?.source?.videoTracks==0) Choice("Audio file format",s.container,listOf(Container.M4A,Container.WAV,Container.FLAC),{it.name},enabled={c->!ui.capabilities.available || c.muxer in ui.capabilities.muxers}) {
             val encoder=when(it) { Container.WAV->AudioEncoder.PCM_S16LE;Container.FLAC->AudioEncoder.FLAC;else->AudioEncoder.AAC }
-            action(UiAction.ChangeSettings(s.copy(container=it,audio=encoder)))
+            action(UiAction.ChangeSettings(s.copy(container=it,audio=encoder),explicitIds=setOf("export.container","audio.codec")))
         }
-        if(s.container==Container.WAV) Choice("PCM format",s.audio,listOf(AudioEncoder.PCM_S16LE,AudioEncoder.PCM_F32LE),{if(it==AudioEncoder.PCM_F32LE)"32-bit float" else "16-bit PCM"}) { action(UiAction.ChangeSettings(s.copy(audio=it))) }
+        if(s.container==Container.WAV) Choice("PCM format",s.audio,listOf(AudioEncoder.PCM_S16LE,AudioEncoder.PCM_F32LE),{if(it==AudioEncoder.PCM_F32LE)"32-bit float" else "16-bit PCM"}) { action(UiAction.ChangeSettings(s.copy(audio=it),explicitIds=setOf("audio.codec"))) }
         Choice("Channels",output.channels ?: ChannelMode.SOURCE,ChannelMode.entries,{it.name.lowercase().replaceFirstChar(Char::uppercase)}) { change(edit.copy(output=output.copy(channels=it)),true) }
         Choice("Sample rate",output.sampleRateHz ?: 0,listOf(0,44100,48000,96000),{if(it==0)"Source rate" else "${it/1000.0} kHz"}) { change(edit.copy(output=output.copy(sampleRateHz=it.takeIf { it>0 })),true) }
         val n=output.normalization

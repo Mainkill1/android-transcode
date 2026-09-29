@@ -135,9 +135,18 @@ class ShareImportTest {
 
     @Test fun explicitlySelectedPresetSurvivesAudioShareIntoEmptyEditor() {
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
-            val chosen = Planner.preset(Goal.DETAIL, Quality.CLEAR)
-            withVm(scenario) { it.act(UiAction.Preset(Goal.DETAIL, Quality.CLEAR)) }
-            externalShare(scenario, share().putExtra(Intent.EXTRA_STREAM, one), 1) { assertEquals(chosen, it.state.value.editor.settings) }
+            var chosen: Settings? = null
+            var preferences: dev.forma.core.settings.MediaPreferences? = null
+            withVm(scenario) {
+                it.act(UiAction.Preset(Goal.DETAIL, Quality.CLEAR))
+                chosen = it.state.value.editor.settings
+                preferences = it.state.value.editor.preferences
+                assertEquals(15, chosen!!.crf)
+            }
+            externalShare(scenario, share().putExtra(Intent.EXTRA_STREAM, one), 1) {
+                assertEquals(chosen, it.state.value.editor.settings)
+                assertEquals(preferences, it.state.value.editor.preferences)
+            }
         }
     }
 

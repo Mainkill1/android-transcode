@@ -1,5 +1,6 @@
 package dev.forma.core
 
+import dev.forma.core.settings.MediaPreferences
 import dev.forma.core.audio.AudioEdit
 import dev.forma.core.audio.SourceAudioFacts
 
@@ -66,12 +67,16 @@ data class Editor(
     val advanced: Boolean = false,
     val custom: Boolean = false,
     val goal: Goal = Goal.SHARE,
-    val quality: Quality = Quality.BALANCED
+    val quality: Quality = Quality.BALANCED,
+    val preferences: MediaPreferences = MediaPreferences.legacy(settings)
 )
-data class JobSpec(val id: String, val source: Source, val trim: Trim, val settings: Settings)
+data class JobSpec(val id: String, val source: Source, val trim: Trim, val settings: Settings,
+    val preferences: MediaPreferences = MediaPreferences.legacy(settings))
 enum class JobState { QUEUED, PREPARING, RUNNING, VERIFYING, COMPLETED, FAILED, CANCELLED, INTERRUPTED }
-data class QueueEntry(val spec: dev.forma.core.image.QueueJobSpec, val state: JobState = JobState.QUEUED, val message: String = "") {
-    constructor(spec: JobSpec, state: JobState = JobState.QUEUED, message: String = "") : this(dev.forma.core.image.QueueJobSpec.Av(spec), state, message)
+data class QueueEntry(val spec: dev.forma.core.image.QueueJobSpec, val state: JobState = JobState.QUEUED,
+    val message: String = "", val completedAtMs: Long? = null) {
+    constructor(spec: JobSpec, state: JobState = JobState.QUEUED, message: String = "", completedAtMs: Long? = null) :
+        this(dev.forma.core.image.QueueJobSpec.Av(spec), state, message, completedAtMs)
 }
 data class Capabilities(
     val available: Boolean = false,

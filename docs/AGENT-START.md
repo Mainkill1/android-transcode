@@ -43,3 +43,25 @@ encoding back into ViewModel scope, collect raw progress at the editor root or
 release the run slot before native cancellation cleanup completes. Keep Stop
 independent of import/save and queue-mutation busy flags. Native upload-fit and
 full editor parity are still required; host/Compose checks are not phone timing.
+
+## Advanced settings implementation
+
+Read the [implementation status and handoff](advanced-settings-implementation.md),
+then the [64-option catalog](advanced-settings-catalog.md), [native design](superpowers/specs/2026-09-29-advanced-settings-design.md), and [implementation/test plan](superpowers/plans/2026-09-29-advanced-settings.md).
+
+The native Settings surface, typed/versioned defaults, media overrides and eight
+live battery/thermal policy controls are implemented. The catalog currently has
+33 production-consumed rows and 31 explicitly Planned rows. Do not turn Planned
+rows on by changing copy alone; add a real consumer, validation and evidence first.
+
+Preserve app-default/preset/job provenance and immutable queued media settings.
+Safety policy is separately versioned and live. The foreground worker refreshes
+it after settings load and before every queue claim; unreadable saved policy blocks
+new work instead of substituting factory safeguards. Finish-current drains only
+the active attempt. Stop-current cancels cooperatively, waits for native cleanup,
+then returns the job to a waiting state that restarts from the original on a later
+explicit Start. It is not partial-file resume.
+
+Automatic background continuation and Battery Saver thread-budget integration
+remain Planned. Source-built native payload/alignment has local build evidence;
+physical-device power/thermal qualification remains a separate root-session gate. Keep PR #4 Draft and report those gates as unrun until evidence exists.

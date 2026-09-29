@@ -1,6 +1,8 @@
 package dev.forma.core.image
 
 import java.util.Collections
+import dev.forma.core.Settings
+import dev.forma.core.settings.MediaPreferences
 
 enum class ImageFormat(val extension: String, val mime: String, val encoder: String) {
     AUTO("", "image/*", ""), JPEG("jpg", "image/jpeg", "mjpeg"), PNG("png", "image/png", "png"), WEBP("webp", "image/webp", "libwebp");
@@ -44,12 +46,16 @@ data class ImageEditDocument(val schema: Int = 1, val source: ImageSource, val r
     fun frozen() = copy(annotations=Collections.unmodifiableList(ArrayList(annotations)))
     fun estimatedBytes(): Long = 1024L + source.uri.length*4L + (source.originalUri?.length?:0)*4L + source.name.length*4L + annotations.sumOf { 384L+it.text.length*4L }
 }
-class ImageJobSpec(val id: String, document: ImageEditDocument, val info: ImageInfo? = null,val resolvedFormat:ImageFormat?=null) {
+class ImageJobSpec(val id: String, document: ImageEditDocument, val info: ImageInfo? = null,
+    val resolvedFormat:ImageFormat?=null, val preferences:MediaPreferences=MediaPreferences.legacy(Settings())) {
     init {require(resolvedFormat!=ImageFormat.AUTO){"Resolved image format must be concrete."}}
     val document: ImageEditDocument = document.frozen()
-    fun copy(id: String = this.id) = ImageJobSpec(id,document,info,resolvedFormat)
-    override fun equals(other: Any?) = other is ImageJobSpec && id == other.id && document == other.document && info == other.info && resolvedFormat==other.resolvedFormat
-    override fun hashCode() = 31*id.hashCode()+document.hashCode()
+    fun copy(id: String = this.id, document: ImageEditDocument = this.document, info: ImageInfo? = this.info,
+        resolvedFormat: ImageFormat? = this.resolvedFormat, preferences: MediaPreferences = this.preferences) =
+        ImageJobSpec(id,document,info,resolvedFormat,preferences)
+    override fun equals(other: Any?) = other is ImageJobSpec && id == other.id && document == other.document &&
+        info == other.info && resolvedFormat==other.resolvedFormat && preferences==other.preferences
+    override fun hashCode() = 31*(31*id.hashCode()+document.hashCode())+preferences.hashCode()
 }
 data class ImageSize(val width: Int, val height: Int)
 data class ImageAttempt(val index: Int, val format: ImageFormat, val quality: Int, val scale: Double = 1.0,
@@ -73,6 +79,7 @@ sealed interface QueueJobSpec {
     val source:dev.forma.core.Source
     val trim:dev.forma.core.Trim
     val settings:dev.forma.core.Settings
+    val preferences:MediaPreferences
     val mime:String
     val extension:String
     data class Av(val job:dev.forma.core.JobSpec):QueueJobSpec {
@@ -80,6 +87,7 @@ sealed interface QueueJobSpec {
         override val source get()=job.source
         override val trim get()=job.trim
         override val settings get()=job.settings
+        override val preferences get()=job.preferences
         override val mime get()=settings.container.mime
         override val extension get()=settings.container.extension
     }
@@ -89,12 +97,14 @@ sealed interface QueueJobSpec {
             job.info?.width?:0,job.info?.height?:0,bytes=job.document.source.bytes,imageInfo=job.info,imageOriginalUri=job.document.source.originalUri)
         override val trim get()=dev.forma.core.Trim()
         override val settings get()=dev.forma.core.Settings()
+        override val preferences get()=job.preferences
         val format get()=job.resolvedFormat?:job.document.output.format.takeIf { it!=ImageFormat.AUTO }?:if(job.info?.alpha==ImageAlpha.PRESENT)ImageFormat.PNG else ImageFormat.JPEG
         override val mime get()=format.mime
         override val extension get()=format.extension
     }
-    fun copy(id:String=this.id,source:dev.forma.core.Source=this.source,trim:dev.forma.core.Trim=this.trim,settings:dev.forma.core.Settings=this.settings):QueueJobSpec = when(this) {
-        is Av->Av(job.copy(id=id,source=source,trim=trim,settings=settings))
-        is Image->{require(source==this.source && trim==this.trim && settings==this.settings){"Use the immutable image document to edit image jobs."};Image(job.copy(id))}
+    fun copy(id:String=this.id,source:dev.forma.core.Source=this.source,trim:dev.forma.core.Trim=this.trim,
+        settings:dev.forma.core.Settings=this.settings,preferences:MediaPreferences=this.preferences):QueueJobSpec = when(this) {
+        is Av->Av(job.copy(id=id,source=source,trim=trim,settings=settings,preferences=preferences))
+        is Image->{require(source==this.source && trim==this.trim && settings==this.settings){"Use the immutable image document to edit image jobs."};Image(job.copy(id=id,preferences=preferences))}
     }
 }

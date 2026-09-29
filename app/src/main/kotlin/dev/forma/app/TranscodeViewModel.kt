@@ -13,6 +13,7 @@ import dev.forma.app.work.ProgressGate
 import dev.forma.core.*
 import dev.forma.core.image.*
 import dev.forma.app.image.*
+import dev.forma.core.settings.*
 import dev.forma.core.audio.*
 import dev.forma.app.audio.*
 import dev.forma.ffmpeg.audio.*
@@ -72,8 +73,8 @@ sealed interface UiAction {
     data object RetryInitialization : UiAction
     data object DismissMessage : UiAction
     data class DismissMessageIf(val message: String) : UiAction
-    data class Preset(val goal: Goal, val quality: Quality) : UiAction
-    data class ChangeSettings(val settings: Settings) : UiAction
+    data class Preset(val goal: Goal, val quality: Quality, val keepOverrides: Boolean = false) : UiAction
+    data class ChangeSettings(val settings: Settings, val preferences: MediaPreferences? = null, val explicitIds: Set<String> = emptySet()) : UiAction
     data class Select(val uri: String) : UiAction
     data class RemoveSource(val uri: String) : UiAction
     data class ChangeTrim(val uri: String, val trim: Trim) : UiAction
@@ -94,10 +95,13 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     val runState = graph.runs.state
     private var fileJob: Job? = null
     private var initialization: Job? = null
+    private var defaultsSeeded = false
     private val sharedImports = Mutex()
     var receivedInitialIntent = false
     private var settingsChosen = false
-    private val audioHistory = AudioEditHistory()
+    private val audioHistory = AudioEditHistory().apply {
+        resetBaseline(mutable.value.editor.settings.audioEdit,mutable.value.editor.preferences.overrides["audio.channels"])
+    }
     private val imageHistory = mutableMapOf<String, ImageHistory>()
     private val imageGestureBase = mutableMapOf<String, ImageEditDocument>()
     private var imageSave: Job? = null
@@ -136,6 +140,22 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         initialization = viewModelScope.launch {
             try {
                 graph.initialize()
+                // Seed once per new editor. Reloading capabilities or saving preferences cannot rebase an existing draft.
+                if (!defaultsSeeded) {
+                    defaultsSeeded = true
+                    graph.settings.state.value.document?.let { saved ->
+                        val defaults = dev.forma.core.settings.NativePreferences.apply(Settings(),
+                            dev.forma.core.settings.SettingsResolver.resolve(saved.values))
+                        edit { old -> if (old.sources.isEmpty() && !settingsChosen && !old.editor.custom && old.editor.settings == Settings()) {
+                            audioHistory.resetBaseline(defaults.audioEdit)
+                            old.copy(editor = old.editor.copy(settings = defaults, preferences = MediaPreferences.fromDefaults(saved),
+                                custom = defaults != Planner.preset(old.editor.goal, old.editor.quality)))
+                        } else old }
+                    }
+                    if (graph.settings.state.value.document == null) graph.settings.state.value.error?.let { problem ->
+                        mutable.update { it.copy(message = problem) }
+                    }
+                }
                 val caps = graph.bridge.capabilities()
                 mutable.update { it.copy(ready = true, capabilities = caps) }
             } catch (cancel: CancellationException) { throw cancel }
@@ -173,12 +193,28 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             UiAction.ToggleAdvanced -> mutable.update { it.copy(editor = it.editor.copy(advanced = !it.editor.advanced)) }
             is UiAction.Preset -> {
                 settingsChosen = true
-                edit { it.copy(validating = true, editor = it.editor.copy(goal = action.goal, quality = action.quality,
-                    settings = AudioEditorSettings.preset(it.editor.settings, action.goal, action.quality), custom = false)) }
+                val current=mutable.value.editor
+                val preset=AudioEditorSettings.preset(current.settings,action.goal,action.quality)
+                current.preferences.applyPreset(preset,"${action.goal.label} · ${action.quality.label}",action.keepOverrides).fold(
+                    onSuccess={ applied ->
+                        val settings=applied.settings;val preferences=applied.preferences
+                        if(settings.audioEdit!=current.settings.audioEdit || preferences.overrides["audio.channels"]!=audioHistory.currentChannelOverride)
+                            audioHistory.update(settings.audioEdit,true,preferences.overrides["audio.channels"])
+                        edit { it.copy(validating=true,editor=it.editor.copy(goal=action.goal,quality=action.quality,
+                            settings=settings,preferences=preferences,custom=preferences.overrideCount>0),
+                            audioEditor=it.audioEditor.copy(canUndo=audioHistory.canUndo,canRedo=audioHistory.canRedo)) }
+                    },onFailure={ error -> mutable.update { it.copy(message="Preset was not applied: ${error.message}") } })
             }
             is UiAction.ChangeSettings -> {
                 settingsChosen = true
-                edit { it.copy(validating = true, editor = it.editor.copy(settings = action.settings, custom = true)) }
+                val current=mutable.value.editor
+                val preferences=action.preferences ?: current.preferences.changed(current.settings,action.settings,action.explicitIds)
+                val audioChanged=current.settings.audioEdit != action.settings.audioEdit ||
+                    preferences.overrides["audio.channels"]!=audioHistory.currentChannelOverride
+                if(audioChanged)audioHistory.update(action.settings.audioEdit,true,preferences.overrides["audio.channels"])
+                edit { it.copy(validating = true, editor = it.editor.copy(settings = action.settings, custom = true,
+                    preferences=preferences),
+                    audioEditor=if(audioChanged)it.audioEditor.copy(canUndo=audioHistory.canUndo,canRedo=audioHistory.canRedo) else it.audioEditor) }
             }
             is UiAction.Select -> { edit { it.copy(selectedUri = action.uri) }; if(mutable.value.imageEditor.open)renderImage(false) }
             is UiAction.RemoveSource -> edit { it.copy(validating = true, sources = it.sources.filterNot { e -> e.source.uri == action.uri }) }
@@ -285,9 +321,15 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         mutable.update{it.copy(imageDocuments=it.imageDocuments+(source.uri to d),imageEditor=ImageEditorState())}
     }
     private fun changeAudio(value: AudioEdit, commit: Boolean = true, record: Boolean = true) {
-        if(record)audioHistory.update(value,commit)
+        val current=mutable.value.editor
+        val preferences=if(record) current.preferences.changed(current.settings,current.settings.copy(audioEdit=value))
+            else current.preferences.copy(overrides=audioHistory.currentChannelOverride?.let {
+                current.preferences.overrides.with("audio.channels",it)
+            } ?: current.preferences.overrides.without("audio.channels"))
+        if(record)audioHistory.update(value,commit,preferences.overrides["audio.channels"])
         settingsChosen=true
-        edit { it.copy(editor=it.editor.copy(settings=it.editor.settings.copy(audioEdit=value),custom=true),
+        edit { it.copy(editor=it.editor.copy(settings=it.editor.settings.copy(audioEdit=value),custom=true,
+            preferences=preferences),
             audioEditor=it.audioEditor.copy(canUndo=audioHistory.canUndo,canRedo=audioHistory.canRedo)) }
     }
     private fun renderAudioPreview() {
@@ -343,8 +385,11 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                     initializeImage(imported.source)
                     // Publish completed files incrementally. Cancelling preserves already imported sources.
                     edit { old -> old.copy(validating = true,
+                        message = if (old.sources.isEmpty() && !settingsChosen && imported.source.videoTracks == 0 && imported.source.imageInfo == null)
+                            AudioEditorSettings.audioImportProblem(old.editor.settings) ?: old.message else old.message,
                         editor = if (old.sources.isEmpty() && !settingsChosen && imported.source.videoTracks == 0 && imported.source.imageInfo == null)
-                            old.editor.copy(goal = Goal.AUDIO, settings = Planner.preset(Goal.AUDIO, old.editor.quality)) else old.editor,
+                            old.editor.copy(goal = Goal.AUDIO, settings = AudioEditorSettings.audioImport(old.editor.settings),
+                                preferences=old.editor.preferences.changed(old.editor.settings,AudioEditorSettings.audioImport(old.editor.settings))) else old.editor,
                         sources = (old.sources + imported).distinctBy { it.source.uri },
                         selectedUri = if (shared && index == 0) imported.source.uri else old.selectedUri ?: imported.source.uri) }
                 } catch (cancel: CancellationException) { throw cancel }
@@ -372,9 +417,9 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                 if(info!=null) {
                     val d=draft.imageDocuments[e.source.uri] ?: error("Image draft is missing.")
                     ImageValidation.requireValid(d)
-                    val initial=ImageJobSpec(UUID.randomUUID().toString(),d,info)
+                    val initial=ImageJobSpec(UUID.randomUUID().toString(),d,info,preferences=draft.editor.preferences)
                     val format=ImagePlanner.resolveFormat(info,initial,draft.capabilities)
-                    val job=ImageJobSpec(initial.id,d,info,format)
+                    val job=initial.copy(resolvedFormat=format)
                     val first=ImageFitPolicy.candidates(job,info).first()
                     if(start)ImagePlanner.plan(info,job,first.copy(markupPath=if(d.annotations.isNotEmpty())"pending-private-markup" else null),draft.capabilities)
                     val geometry=ImageGeometry.resolve(info,d,first)
@@ -383,11 +428,12 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                 } else {
                     val problems=Planner.validate(e.source,e.trim,draft.editor.settings,if(start)draft.capabilities else null)
                     require(problems.isEmpty()){problems.joinToString("\n")}
-                    QueueJobSpec.Av(JobSpec(UUID.randomUUID().toString(),e.source,e.trim,draft.editor.settings))
+                    QueueJobSpec.Av(JobSpec(UUID.randomUUID().toString(),e.source,e.trim,draft.editor.settings,draft.editor.preferences))
                 }
             }
             graph.queue.addTagged(prepared)
-            if (start) startQueue()
+            val values=graph.settings.state.value.document?.values ?: PreferenceValues.EMPTY
+            if (start || ConsumerSettings.autoStart(values,runState.value.mode==dev.forma.app.work.RunMode.IDLE)) startQueue()
             else mutable.update { it.copy(message = "${draft.sources.size} file(s) added to queue.") }
         }
     }

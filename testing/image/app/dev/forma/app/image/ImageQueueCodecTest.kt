@@ -14,7 +14,11 @@ class ImageQueueCodecTest {
     }
     @Test fun missingSavedTrimEndpointIsRejectedForEveryMigratedSchema() {
         val entry=QueueEntry(JobSpec("3d4754f2-f642-4f9c-9cf4-c6db11a77dca",Source("content://one","audio.m4a",10000),Trim(0,5000),Settings()))
-        for(schema in 1..3){val root=org.json.JSONObject(JobCodec.encode(listOf(entry)));root.put("schema",schema);root.getJSONArray("jobs").getJSONObject(0).getJSONObject("trim").remove("endMs")
+        for(schema in 1..4){val root=org.json.JSONObject(JobCodec.encode(listOf(entry)));root.put("schema",schema)
+            val job=root.getJSONArray("jobs").getJSONObject(0)
+            if(schema<3)job.remove("kind")
+            if(schema<4){job.remove("preferences");job.remove("completedAtMs")}
+            job.getJSONObject("trim").remove("endMs")
             try{JobCodec.decode(root.toString());fail("Missing endpoint extended schema $schema trim")}catch(_:IllegalArgumentException){}
         }
     }

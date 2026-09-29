@@ -23,16 +23,23 @@ class MediaFiles(private val context: Context,private val imageBridge: dev.forma
     private val outputRoot get() = File(context.filesDir, "outputs").apply { mkdirs() }
     private val importRoot get() = File(context.filesDir, "imports").apply { mkdirs() }
     private fun importedUri(file: File) = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-    fun workDir(spec: QueueJobSpec) = File(workRoot, spec.id).apply { mkdirs() }
-    fun workDir(spec: ImageJobSpec) = File(workRoot, spec.id).apply { mkdirs() }
-    fun output(spec: QueueJobSpec) = File(outputRoot, "${spec.id}.${spec.extension}")
+    fun workDir(spec: QueueJobSpec) = dev.forma.core.settings.ManagedMediaPaths.work(workRoot,spec.id).apply { mkdirs() }
+    fun workDir(spec: ImageJobSpec) = dev.forma.core.settings.ManagedMediaPaths.work(workRoot,spec.id).apply { mkdirs() }
+    fun output(spec: QueueJobSpec) = File(outputRoot, "${dev.forma.core.settings.ManagedMediaPaths.work(outputRoot,spec.id).name}.${spec.extension}")
     fun outputUri(spec: QueueJobSpec): Uri = FileProvider.getUriForFile(context, "${context.packageName}.files", output(spec))
     fun exportName(spec: QueueJobSpec) = spec.source.name.substringBeforeLast('.').replace(Regex("[/\\\\\\x00]"), "_").take(100) + "_forma." + spec.extension
-    fun workDir(spec: JobSpec) = File(workRoot, spec.id).apply { mkdirs() }
-    fun output(spec: JobSpec) = File(outputRoot, "${spec.id}.${spec.settings.container.extension}")
+    fun workDir(spec: JobSpec) = dev.forma.core.settings.ManagedMediaPaths.work(workRoot,spec.id).apply { mkdirs() }
+    fun output(spec: JobSpec) = File(outputRoot, "${dev.forma.core.settings.ManagedMediaPaths.work(outputRoot,spec.id).name}.${spec.settings.container.extension}")
     fun outputUri(spec: JobSpec): Uri = FileProvider.getUriForFile(context, "${context.packageName}.files", output(spec))
     fun exportName(spec: JobSpec) = spec.source.name.substringBeforeLast('.').replace(Regex("[/\\\\\\x00]"), "_").take(100) + "_forma." + spec.settings.container.extension
     fun cleanupWork() { workRoot.listFiles()?.forEach { it.deleteRecursively() } }
+    /** Startup only: initialization finishes before any native reader starts. No active-run cleanup API. */
+    fun cleanupExpiredOutputs(ids:Set<String>) {
+        ids.forEach { id ->
+            val identity=dev.forma.core.settings.ManagedMediaPaths.work(outputRoot,id).name
+            Container.entries.forEach { File(outputRoot,"$identity.${it.extension}").delete() }
+        }
+    }
     // Editor-only copies expire on the next process start; every persisted job keeps its source.
     fun cleanupImports(referencedUris: Set<String>) {
         importRoot.listFiles()?.forEach { directory ->
@@ -126,6 +133,7 @@ class MediaFiles(private val context: Context,private val imageBridge: dev.forma
 
     suspend fun stage(spec: QueueJobSpec): File = when(spec) { is QueueJobSpec.Av -> stage(spec.job); is QueueJobSpec.Image -> stage(spec.job) }
     suspend fun stage(spec: JobSpec): File = withContext(Dispatchers.IO) {
+        require(Uri.parse(spec.source.uri).scheme=="content") { "Reselect this source through the system picker." }
         val target = File(workDir(spec), "source.media")
         if (spec.source.bytes > 0) require(target.parentFile!!.usableSpace > spec.source.bytes + 64L * 1024 * 1024) {
             "Not enough private storage to stage the source plus working space."
@@ -180,10 +188,14 @@ class MediaFiles(private val context: Context,private val imageBridge: dev.forma
         val source = output(spec)
         require(source.isFile && source.length() > 0) { "The completed output is no longer available." }
         val total = source.length()
-        val firstByte=try{resolver.openInputStream(destination)?.use{it.read()}}
-            catch(cancel:CancellationException){throw cancel}catch(_:Exception){null}
+        // Only a newly created, observably empty document can be written. Shared imports
+        // use private copies, so URI equality cannot protect the incoming original or aliases.
+        val firstByte=try { resolver.openInputStream(destination)?.use { it.read() } }
+            catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { null }
         requireEmptyExportDestination(spec.source.uri,destination.toString(),firstByte)
         currentCoroutineContext().ensureActive()
+        // Rejected existing/unreadable destinations never reach truncation or failure cleanup.
         try {
             resolver.openOutputStream(destination, "w")?.use { out -> source.inputStream().use { input ->
                 val buffer = ByteArray(64 * 1024)
