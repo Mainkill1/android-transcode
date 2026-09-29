@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 enum class RunMode { IDLE, RUNNING, DRAINING, STOPPING }
-enum class StopReason { USER, SERVICE_STOPPED, TIME_LIMIT }
+enum class StopReason { USER, SERVICE_STOPPED, TIME_LIMIT, POWER_POLICY }
 data class RunState(val mode: RunMode = RunMode.IDLE, val id: Long? = null, val error: String? = null)
 
 /** Process-wide ownership outlives Activity/Service recreation and native cancellation cleanup. */

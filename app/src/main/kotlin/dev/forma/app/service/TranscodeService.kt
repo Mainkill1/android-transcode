@@ -18,6 +18,7 @@ import dev.forma.app.R
 import dev.forma.app.data.LiveProgress
 import dev.forma.app.work.*
 import dev.forma.core.*
+import dev.forma.core.settings.PowerWorkerInstruction
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
 
@@ -44,6 +45,12 @@ class TranscodeService : Service() {
             else -> { stopSelfResult(startId); return START_NOT_STICKY }
         }
         if (ticket?.job?.isCompleted == false) return START_NOT_STICKY
+        val powerAtStart = graph.power.state.value
+        if (!powerAtStart.decision.canStart) {
+            graph.queue.error.value = powerAtStart.blockingMessage
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
         val type = when {
             Build.VERSION.SDK_INT >= 35 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
             Build.VERSION.SDK_INT >= 29 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
@@ -58,7 +65,7 @@ class TranscodeService : Service() {
         val awake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dev.forma.transcode:conversion")
         try {
             awake.setReferenceCounted(false)
-            awake.acquire(6L * 60 * 60 * 1000) // bounded safety timeout, never keeps the screen on
+            awake.acquire(6L * 60 * 60 * 1000)
         } catch (error: Exception) {
             graph.queue.error.value = "Could not keep background processing awake: ${error.message}"
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -75,7 +82,6 @@ class TranscodeService : Service() {
         }
         ticket = started
         wakeLock = awake
-        // Observe in the service, not the UI. A hidden Activity is not a worker subscription.
         scope.launch {
             val status = launch {
                 graph.runs.state.collect { state ->
@@ -83,10 +89,29 @@ class TranscodeService : Service() {
                     if (state.id == started.id && state.mode == RunMode.DRAINING) notify("Finishing current file; remaining jobs will wait", null)
                 }
             }
+            val powerPolicy = launch {
+                graph.power.state.collect { snapshot ->
+                    if (graph.runs.state.value.id != started.id) return@collect
+                    when (snapshot.instruction) {
+                        PowerWorkerInstruction.WARN -> notify(snapshot.warningMessage ?: "Device condition warning", null)
+                        PowerWorkerInstruction.FINISH_CURRENT -> {
+                            graph.runs.finishCurrent()
+                            notify("Finishing current file. ${snapshot.blockingMessage}", null)
+                        }
+                        PowerWorkerInstruction.STOP_CURRENT -> {
+                            notify("Stopping safely. ${snapshot.blockingMessage}", null)
+                            graph.runs.stop(started.id, StopReason.POWER_POLICY)
+                        }
+                        PowerWorkerInstruction.BLOCK_START -> graph.runs.finishCurrent()
+                        PowerWorkerInstruction.CONTINUE -> Unit
+                    }
+                }
+            }
             try {
                 started.job.join()
                 started.failure?.let { graph.queue.error.value = it }
             } finally {
+                powerPolicy.cancel()
                 status.cancel()
                 releaseWake(awake)
                 if (ticket === started) {
@@ -104,7 +129,12 @@ class TranscodeService : Service() {
         try {
             graph.initialize()
             while (currentCoroutineContext().isActive && run.canTakeNext()) {
-                // Retain ownership even if cancellation races a successful disk transaction.
+                val gate = graph.power.state.value
+                if (!gate.decision.canStart) {
+                    graph.queue.error.value = gate.blockingMessage
+                    notify(gate.blockingMessage, null)
+                    break
+                }
                 withContext(NonCancellable) { active = graph.queue.claimNext() }
                 val spec = active ?: break
                 currentCoroutineContext().ensureActive()
@@ -139,14 +169,26 @@ class TranscodeService : Service() {
         } catch (cancel: CancellationException) {
             withContext(NonCancellable) {
                 active?.let { spec ->
-                    if (graph.queue.entries.value.any { it.spec.id == spec.id && it.state in ACTIVE }) {
-                        val reason = run.stopReason
-                        graph.queue.transition(spec.id, if (reason == StopReason.USER) JobState.CANCELLED else JobState.INTERRUPTED,
-                            when (reason) {
-                                StopReason.USER -> "Cancelled. Other queued files are still waiting."
-                                StopReason.TIME_LIMIT -> "Android's background time allowance ended. Restart from the app."
-                                else -> "Processing was interrupted. Restart this job explicitly."
-                            })
+                    val current = graph.queue.entries.value.firstOrNull { it.spec.id == spec.id }?.state
+                    when (run.stopReason) {
+                        StopReason.POWER_POLICY -> current?.let { state ->
+                            PowerServiceRules.powerStopTransitions(state).forEach { next ->
+                                graph.queue.transition(spec.id, next, when (next) {
+                                    JobState.INTERRUPTED -> "Stopped safely because device conditions changed. Partial output was discarded."
+                                    JobState.QUEUED -> graph.power.state.value.blockingMessage + " Start the queue again when conditions recover."
+                                    else -> ""
+                                })
+                            }
+                        }
+                        else -> if (current in ACTIVE) {
+                            val reason = run.stopReason
+                            graph.queue.transition(spec.id, if (reason == StopReason.USER) JobState.CANCELLED else JobState.INTERRUPTED,
+                                when (reason) {
+                                    StopReason.USER -> "Cancelled. Other queued files are still waiting."
+                                    StopReason.TIME_LIMIT -> "Android's background time allowance ended. Restart from the app."
+                                    else -> "Processing was interrupted. Restart this job explicitly."
+                                })
+                        }
                     }
                 }
             }
@@ -158,7 +200,7 @@ class TranscodeService : Service() {
         ticket?.let { graph.runs.stop(it.id, StopReason.TIME_LIMIT) }
         stopForeground(STOP_FOREGROUND_REMOVE)
         releaseWake(wakeLock)
-        stopSelf() // Android requires prompt stop; coordinator still owns native cleanup.
+        stopSelf()
     }
     override fun onDestroy() {
         ticket?.let { graph.runs.stop(it.id, StopReason.SERVICE_STOPPED) }
@@ -181,8 +223,6 @@ class TranscodeService : Service() {
             .addAction(0, "Finish current", finish).addAction(0, "Stop", stop).build()
     }
     private fun allowed() = Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-    // Publishing notification updates is not part of the output transaction. A
-    // revoked permission or system notification failure must not fail an encode.
     private fun notify(text: String, fraction: Float?) = postNotification {
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(text, fraction))
     }
