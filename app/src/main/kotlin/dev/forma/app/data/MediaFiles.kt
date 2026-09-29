@@ -148,6 +148,14 @@ class MediaFiles(private val context: Context) {
         val source = output(spec)
         require(source.isFile && source.length() > 0) { "The completed output is no longer available." }
         val total = source.length()
+        // Only a newly created, observably empty document can be written. Shared imports
+        // use private copies, so URI equality cannot protect the incoming original or aliases.
+        val firstByte=try { resolver.openInputStream(destination)?.use { it.read() } }
+            catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { null }
+        requireEmptyExportDestination(spec.source.uri,destination.toString(),firstByte)
+        currentCoroutineContext().ensureActive()
+        // Rejected existing/unreadable destinations never reach truncation or failure cleanup.
         try {
             resolver.openOutputStream(destination, "w")?.use { out -> source.inputStream().use { input ->
                 val buffer = ByteArray(64 * 1024)
