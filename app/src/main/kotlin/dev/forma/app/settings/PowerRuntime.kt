@@ -115,10 +115,41 @@ class PowerRuntime(
         evaluateCurrent().also { mutable.value = it }
     }
 
-    private fun evaluateCurrent(): PowerRuntimeSnapshot = evaluator.evaluate(
-        document = settings.value.document,
-        sample = samples.value,
-        activeAttempt = runs.value.mode != RunMode.IDLE,
-        nowMs = clock().coerceAtLeast(0L)
-    )
+    private fun evaluateCurrent(): PowerRuntimeSnapshot {
+        val loaded = settings.value
+        val sample = samples.value
+        val activeAttempt = runs.value.mode != RunMode.IDLE
+        loaded.error?.let { error ->
+            // A corrupt or unreadable saved policy may contain stricter charging or
+            // battery requirements than factory defaults. Do not silently replace it.
+            // Mandatory thermal safety and its recovery latch remain active even
+            // when an optional saved policy cannot be read. Never downgrade Critical
+            // to finishing the file, nor erase a Critical episode on Unknown telemetry.
+            val safety=evaluator.evaluate(loaded.document,sample,activeAttempt,clock().coerceAtLeast(0L))
+            val decision = safety.decision.copy(
+                canStart = false,
+                action = if(safety.decision.state.criticalLatched) PowerAction.STOP
+                    else if (activeAttempt) PowerAction.FINISH else PowerAction.CONTINUE,
+                reasons = safety.decision.reasons + "settings_unavailable",
+                warnings = safety.decision.warnings + "settings_unavailable",
+                state = safety.decision.state.copy(waitingForUser = true),
+                threadCeiling = null
+            )
+            return PowerRuntimeSnapshot(
+                settingsRevision = loaded.document?.revision ?: 0,
+                preferences = PowerPreferences(),
+                sample = sample,
+                decision = decision,
+                instruction = PowerWorkerPolicy.instruction(decision, activeAttempt),
+                blockingMessage = "Waiting for Settings review. Saved power safeguards could not be read, so factory defaults were not applied.",
+                warningMessage = error
+            )
+        }
+        return evaluator.evaluate(
+            document = loaded.document,
+            sample = sample,
+            activeAttempt = activeAttempt,
+            nowMs = clock().coerceAtLeast(0L)
+        )
+    }
 }

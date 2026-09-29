@@ -8,3 +8,4 @@ mapfile -t SOURCES < <(rg --files "$ROOT/core/src/main/kotlin" "$ROOT/testing/se
 kotlinc "${SOURCES[@]}" -include-runtime -d "$OUT/settings.jar"
 java -cp "$OUT/settings.jar" dev.forma.core.settings.SettingsChecks "$@"
 java -cp "$OUT/settings.jar" dev.forma.core.settings.PowerRegressionChecks
+java -cp "$OUT/settings.jar" dev.forma.core.settings.PowerRuntimeChecks

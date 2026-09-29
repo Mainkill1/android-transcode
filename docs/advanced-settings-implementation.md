@@ -110,3 +110,22 @@ visible screen-awake lifecycle, real native power cancellation and service limit
 Earlier device reports do not qualify these changes automatically. Full process
 death recovery of the whole unsaved source/audio editor, broad accessibility and
 other-vendor codec qualification remain separate gates.
+
+## Preserved upstream live-power handoff
+
+Upstream `00a5a807` makes unreadable saved power policy fail closed: no new queue
+claim substitutes factory safeguards; an active run drains for Settings review.
+Mandatory Critical thermal cancellation and its recovery latch remain in force
+even while preference storage is unreadable. Automatic background continuation
+and Battery Saver thread-budget integration remain Planned.
+
+`AndroidPowerMonitor` treats framework callbacks as invalidations and rereads
+protected sticky/system state; thermal telemetry remains API29+ severity, not a
+guessed temperature. Runtime recovery uses monotonic time and 10-second battery/
+unplug and 30-second thermal intervals. Power-stopped attempts clean native files
+then requeue from the original; explicit user Stop overrides power requeue.
+
+Upstream historical evidence is retained: `7fcda00` workflow `36571847155` passed
+wrapper/no-native unit/build/lint/emulator gates; `cf87fc2` workflow `36572511109`
+reproduced the unreadable-policy failure before its fix. These are separate from
+this session's source-built native packaging and the parent phone qualification.
