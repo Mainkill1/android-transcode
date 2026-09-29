@@ -1,6 +1,7 @@
 package dev.forma.app.data
 
 import dev.forma.core.*
+import dev.forma.core.image.*
 import dev.forma.core.audio.AudioEdit
 import dev.forma.core.audio.SourceAudioFacts
 import org.json.JSONArray
@@ -9,11 +10,16 @@ import java.util.UUID
 
 /** Versioned queue wire format. Unknown/corrupt data is surfaced, never silently erased. */
 object JobCodec {
-    fun encode(entries: List<QueueEntry>): String = JSONObject().put("schema", 2)
+    fun encode(entries: List<QueueEntry>): String = JSONObject().put("schema", 3)
         .put("jobs", JSONArray(entries.map { entry ->
-            val j = entry.spec
+            val tagged = entry.spec
+            if (tagged is QueueJobSpec.Image) {
+                return@map JSONObject().put("kind", "image").put("id", tagged.id).put("state", entry.state.name).put("message", entry.message)
+                    .put("document", ImageDocumentCodec.encode(tagged.job.document)).put("info", tagged.job.info?.let(ImageDocumentCodec::encodeInfo) ?: JSONObject.NULL)
+            }
+            val j = (tagged as QueueJobSpec.Av).job
             val s = j.settings
-            JSONObject().put("id", j.id).put("state", entry.state.name).put("message", entry.message)
+            JSONObject().put("kind", "av").put("id", j.id).put("state", entry.state.name).put("message", entry.message)
                 .put("source", JSONObject().put("uri", j.source.uri).put("name", j.source.name)
                     .put("durationMs", j.source.durationMs).put("width", j.source.width).put("height", j.source.height)
                     .put("videoTracks", j.source.videoTracks).put("audioTracks", j.source.audioTracks)
@@ -38,10 +44,17 @@ object JobCodec {
     fun decode(text: String): List<QueueEntry> {
         val root = JSONObject(text)
         val schema = root.getInt("schema")
-        require(schema in 1..2) { "Unsupported queue schema. The original file has been preserved." }
+        require(schema in 1..3) { "Unsupported queue schema. The original file has been preserved." }
         val jobs = root.getJSONArray("jobs")
         return (0 until jobs.length()).map { i ->
             val j = jobs.getJSONObject(i)
+            if (schema == 3 && j.getString("kind") == "image") {
+                val id = j.getString("id")
+                require(UUID.fromString(id).toString() == id)
+                return@map QueueEntry(QueueJobSpec.Image(ImageJobSpec(id, ImageDocumentCodec.decode(j.getJSONObject("document")),
+                    if (j.isNull("info")) null else ImageDocumentCodec.decodeInfo(j.getJSONObject("info")))), JobState.valueOf(j.getString("state")), j.getString("message"))
+            }
+            require(schema < 3 || j.getString("kind") == "av") { "Unsupported queue kind; original preserved." }
             val source = j.getJSONObject("source")
             val trim = j.getJSONObject("trim")
             val s = j.getJSONObject("settings")

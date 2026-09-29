@@ -11,6 +11,8 @@ import androidx.lifecycle.viewModelScope
 import dev.forma.app.service.TranscodeService
 import dev.forma.app.work.ProgressGate
 import dev.forma.core.*
+import dev.forma.core.image.*
+import dev.forma.app.image.*
 import dev.forma.core.audio.*
 import dev.forma.app.audio.*
 import dev.forma.ffmpeg.audio.*
@@ -26,6 +28,9 @@ data class WorkspaceRequest(val id: Int, val showQueue: Boolean)
 data class TranscodeUiState(
     val editor: Editor = Editor(),
     val audioEditor: AudioEditorState = AudioEditorState(),
+    val imageEditor: ImageEditorState = ImageEditorState(),
+    val imageDocuments: Map<String, ImageEditDocument> = emptyMap(),
+    val imagePreview: ImagePreviewState = ImagePreviewState(),
     val sources: List<SourceEdit> = emptyList(),
     val selectedUri: String? = null,
     val capabilities: Capabilities = Capabilities(reason = "Checking the encoder build…"),
@@ -37,10 +42,19 @@ data class TranscodeUiState(
     val problems: List<String> = emptyList(),
     val runtimeProblems: List<String> = emptyList()
 ) {
+    val imageDocument get() = selected?.source?.uri?.let(imageDocuments::get)
     val selected: SourceEdit? get() = sources.firstOrNull { it.source.uri == selectedUri } ?: sources.firstOrNull()
 }
 
 sealed interface UiAction {
+    data object ToggleImageEditor : UiAction
+    data object UndoImage : UiAction
+    data object RedoImage : UiAction
+    data object SaveImageDraft : UiAction
+    data object DiscardImageDraft : UiAction
+    data class ChangeImage(val document: ImageEditDocument, val commit: Boolean = true) : UiAction
+    data class ImageTool(val tool: String) : UiAction
+    data class RenderImage(val actualPixels: Boolean = false) : UiAction
     data object ToggleAudioEditor : UiAction
     data object RenderAudioPreview : UiAction
     data object CancelAudioPreview : UiAction
@@ -84,19 +98,23 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     var receivedInitialIntent = false
     private var settingsChosen = false
     private val audioHistory = AudioEditHistory()
+    private val imageHistory = mutableMapOf<String, ImageHistory>()
+    private val imageGestureBase = mutableMapOf<String, ImageEditDocument>()
+    private var imageSave: Job? = null
     private data class ValidationKey(val sources: List<SourceEdit>, val settings: Settings, val caps: Capabilities)
     private fun key(ui: TranscodeUiState) = ValidationKey(ui.sources, ui.editor.settings, ui.capabilities)
 
     init {
         initialize()
+        viewModelScope.launch { graph.imagePreviews.state.collect { preview -> mutable.update { it.copy(imagePreview=preview) } } }
         viewModelScope.launch {
             mutable.map(::key).distinctUntilChanged().collectLatest { input ->
                 mutable.update { it.copy(validating = true) }
                 val results = withContext(Dispatchers.Default) {
-                    val base = input.sources.flatMap { e -> ensureActive(); Planner.validate(e.source, e.trim, input.settings).map { "${e.source.name}: $it" } }.distinct()
+                    val base = input.sources.flatMap { e -> ensureActive(); if (e.source.imageInfo != null) emptyList() else Planner.validate(e.source, e.trim, input.settings).map { "${e.source.name}: $it" } }.distinct()
                     val native = if (input.caps.available) input.sources.flatMap { e ->
                         ensureActive()
-                        Planner.validate(e.source, e.trim, input.settings, input.caps).map { "${e.source.name}: $it" }
+                        if (e.source.imageInfo != null) emptyList() else Planner.validate(e.source, e.trim, input.settings, input.caps).map { "${e.source.name}: $it" }
                     }.distinct() else emptyList()
                     base to native
                 }
@@ -128,6 +146,17 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun act(action: UiAction) {
         when (action) {
+            UiAction.ToggleImageEditor -> {
+                mutable.update { it.copy(imageEditor=it.imageEditor.copy(open=!it.imageEditor.open)) }
+                if(mutable.value.imageEditor.open)renderImage(false)
+            }
+            UiAction.UndoImage -> restoreImageHistory(false)
+            UiAction.RedoImage -> restoreImageHistory(true)
+            UiAction.SaveImageDraft -> saveImageAndClose(false)
+            UiAction.DiscardImageDraft -> saveImageAndClose(true)
+            is UiAction.ChangeImage -> changeImage(action.document,action.commit)
+            is UiAction.ImageTool -> mutable.update { it.copy(imageEditor=it.imageEditor.copy(tool=action.tool)) }
+            is UiAction.RenderImage -> renderImage(action.actualPixels)
             UiAction.ToggleAudioEditor -> mutable.update { it.copy(audioEditor=it.audioEditor.copy(open=!it.audioEditor.open)) }
             UiAction.RenderAudioPreview -> renderAudioPreview()
             UiAction.CancelAudioPreview -> { graph.previews.invalidate();mutable.update { it.copy(audioEditor=it.audioEditor.copy(preview=it.audioEditor.preview.copy(identity="",status="Not rendered"))) } }
@@ -144,7 +173,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                 settingsChosen = true
                 edit { it.copy(validating = true, editor = it.editor.copy(settings = action.settings, custom = true)) }
             }
-            is UiAction.Select -> edit { it.copy(selectedUri = action.uri) }
+            is UiAction.Select -> { edit { it.copy(selectedUri = action.uri) }; if(mutable.value.imageEditor.open)renderImage(false) }
             is UiAction.RemoveSource -> edit { it.copy(validating = true, sources = it.sources.filterNot { e -> e.source.uri == action.uri }) }
             is UiAction.ChangeTrim -> edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(trim = action.trim) else e }) }
             UiAction.Queue -> enqueue(false)
@@ -162,7 +191,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             is UiAction.Retry -> runOperation {
                 val old = jobs.value.first { it.spec.id == action.id }
                 require(old.state in setOf(JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED))
-                graph.queue.add(listOf(old.spec.copy(id = UUID.randomUUID().toString())))
+                graph.queue.addTagged(listOf(old.spec.copy(id = UUID.randomUUID().toString())))
                 mutable.update { it.copy(message = "A new copy of this job is waiting in the queue.") }
             }
             is UiAction.OpenSource -> launchRead {
@@ -181,6 +210,69 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    private fun changeImage(value: ImageEditDocument, commit: Boolean = true) {
+        val current=mutable.value.imageDocument ?: return
+        if(value.source.hash!=current.source.hash)return
+        val uri=current.source.uri
+        val next=value.copy(revision=current.revision+1).frozen()
+        val history=imageHistory[uri] ?: ImageHistory(current)
+        val updated=if(commit) {
+            val base=imageGestureBase.remove(uri) ?: history.current
+            ImageHistory(base,history.past,history.future).apply(next)
+        } else {
+            imageGestureBase.putIfAbsent(uri,history.current)
+            ImageHistory(next,history.past,history.future)
+        }
+        imageHistory[uri]=updated
+        mutable.update { it.copy(imageDocuments=it.imageDocuments+(uri to next),imageEditor=it.imageEditor.copy(canUndo=updated.past.isNotEmpty(),canRedo=updated.future.isNotEmpty(),dirty=true)) }
+        if(commit)autosaveImage(next)
+        renderImage(false)
+    }
+    private fun restoreImageHistory(redo: Boolean) {
+        val d=mutable.value.imageDocument ?: return;val h=imageHistory[d.source.uri] ?: return
+        val restored=if(redo)h.redo() else h.undo();if(restored===h)return
+        val next=restored.current.copy(revision=d.revision+1)
+        imageHistory[d.source.uri]=ImageHistory(next,restored.past,restored.future)
+        mutable.update { it.copy(imageDocuments=it.imageDocuments+(d.source.uri to next),imageEditor=it.imageEditor.copy(canUndo=restored.past.isNotEmpty(),canRedo=restored.future.isNotEmpty(),dirty=true)) }
+        autosaveImage(next);renderImage(false)
+    }
+    private fun autosaveImage(d: ImageEditDocument) {
+        imageSave?.cancel();imageSave=viewModelScope.launch {
+            delay(250)
+            try { when(graph.imageDrafts.save(d,d.revision)) {
+                ImageDraftSaveResult.Preserved -> mutable.update { it.copy(message="Existing corrupt or unsupported image draft is preserved. Export remains separate.") }
+                else -> Unit
+            } } catch(c:CancellationException){throw c}catch(e:Exception){mutable.update{it.copy(message="Draft could not be saved: ${e.message}")}}
+        }
+    }
+    private fun saveImageAndClose(discard: Boolean) {
+        val d=mutable.value.imageDocument ?: return
+        viewModelScope.launch {
+            imageSave?.cancelAndJoin()
+            if(discard){graph.imageDrafts.discard(d.source.hash);val clean=ImageEditDocument(source=d.source,revision=d.revision+1)
+                imageHistory[d.source.uri]=ImageHistory(clean);mutable.update {it.copy(imageDocuments=it.imageDocuments+(d.source.uri to clean))}}
+            else graph.imageDrafts.save(d,d.revision)
+            mutable.update{it.copy(imageEditor=it.imageEditor.copy(open=false,dirty=false))}
+        }
+    }
+    private fun renderImage(actual: Boolean) {
+        val ui=mutable.value;val d=ui.imageDocument ?: return;val info=ui.selected?.source?.imageInfo ?: return
+        if(!ui.capabilities.available)return
+        graph.imagePreviews.request(d,info,actual)
+    }
+    private suspend fun initializeImage(source: Source) {
+        val info=source.imageInfo ?: return
+        val identity=ImageSource(source.uri,source.name,info.hash,info.bytes)
+        val restored=graph.imageDrafts.load(info.hash)
+        val d=when(restored) {
+            is ImageDraftLoadResult.Valid -> restored.document.copy(source=identity)
+            is ImageDraftLoadResult.Corrupt -> {mutable.update{it.copy(message="DRAFT_CORRUPT: Saved image draft is preserved: ${restored.reason}")};ImageEditDocument(source=identity)}
+            is ImageDraftLoadResult.Unsupported -> {mutable.update{it.copy(message="Saved image draft schema is unsupported and preserved.")};ImageEditDocument(source=identity)}
+            ImageDraftLoadResult.Missing -> ImageEditDocument(source=identity)
+        }
+        imageHistory[source.uri]=ImageHistory(d)
+        mutable.update{it.copy(imageDocuments=it.imageDocuments+(source.uri to d),imageEditor=ImageEditorState())}
+    }
     private fun changeAudio(value: AudioEdit, commit: Boolean = true, record: Boolean = true) {
         if(record)audioHistory.update(value,commit)
         settingsChosen=true
@@ -237,9 +329,10 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                 mutable.update { it.copy(fileTask = FileTask("Reading file ${index + 1} of ${uris.size}")) }
                 try {
                     val imported = SourceEdit(if (shared) graph.files.importShared(uri) else graph.files.inspect(uri))
+                    initializeImage(imported.source)
                     // Publish completed files incrementally. Cancelling preserves already imported sources.
                     edit { old -> old.copy(validating = true,
-                        editor = if (old.sources.isEmpty() && !settingsChosen && imported.source.videoTracks == 0)
+                        editor = if (old.sources.isEmpty() && !settingsChosen && imported.source.videoTracks == 0 && imported.source.imageInfo == null)
                             old.editor.copy(goal = Goal.AUDIO, settings = Planner.preset(Goal.AUDIO, old.editor.quality)) else old.editor,
                         sources = (old.sources + imported).distinctBy { it.source.uri },
                         selectedUri = if (shared && index == 0) imported.source.uri else old.selectedUri ?: imported.source.uri) }
@@ -263,24 +356,40 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         val draft = mutable.value // immutable request snapshot; later edits cannot rewrite it
         runOperation {
             require(draft.sources.isNotEmpty()) { "Choose media first." }
-            val problems = withContext(Dispatchers.Default) { draft.sources.flatMap { e ->
-                Planner.validate(e.source, e.trim, draft.editor.settings, if (start) draft.capabilities else null).map { "${e.source.name}: $it" }
-            } }
-            require(problems.isEmpty()) { problems.joinToString("\n") }
-            graph.queue.add(draft.sources.map { JobSpec(UUID.randomUUID().toString(), it.source, it.trim, draft.editor.settings) })
+            val prepared=draft.sources.map { e ->
+                val info=e.source.imageInfo
+                if(info!=null) {
+                    val d=draft.imageDocuments[e.source.uri] ?: error("Image draft is missing.")
+                    ImageValidation.requireValid(d)
+                    val initial=ImageJobSpec(UUID.randomUUID().toString(),d,info)
+                    val format=ImagePlanner.resolveFormat(info,initial,draft.capabilities)
+                    val job=ImageJobSpec(initial.id,d.copy(output=d.output.copy(format=format)),info)
+                    val first=ImageFitPolicy.candidates(job,info).first()
+                    if(start)ImagePlanner.plan(info,job,first.copy(markupPath=if(d.annotations.isNotEmpty())"pending-private-markup" else null),draft.capabilities)
+                    val geometry=ImageGeometry.resolve(info,d,first)
+                    ImageValidation.requireMemory(info,geometry.outputSize,(Runtime.getRuntime().maxMemory()*.65).toLong(),d.annotations.isNotEmpty())
+                    QueueJobSpec.Image(job)
+                } else {
+                    val problems=Planner.validate(e.source,e.trim,draft.editor.settings,if(start)draft.capabilities else null)
+                    require(problems.isEmpty()){problems.joinToString("\n")}
+                    QueueJobSpec.Av(JobSpec(UUID.randomUUID().toString(),e.source,e.trim,draft.editor.settings))
+                }
+            }
+            graph.queue.addTagged(prepared)
             if (start) startQueue()
             else mutable.update { it.copy(message = "${draft.sources.size} file(s) added to queue.") }
         }
     }
     private suspend fun startQueue() {
         graph.previews.cancelAndJoin()
+        graph.imagePreviews.cancelAndJoin()
         if (runState.value.mode != dev.forma.app.work.RunMode.IDLE) return // adding during conversion is allowed
         val caps = mutable.value.capabilities
         require(caps.available) { caps.reason }
         val waiting = jobs.value.filter { it.state == JobState.QUEUED }
         require(waiting.isNotEmpty()) { "There are no waiting jobs." }
         val problems = withContext(Dispatchers.Default) { waiting.flatMap { e ->
-            Planner.validate(e.spec.source, e.spec.trim, e.spec.settings, caps).map { "${e.spec.source.name}: $it" }
+            if (e.spec is QueueJobSpec.Image) ImageValidation.validate((e.spec as QueueJobSpec.Image).job.document).map { it.message } else Planner.validate(e.spec.source, e.spec.trim, e.spec.settings, caps).map { "${e.spec.source.name}: $it" }
         } }
         require(problems.isEmpty()) { problems.joinToString("\n") }
         ContextCompat.startForegroundService(getApplication(), Intent(getApplication(), TranscodeService::class.java).setAction(TranscodeService.START))
@@ -292,10 +401,10 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             graph.files.outputUri(entry.spec)
         }
         if (share) {
-            val send = Intent(Intent.ACTION_SEND).setType(entry.spec.settings.container.mime).putExtra(Intent.EXTRA_STREAM, uri)
+            val send = Intent(Intent.ACTION_SEND).setType(entry.spec.mime).putExtra(Intent.EXTRA_STREAM, uri)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION).apply { clipData = ClipData.newRawUri("Converted media", uri) }
             open(Intent.createChooser(send, "Share converted media"))
-        } else open(Intent(Intent.ACTION_VIEW).setDataAndType(uri, entry.spec.settings.container.mime))
+        } else open(Intent(Intent.ACTION_VIEW).setDataAndType(uri, entry.spec.mime))
     }
     private fun open(intent: Intent) {
         getApplication<Application>().startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION))

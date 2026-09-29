@@ -92,10 +92,10 @@ private class CreateOutput : ActivityResultContract<ExportRequest, Uri?>() {
     }
     FormaWorkspace(ui, jobs, run, initiallyQueue, workspaceRequest = workspaceRequest, progressContent = progressContent, onAction = { action ->
         when (action) {
-            UiAction.Import -> if (ui.fileTask == null) picker.launch(arrayOf("video/*", "audio/*"))
+            UiAction.Import -> if (ui.fileTask == null) picker.launch(arrayOf("video/*", "audio/*", "image/*"))
             is UiAction.Export -> if (ui.fileTask == null && exportId == null) jobs.firstOrNull { it.spec.id == action.id }?.let {
                 exportId = action.id
-                save.launch(ExportRequest(vm.graph.files.exportName(it.spec), it.spec.settings.container.mime))
+                save.launch(ExportRequest(vm.graph.files.exportName(it.spec), it.spec.mime))
             }
             UiAction.Convert, UiAction.StartQueue -> {
                 val needsPrompt = Build.VERSION.SDK_INT >= 33 && !askedNotifications &&

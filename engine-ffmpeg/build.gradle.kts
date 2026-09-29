@@ -18,3 +18,6 @@ dependencies {
     testImplementation("org.json:json:20240303")
     if (nativeEnabled) implementation("com.arthenica:ffmpeg-kit-next:9.0.0")
 }
+if (providers.gradleProperty("imageTests").orNull != "false") {
+    android.sourceSets.getByName("test").java.srcDir("../testing/image/engine")
+}

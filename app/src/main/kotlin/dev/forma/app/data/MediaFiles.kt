@@ -9,6 +9,8 @@ import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import dev.forma.core.*
+import dev.forma.core.image.*
+import dev.forma.app.image.ImageInputAdapter
 import dev.forma.core.audio.SourceAudioFacts
 import java.io.File
 import java.io.IOException
@@ -21,6 +23,11 @@ class MediaFiles(private val context: Context) {
     private val outputRoot get() = File(context.filesDir, "outputs").apply { mkdirs() }
     private val importRoot get() = File(context.filesDir, "imports").apply { mkdirs() }
     private fun importedUri(file: File) = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+    fun workDir(spec: QueueJobSpec) = File(workRoot, spec.id).apply { mkdirs() }
+    fun workDir(spec: ImageJobSpec) = File(workRoot, spec.id).apply { mkdirs() }
+    fun output(spec: QueueJobSpec) = File(outputRoot, "${spec.id}.${spec.extension}")
+    fun outputUri(spec: QueueJobSpec): Uri = FileProvider.getUriForFile(context, "${context.packageName}.files", output(spec))
+    fun exportName(spec: QueueJobSpec) = spec.source.name.substringBeforeLast('.').replace(Regex("[/\\\\\\x00]"), "_").take(100) + "_forma." + spec.extension
     fun workDir(spec: JobSpec) = File(workRoot, spec.id).apply { mkdirs() }
     fun output(spec: JobSpec) = File(outputRoot, "${spec.id}.${spec.settings.container.extension}")
     fun outputUri(spec: JobSpec): Uri = FileProvider.getUriForFile(context, "${context.packageName}.files", output(spec))
@@ -36,6 +43,7 @@ class MediaFiles(private val context: Context) {
 
     suspend fun importShared(uri: Uri): Source = withContext(Dispatchers.IO) {
         require(uri.scheme == "content") { "The sender must share a readable media file." }
+        if (isImage(uri)) return@withContext importImage(uri)
         val (name, bytes) = metadata(uri)
         val directory = File(importRoot, UUID.randomUUID().toString()).apply { check(mkdir()) { "Could not prepare private storage." } }
         val extension = name.substringAfterLast('.', "media").lowercase().takeIf { it.matches(Regex("[a-z0-9]{1,10}")) } ?: "media"
@@ -80,6 +88,7 @@ class MediaFiles(private val context: Context) {
     suspend fun inspect(uri: Uri, persistPermission: Boolean = true): Source = withContext(Dispatchers.IO) {
         require(uri.scheme == "content") { "Choose a file through the system document picker." }
         currentCoroutineContext().ensureActive()
+        if (isImage(uri)) return@withContext importImage(uri)
         if (persistPermission) resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         val (name, bytes) = metadata(uri)
         currentCoroutineContext().ensureActive()
@@ -115,6 +124,7 @@ class MediaFiles(private val context: Context) {
         } finally { extractor.release() }
     }
 
+    suspend fun stage(spec: QueueJobSpec): File = when(spec) { is QueueJobSpec.Av -> stage(spec.job); is QueueJobSpec.Image -> stage(spec.job) }
     suspend fun stage(spec: JobSpec): File = withContext(Dispatchers.IO) {
         val target = File(workDir(spec), "source.media")
         if (spec.source.bytes > 0) require(target.parentFile!!.usableSpace > spec.source.bytes + 64L * 1024 * 1024) {
@@ -135,7 +145,29 @@ class MediaFiles(private val context: Context) {
         target
     }
 
-    suspend fun export(spec: JobSpec, destination: Uri, onBytes: (Long, Long) -> Unit = { _, _ -> }) = withContext(Dispatchers.IO) {
+    private fun isImage(uri: Uri): Boolean = resolver.openInputStream(uri)?.use { input ->
+        val b=ByteArray(12);val n=input.read(b)
+        (n>=2 && b[0]==(-1).toByte() && b[1]==(-40).toByte()) || (n>=8 && b[0]==(-119).toByte() && b[1]==80.toByte()) || (n>=6 && String(b,0,3)=="GIF") || (n>=12 && String(b,0,4)=="RIFF" && String(b,8,4)=="WEBP")
+    } ?: false
+    private suspend fun importImage(uri: Uri): Source {
+        val name=metadata(uri).first
+        val staged=ImageInputAdapter(context).stage(uri.toString(), UUID.randomUUID().toString())
+        return Source(staged.source.uri,name,0,staged.info.width,staged.info.height,bytes=staged.info.bytes,imageInfo=staged.info)
+    }
+    suspend fun stage(spec: ImageJobSpec): File = withContext(Dispatchers.IO) {
+        val target=File(workDir(spec), "source.image")
+        try {
+            resolver.openInputStream(Uri.parse(spec.document.source.uri))?.use { input -> target.outputStream().use { out ->
+                val b=ByteArray(65536);var total=0L;while(true){currentCoroutineContext().ensureActive();val n=input.read(b);if(n<0)break;total+=n
+                    if(total>64L*1024*1024 || target.parentFile!!.usableSpace<64L*1024*1024+n)throw ImageFailure("RESOURCE_LIMIT","Not enough private storage to stage this image.");out.write(b,0,n)
+                }
+            }} ?: throw ImageFailure("SOURCE_ACCESS","Choose the image again to restore source access.")
+        } catch(e:SecurityException){throw ImageFailure("SOURCE_ACCESS","Choose the image again to restore source access.")}
+        if(target.length()!=spec.document.source.bytes || dev.forma.ffmpeg.image.ImageProbe.hash(target)!=spec.document.source.hash)throw ImageFailure("SOURCE_CHANGED","Source identity changed. Choose the image again.")
+        target
+    }
+    suspend fun export(spec: JobSpec, destination: Uri, onBytes: (Long, Long) -> Unit = { _, _ -> }) = export(QueueJobSpec.Av(spec), destination, onBytes)
+    suspend fun export(spec: QueueJobSpec, destination: Uri, onBytes: (Long, Long) -> Unit = { _, _ -> }) = withContext(Dispatchers.IO) {
         require(destination.toString() != spec.source.uri) { "The original cannot be the export destination." }
         val source = output(spec)
         require(source.isFile && source.length() > 0) { "The completed output is no longer available." }

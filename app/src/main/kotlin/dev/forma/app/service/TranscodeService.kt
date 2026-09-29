@@ -17,6 +17,7 @@ import dev.forma.app.R
 import dev.forma.app.data.LiveProgress
 import dev.forma.app.work.*
 import dev.forma.core.*
+import dev.forma.core.image.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
 
@@ -69,7 +70,7 @@ class TranscodeService : Service() {
             stopSelfResult(startId)
             return START_NOT_STICKY
         }
-        val started = graph.runs.start { run -> graph.previews.cancelAndJoin(); process(run) }
+        val started = graph.runs.start { run -> graph.previews.cancelAndJoin(); graph.imagePreviews.cancelAndJoin(); process(run) }
         if (started == null) {
             releaseWake(awake)
             graph.queue.error.value = "The previous conversion is still stopping. Its files are being released."
@@ -103,7 +104,7 @@ class TranscodeService : Service() {
     }
 
     private suspend fun process(run: RunCoordinator.Ticket) {
-        var active: JobSpec? = null
+        var active: QueueJobSpec? = null
         var completed = 0
         try {
             graph.initialize()
@@ -114,7 +115,16 @@ class TranscodeService : Service() {
                 currentCoroutineContext().ensureActive()
                 try {
                     notify("Preparing ${spec.source.name}", null)
-                    graph.transcoder.run(spec, { state ->
+                    if (spec is QueueJobSpec.Image) {
+                        graph.imageTranscoder.run(spec.job, { state ->
+                            graph.queue.transition(spec.id, state)
+                            graph.queue.progress.value = null
+                            notify(if (state == JobState.COMPLETED) "Ready: ${spec.source.name}" else "Processing ${spec.source.name}", null)
+                        }, { stage ->
+                            graph.queue.progress.value = LiveProgress(spec.id, image = stage)
+                            if (notificationGate.accept(spec.id)) notify("${stage.stage.name.lowercase().replaceFirstChar { it.uppercase() }} ${spec.source.name} · attempt ${stage.attempt}", stage.fraction)
+                        })
+                    } else graph.transcoder.run((spec as QueueJobSpec.Av).job, { state ->
                         graph.queue.transition(spec.id, state)
                         graph.queue.progress.value = null
                         notify(when (state) { JobState.VERIFYING -> "Checking ${spec.source.name}"; JobState.COMPLETED -> "Ready: ${spec.source.name}"; else -> "Converting ${spec.source.name}" }, null)

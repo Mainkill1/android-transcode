@@ -22,6 +22,7 @@ import dev.forma.app.*
 import dev.forma.app.data.LiveProgress
 import dev.forma.app.work.*
 import dev.forma.core.*
+import dev.forma.core.image.*
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.ceil
@@ -85,7 +86,7 @@ import kotlin.math.ceil
                     }
                     if (page == "home" && ui.sources.isNotEmpty()) Surface(tonalElevation = 3.dp) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("${ui.sources.size} file(s) · ${ui.editor.settings.container.name}", style = MaterialTheme.typography.labelMedium)
+                            Text("${ui.sources.size} file(s) · ${if(ui.selected?.source?.imageInfo!=null) "Image" else ui.editor.settings.container.name}", style = MaterialTheme.typography.labelMedium)
                             val queueable = ui.ready && !ui.busy && !ui.validating && ui.problems.isEmpty()
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = { onAction(UiAction.Queue) }, enabled = queueable, modifier = Modifier.weight(1f)) { Text("Add to queue") }
@@ -132,7 +133,7 @@ import kotlin.math.ceil
                         if (ui.sources.isEmpty()) item(key = "empty-home") {
                             Column(Modifier.fillMaxWidth().padding(vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                 Text("Convert media", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
-                                Text("Video or audio", style = MaterialTheme.typography.bodyLarge)
+                                Text("Video, audio or image", style = MaterialTheme.typography.bodyLarge)
                                 Button(onClick = { onAction(UiAction.Import) }, enabled = ui.ready && ui.fileTask == null,
                                     modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("select-media")) { Text("Add files") }
                                 if (!ui.ready) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -146,6 +147,9 @@ import kotlin.math.ceil
                             items(ui.sources, key = { "source:${it.source.uri}" }, contentType = { "source" }) { source ->
                                 SourceCard(source, ui.selected?.source?.uri == source.source.uri, onAction)
                             }
+                            if(ui.selected?.source?.imageInfo != null && ui.imageDocument != null) {
+                                item(key="image-editor") { dev.forma.app.ui.image.ImageEditorPanel(ui.imageDocument!!,ui.selected!!.source.imageInfo!!,ui.imageEditor,ui.imagePreview,ui.capabilities,onAction) }
+                            } else {
                             item(key = "audio-editor") { dev.forma.app.ui.audio.AudioEditorPanel(ui, onAction) }
                             item(key = "simple-options") { SimpleOptions(ui.editor, onAction) }
                             item(key = "advanced-toggle") {
@@ -162,6 +166,7 @@ import kotlin.math.ceil
                                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                                 }
                             } } }
+                            }
                         }
                     }
                     "queue" -> {
@@ -203,10 +208,10 @@ import kotlin.math.ceil
                 Text(edit.source.name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (selected) Text("✓", Modifier.padding(start = 8.dp))
             }
-            Text("${mediaTime(edit.source.durationMs)} · ${if (edit.source.videoTracks > 0) "${edit.source.width} × ${edit.source.height}" else "Audio"}" +
+            Text("${if(edit.source.imageInfo!=null) "Image" else mediaTime(edit.source.durationMs)} · ${if (edit.source.videoTracks > 0 || edit.source.imageInfo!=null) "${edit.source.width} × ${edit.source.height}" else "Audio"}" +
                 if (edit.source.bytes > 0) " · ${mediaSize(edit.source.bytes)}" else "", style = MaterialTheme.typography.bodySmall)
             FlowRow {
-                TextButton(onClick = { action(UiAction.OpenSource(edit.source.uri)) }) { Text("Play source") }
+                TextButton(onClick = { action(UiAction.OpenSource(edit.source.uri)) }) { Text(if(edit.source.imageInfo!=null)"View source" else "Play source") }
                 TextButton(onClick = { action(UiAction.RemoveSource(edit.source.uri)) }) { Text("Remove from list") }
             }
         }
@@ -227,7 +232,7 @@ import kotlin.math.ceil
     OutlinedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(entry.spec.source.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(stateLabel(entry.state), style = MaterialTheme.typography.labelLarge)
-        Text("${entry.spec.settings.container.name} · ${mediaTime(Planner.duration(entry.spec.source, entry.spec.trim))}", style = MaterialTheme.typography.bodySmall)
+        Text(if(entry.spec is QueueJobSpec.Image) "Image · ${(entry.spec as QueueJobSpec.Image).format.name}" else "${entry.spec.settings.container.name} · ${mediaTime(Planner.duration(entry.spec.source, entry.spec.trim))}", style = MaterialTheme.typography.bodySmall)
         if (entry.state == JobState.FAILED || entry.state == JobState.INTERRUPTED) {
             TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Show details") }
             if (details) Text(entry.message.take(1200), style = MaterialTheme.typography.bodySmall)
@@ -236,7 +241,7 @@ import kotlin.math.ceil
             when (entry.state) {
                 JobState.COMPLETED -> {
                     Button(onClick = { action(UiAction.Share(entry.spec.id)) }) { Text("Share output") }
-                    TextButton(onClick = { action(UiAction.OpenOutput(entry.spec.id)) }) { Text("Play output") }
+                    TextButton(onClick = { action(UiAction.OpenOutput(entry.spec.id)) }) { Text(if(entry.spec is QueueJobSpec.Image)"View output" else "Play output") }
                     TextButton(onClick = { action(UiAction.Export(entry.spec.id)) }) { Text("Save copy") }
                 }
                 JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED -> TextButton(onClick = { action(UiAction.Retry(entry.spec.id)) }) { Text("Retry conversion") }
@@ -247,6 +252,13 @@ import kotlin.math.ceil
     } }
 }
 @Composable fun ProgressView(entry: QueueEntry, live: LiveProgress?) {
+    if(entry.spec is QueueJobSpec.Image) {
+        val image=live?.takeIf{it.id==entry.spec.id}?.image
+        Column(Modifier.testTag("live-image-progress")){Text(image?.let{"${it.stage.name.lowercase()} · attempt ${it.attempt}"}?:"Preparing image")
+            val fraction=image?.fraction
+            if(fraction==null)LinearProgressIndicator(Modifier.fillMaxWidth())else LinearProgressIndicator(progress={fraction},modifier=Modifier.fillMaxWidth())}
+        return
+    }
     val progress = live?.takeIf { it.id == entry.spec.id }?.progress
     val stats = conversionStats(progress, Planner.duration(entry.spec.source, entry.spec.trim), entry.state == JobState.COMPLETED)
     val fraction = stats.percent?.div(100f)

@@ -54,3 +54,35 @@ data class ImageProblem(val code: String, val field: String?, val message: Strin
 class ImageFailure(val code: String, message: String) : IllegalArgumentException("$code: $message")
 enum class ImageStage { STAGING, INSPECTING, PREPARING, RENDERING, ENCODING, VERIFYING, PUBLISHING }
 data class ImageStageProgress(val stage: ImageStage, val attempt: Int = 1, val fraction: Float? = null)
+
+/** The queue tag, never duration or a video setting, selects the processing path. */
+sealed interface QueueJobSpec {
+    val id:String
+    val source:dev.forma.core.Source
+    val trim:dev.forma.core.Trim
+    val settings:dev.forma.core.Settings
+    val mime:String
+    val extension:String
+    data class Av(val job:dev.forma.core.JobSpec):QueueJobSpec {
+        override val id get()=job.id
+        override val source get()=job.source
+        override val trim get()=job.trim
+        override val settings get()=job.settings
+        override val mime get()=settings.container.mime
+        override val extension get()=settings.container.extension
+    }
+    data class Image(val job:ImageJobSpec):QueueJobSpec {
+        override val id get()=job.id
+        override val source get()=dev.forma.core.Source(job.document.source.uri,job.document.source.name,0,
+            job.info?.width?:0,job.info?.height?:0,bytes=job.document.source.bytes,imageInfo=job.info)
+        override val trim get()=dev.forma.core.Trim()
+        override val settings get()=dev.forma.core.Settings()
+        val format get()=job.document.output.format.takeIf { it!=ImageFormat.AUTO }?:if(job.info?.alpha==ImageAlpha.PRESENT)ImageFormat.PNG else ImageFormat.JPEG
+        override val mime get()=format.mime
+        override val extension get()=format.extension
+    }
+    fun copy(id:String=this.id,source:dev.forma.core.Source=this.source,trim:dev.forma.core.Trim=this.trim,settings:dev.forma.core.Settings=this.settings):QueueJobSpec = when(this) {
+        is Av->Av(job.copy(id=id,source=source,trim=trim,settings=settings))
+        is Image->{require(source==this.source && trim==this.trim && settings==this.settings){"Use the immutable image document to edit image jobs."};Image(job.copy(id))}
+    }
+}

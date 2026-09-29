@@ -18,6 +18,10 @@ android {
     if (providers.gradleProperty("audioTests").orNull != "false") {
         sourceSets.getByName("androidTest").java.srcDir("../testing/android")
     }
+    if (providers.gradleProperty("imageTests").orNull != "false") {
+        sourceSets.getByName("test").java.srcDir("../testing/image/app")
+        sourceSets.getByName("androidTest").java.srcDir("../testing/image/android")
+    }
     buildTypes {
         release {
             isMinifyEnabled = true

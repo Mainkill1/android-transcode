@@ -56,7 +56,8 @@ data class Source(
     val audioTracks: Int = 0,
     val hdr: Boolean = false,
     val bytes: Long = -1,
-    val audioStreams: List<SourceAudioFacts> = emptyList()
+    val audioStreams: List<SourceAudioFacts> = emptyList(),
+    val imageInfo: dev.forma.core.image.ImageInfo? = null
 )
 data class Trim(val startMs: Long = 0, val endMs: Long? = null)
 data class SourceEdit(val source: Source, val trim: Trim = Trim())
@@ -69,7 +70,9 @@ data class Editor(
 )
 data class JobSpec(val id: String, val source: Source, val trim: Trim, val settings: Settings)
 enum class JobState { QUEUED, PREPARING, RUNNING, VERIFYING, COMPLETED, FAILED, CANCELLED, INTERRUPTED }
-data class QueueEntry(val spec: JobSpec, val state: JobState = JobState.QUEUED, val message: String = "")
+data class QueueEntry(val spec: dev.forma.core.image.QueueJobSpec, val state: JobState = JobState.QUEUED, val message: String = "") {
+    constructor(spec: JobSpec, state: JobState = JobState.QUEUED, message: String = "") : this(dev.forma.core.image.QueueJobSpec.Av(spec), state, message)
+}
 data class Capabilities(
     val available: Boolean = false,
     val reason: String = "Native FFmpeg is not included in this build.",
