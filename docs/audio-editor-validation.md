@@ -24,7 +24,7 @@ Expand output controls for M4A/AAC, WAV/PCM16 or float PCM, FLAC, channel routin
 
 ## Current reviewed checkpoint, 2026-09-29
 
-At `41c30b5`, **89 JVM tests passed**: core 36, engine 20, app 33. Native-enabled debug app/test assembly and lint passed, including compilation against the pinned native API. Fourteen desktop media checks cover truncated retained tracks, wrong CFR counts, offsets, trims, Matroska and real WAV-to-M4A/FLAC exports; source hashes remain unchanged. Queue, saved-node intent, publication and Save policy regressions passed. Both debug APKs passed native payload and 16 KB ELF/ZIP alignment checks. These host and packaging checks do not establish phone runtime qualification.
+At `41c30b5`, **89 JVM tests passed**: core 36, engine 20, app 33. The test-only `9fe947a` follow-up passed **90** (36/20/34), adds deterministic completion-publication coverage and waits for published coordinator state; all qualified APK hashes are unchanged. Native-enabled debug app/test assembly and lint passed, including compilation against the pinned native API. Fourteen desktop media checks cover truncated retained tracks, wrong CFR counts, offsets, trims, Matroska and real WAV-to-M4A/FLAC exports; source hashes remain unchanged. Queue, saved-node intent, publication and Save policy regressions passed. Both debug APKs passed native payload and 16 KB ELF/ZIP alignment checks. These host and packaging checks do not establish phone runtime qualification.
 
 The parent also built the unsigned minified release with `testing/` physically absent and `audioTests=false`. Native payload/alignment and structural DEX exclusion checks passed: no test runner, audio/Share/Save fixtures or test commands remain. This release was statically checked, not installed.
 
