@@ -36,7 +36,10 @@ class NativeAccelerationSmokeTest {
             try {
                 val bridge = createFfmpegBridge()
                 val caps = bridge.capabilities()
+                report.put("encoders", JSONArray(caps.encoders.toList()))
+                    .put("muxers", JSONArray(caps.muxers.toList())).put("filters", JSONArray(caps.filters.toList()))
                 check(caps.available) { "FFmpeg for Android is REQUIRED. An API-only/UI-only build does not pass." }
+                check("scale" in caps.filters) { "Software video imports require the actual scale filter listing." }
                 report.put("nativeBuild", caps.build)
                 report.put("inventory", JSONArray(AndroidCodecCatalog().inventory().map {
                     JSONObject().put("name", it.name).put("mime", it.mime)

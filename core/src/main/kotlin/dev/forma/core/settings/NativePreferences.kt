@@ -5,6 +5,7 @@ import dev.forma.core.Container
 import dev.forma.core.RateControl
 import dev.forma.core.Settings
 import dev.forma.core.VideoEncoder
+import dev.forma.core.audio.ChannelMode
 
 /** Bridges only implemented settings to the existing immutable job model. No queue migration or encoder execution. */
 object NativePreferences {
@@ -26,11 +27,13 @@ object NativePreferences {
         "video.frame_rate" to c(if (s.fps == 0) "source" else s.fps.toString()),
         "video.deinterlace" to c(if (s.deinterlace) "always" else "off"),
         "audio.codec" to c(s.audio.name.lowercase(java.util.Locale.ROOT)), "audio.bitrate_kbps" to i(s.audioKbps),
-        "audio.channels" to c(if (s.stereo) "stereo" else "source"),
+        "audio.channels" to c(channel(s)),
         "engine.encode_backend" to c(if (s.video.hardware) "hardware" else "software"),
         "engine.decode_backend" to c("software"), "engine.filter_backend" to c("cpu"),
         "export.container" to c(s.container.name.lowercase(java.util.Locale.ROOT))
     ))
+    private fun channel(s: Settings) = s.audioEdit.output.channels?.name?.lowercase(java.util.Locale.ROOT)
+        ?: if (s.stereo) "stereo" else "source"
     fun cpuOnly(values: PreferenceValues): PreferenceValues = values
         .with("engine.encode_backend", c("software")).with("engine.decode_backend", c("software")).with("engine.filter_backend", c("cpu"))
 
@@ -43,6 +46,8 @@ object NativePreferences {
         val errors = SettingsRules.editErrors(requested)
         require(errors.isEmpty()) { errors.joinToString("\n") }
         val codec = choice("video.codec")
+        val channel = choice("audio.channels")
+        val changedChannel = channel != channel(base)
         val hardware = choice("engine.encode_backend") == "hardware"
         // Honest conservative Auto: software only until the automatic hardware executor is qualified.
         val encoder = when (codec) {
@@ -59,10 +64,12 @@ object NativePreferences {
             fps = choice("video.frame_rate").let { if (it == "source") 0 else it.toInt() },
             deinterlace = choice("video.deinterlace") == "always",
             audio = AudioEncoder.valueOf(choice("audio.codec").uppercase(java.util.Locale.ROOT)),
-            audioKbps = integer("audio.bitrate_kbps"), stereo = choice("audio.channels") == "stereo"
+            audioKbps = integer("audio.bitrate_kbps"),
+            audioEdit = if (changedChannel) base.audioEdit.copy(output = base.audioEdit.output.copy(
+                channels = ChannelMode.valueOf(channel.uppercase(java.util.Locale.ROOT)))) else base.audioEdit
         )
         require(result.crf <= if (codec in setOf("vp9", "av1")) 63 else 51) { "This codec's maximum constant-quality value is 51." }
-        if (hardware && result.container != Container.M4A) {
+        if (hardware && !result.container.audioOnly) {
             require(result.rateControl == RateControl.BITRATE) { "Hardware required needs Average bitrate; no automatic CRF conversion." }
             require(result.fps > 0) { "Hardware required needs an explicit frame rate in this native path." }
         }
@@ -71,6 +78,8 @@ object NativePreferences {
             Container.M4A -> require(result.audio == AudioEncoder.AAC) { "M4A is audio-only and requires AAC." }
             Container.WEBM -> require(result.video in setOf(VideoEncoder.VP9, VideoEncoder.AV1) && result.audio in setOf(AudioEncoder.OPUS, AudioEncoder.NONE)) { "WebM requires VP9/AV1 and Opus or no audio." }
             Container.MKV -> Unit
+            Container.WAV -> require(result.audio in setOf(AudioEncoder.PCM_S16LE,AudioEncoder.PCM_F32LE)) { "WAV requires PCM audio." }
+            Container.FLAC -> require(result.audio == AudioEncoder.FLAC) { "FLAC requires FLAC audio." }
         }
         return result
     }

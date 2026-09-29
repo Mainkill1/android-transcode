@@ -8,12 +8,22 @@ import re
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import uuid
 
 CASES = ("catalog", "overrides", "battery_low", "charging_exception", "thermal_wait", "storage_roundtrip")
 COMPONENT = "dev.forma.transcode.test/androidx.test.runner.AndroidJUnitRunner"
 TEST_CLASS = "dev.forma.app.settings.SettingsScenarioTest"
+
+
+def default_output(run_id: str) -> Path:
+    return Path(__file__).resolve().parents[2] / "results" / "settings" / run_id
+
+
+def require_instrumentation_success(code: int, output: str) -> None:
+    match = re.search(r"OK \((\d+) tests?\)", output)
+    if code or not match or int(match[1]) < 1 or any(marker in output for marker in
+            ("FAILURES!!!", "INSTRUMENTATION_FAILED", "Process crashed", "INSTRUMENTATION_ABORTED")):
+        raise ValueError("Instrumentation failed or ran no tests; see the captured log")
 
 
 def validate_report(report: dict, run_id: str, case: str) -> None:
@@ -44,13 +54,13 @@ def main() -> int:
     parser.add_argument("--serial", help="ADB device serial")
     parser.add_argument("--adb", default="adb", help="ADB executable")
     parser.add_argument("--app-revision", type=revision_argument, default="unrecorded", help="Exact revision used to build the installed APK")
-    parser.add_argument("--output", type=Path, help="Evidence directory; defaults to a new temporary directory")
+    parser.add_argument("--output", type=Path, help="Evidence directory; defaults to testing/results/settings/<run-id>")
     parser.add_argument("--timeout", type=int, default=180)
     args = parser.parse_args()
     if not 5 <= args.timeout <= 900:
         parser.error("--timeout must be 5–900 seconds")
     run_id = str(uuid.uuid4())
-    output = args.output or Path(tempfile.mkdtemp(prefix="forma-settings-"))
+    output = args.output or default_output(run_id)
     adb = [args.adb] + (["-s", args.serial] if args.serial else [])
     try:
         output.mkdir(parents=True, exist_ok=True)
@@ -59,8 +69,7 @@ def main() -> int:
                          "-e", "formaAppRevision", args.app_revision, COMPONENT]
         result = subprocess.run(command, capture_output=True, text=True, timeout=args.timeout, check=False)
         (output / f"{run_id}.log").write_text(result.stdout + result.stderr, encoding="utf-8")
-        if result.returncode or any(marker in result.stdout for marker in ("FAILURES!!!", "INSTRUMENTATION_FAILED", "Process crashed")):
-            raise ValueError("Instrumentation failed; see the captured log")
+        require_instrumentation_success(result.returncode, result.stdout + result.stderr)
         captured = subprocess.run(adb + ["exec-out", "run-as", "dev.forma.transcode", "cat",
                                         "files/settings-tests/last-result.json"],
                                   capture_output=True, text=True, timeout=30, check=True)

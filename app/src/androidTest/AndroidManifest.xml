@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission android:name="dev.forma.transcode.test.READ_MEDIA" android:protectionLevel="signature" />
+    <uses-permission android:name="dev.forma.transcode.test.READ_MEDIA" />
+    <application>
+        <!-- Only serves generated test tones; never exposes user files. -->
+        <provider android:name="dev.forma.app.SharedMediaTestProvider"
+            android:authorities="dev.forma.transcode.test.shared-media"
+            android:readPermission="dev.forma.transcode.test.READ_MEDIA"
+            android:exported="true" android:grantUriPermissions="true" />
+        <activity android:name="dev.forma.app.SharedMediaSenderActivity"
+            android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    </application>
+</manifest>

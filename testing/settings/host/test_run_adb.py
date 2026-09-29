@@ -1,8 +1,18 @@
 import unittest
+import run_adb
 from run_adb import validate_report, revision_argument
 import argparse
 
 class ReportTests(unittest.TestCase):
+    def test_instrumentation_requires_nonempty_success_and_rejects_failure(self):
+        for code,output in [(0,''),(0,'OK (0 tests)'),(0,'OK (1 test)\nINSTRUMENTATION_ABORTED'),(0,'FAILURES!!!'),(1,'OK (1 test)')]:
+            with self.subTest(output=output), self.assertRaises(ValueError):
+                run_adb.require_instrumentation_success(code,output)
+        run_adb.require_instrumentation_success(0,'OK (1 test)\nINSTRUMENTATION_CODE: -1')
+
+    def test_default_evidence_stays_in_workspace(self):
+        output=run_adb.default_output('run-id')
+        self.assertEqual(run_adb.Path(__file__).resolve().parents[2]/'results'/'settings'/'run-id',output)
     def report(self):
         return {"schema": 1, "runId": "current", "case": "battery_low", "result": "PASS", "checks": ["boundary"], "nativeExecution": False, "powerInputs": "synthetic"}
 

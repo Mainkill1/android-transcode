@@ -14,12 +14,13 @@ class FormaApplication : Application() {
 }
 
 /** UI lifecycles never own native encoding. The foreground service owns its run ticket. */
-class AppGraph(application: Application) {
+class AppGraph(private val application: Application) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val settings = dev.forma.app.settings.SettingsRepository(application, scope)
     val files = MediaFiles(application)
     val queue = QueueRepository(application)
     val runs = RunCoordinator(scope)
+    val previews = dev.forma.app.audio.AudioPreviewController(scope)
     val bridge = ManagedFfmpegBridge(createFfmpegBridge())
     val transcoder = FfmpegTranscoder(files, bridge)
     private val initialization = Mutex()
@@ -30,6 +31,8 @@ class AppGraph(application: Application) {
                 settings.load()
                 queue.load()
                 files.cleanupWork()
+                java.io.File(application.cacheDir,"audio-preview").deleteRecursively()
+                files.cleanupImports(queue.entries.value.map { it.spec.source.uri }.toSet())
                 initialized = true
             }
         }

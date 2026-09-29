@@ -1,12 +1,31 @@
 package dev.forma.core.settings
 
 import dev.forma.core.*
+import dev.forma.core.audio.*
 
 object NativePreferenceChecks {
     private fun values(vararg v: Pair<String, SettingValue>) = PreferenceValues.of(mapOf(*v))
     private fun c(v: String) = SettingValue.Choice(v)
     private fun rejects(block: () -> Unit) { check(runCatching(block).exceptionOrNull() is IllegalArgumentException) }
     val cases: List<Pair<String, () -> Unit>> = listOf(
+        "audio editor formats and hidden graph survive settings round trip" to {
+            for ((container,encoder) in listOf(Container.WAV to AudioEncoder.PCM_S16LE, Container.WAV to AudioEncoder.PCM_F32LE, Container.FLAC to AudioEncoder.FLAC)) {
+                val old=Settings(container=container,audio=encoder,audioEdit=AudioEdit(nodes=listOf(AudioEffectNode("gain","gain",parameters=GainParameters(-6.0))),
+                    output=AudioOutputPolicy(channels=ChannelMode.MONO,sampleRateHz=48000,normalization=NormalizationPolicy(mode=NormalizationMode.PEAK),maxBytes=9000000)))
+                check(NativePreferences.apply(old,SettingsResolver.resolve(job=NativePreferences.capture(old)))==old)
+            }
+        },
+        "channel edits affect the graph and preserve all other audio processing" to {
+            val old=Settings(audioEdit=AudioEdit(nodes=listOf(AudioEffectNode("gain","gain",parameters=GainParameters(-6.0))),
+                output=AudioOutputPolicy(channels=ChannelMode.MONO,sampleRateHz=48000,maxBytes=9000000)))
+            check(NativePreferences.capture(old)["audio.channels"]==c("mono"))
+            for(mode in ChannelMode.entries) {
+                val changed=NativePreferences.capture(old).with("audio.channels",c(mode.name.lowercase()))
+                val result=NativePreferences.apply(old,SettingsResolver.resolve(job=changed))
+                check(result.audioEdit==old.audioEdit.copy(output=old.audioEdit.output.copy(channels=mode)))
+                check(result.stereo==old.stereo) // Keep the legacy fallback so undoing the explicit route restores it.
+            }
+        },
         "legacy explicit hardware is preserved by capture and apply" to {
             for (encoder in listOf(VideoEncoder.H264_HW, VideoEncoder.H265_HW)) {
                 val old = Settings(video=encoder, rateControl=RateControl.BITRATE, fps=30, audioTrack=2, denoise=true, keepMetadata=true)
