@@ -15,6 +15,7 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Test
+import org.junit.Assume.assumeTrue
 import org.junit.runner.RunWith
 import kotlin.math.*
 
@@ -22,6 +23,8 @@ import kotlin.math.*
 @RunWith(AndroidJUnit4::class)
 class AudioDspDeviceTest {
     @Test fun packagedSignalContracts(): Unit = runBlocking(Dispatchers.IO) {
+        assumeTrue("Run explicitly with -e formaNative true on a native Android build.",
+            InstrumentationRegistry.getArguments().getString("formaNative") == "true")
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val dir = File(context.cacheDir, "audio-dsp-${UUID.randomUUID()}").apply { check(mkdirs()) }
         val report = JSONObject().put("schema", 1).put("device", android.os.Build.MODEL)
