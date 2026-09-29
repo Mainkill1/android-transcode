@@ -73,11 +73,8 @@ internal class KitNextBridge : FfmpegBridge {
                 "Rotated source geometry is not yet qualified for device encoding; use software encoding."
             }
             val dimensions = MediaCodecCommand.dimensions(source.width, source.height, settings.maxHeight)
-            val format = when (settings.video) {
-                VideoEncoder.H264_HW -> VideoFormat.H264
-                VideoEncoder.H265_HW -> VideoFormat.HEVC
-                else -> error("Unsupported device encoder.")
-            }
+            val format = VideoFormat.values().singleOrNull { it.device == settings.video.ffmpeg }
+                ?: error("Unsupported device encoder.")
             val request = EncodeRequest(format, dimensions.first, dimensions.second, settings.fps.toDouble(),
                 settings.videoKbps * 1000, constantQuality = settings.rateControl == RateControl.QUALITY, hdr = source.hdr)
             val decision = AccelerationPolicy.choose(request, AccelerationMode.HARDWARE_REQUIRED,

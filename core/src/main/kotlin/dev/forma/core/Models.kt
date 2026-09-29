@@ -8,7 +8,10 @@ enum class VideoEncoder(val ffmpeg: String, val label: String, val hardware: Boo
     X264("libx264", "H.264 · software"), X265("libx265", "H.265 · software"),
     VP9("libvpx-vp9", "VP9 · software"), AV1("libsvtav1", "AV1 · software"),
     H264_HW("h264_mediacodec", "H.264 · device", true),
-    H265_HW("hevc_mediacodec", "H.265 · device", true)
+    H265_HW("hevc_mediacodec", "H.265 · device", true),
+    VP8_HW("vp8_mediacodec", "VP8 · device", true),
+    VP9_HW("vp9_mediacodec", "VP9 · device", true),
+    AV1_HW("av1_mediacodec", "AV1 · device", true)
 }
 enum class AudioEncoder(val ffmpeg: String) { AAC("aac"), OPUS("libopus"), FLAC("flac"), NONE("") }
 enum class RateControl { QUALITY, BITRATE }

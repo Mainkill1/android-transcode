@@ -38,9 +38,12 @@ object Planner {
         if (settings.crf !in 0..maxCrf) add("The quality value is outside this encoder's range.")
         if (video && settings.video.hardware && settings.rateControl == RateControl.QUALITY)
             add("Device encoders require bitrate mode; CRF is not a device quality scale.")
-        if (settings.container == Container.WEBM && (settings.video !in setOf(VideoEncoder.VP9, VideoEncoder.AV1) ||
+        if (settings.container == Container.WEBM && (settings.video !in setOf(VideoEncoder.VP9, VideoEncoder.AV1,
+                    VideoEncoder.VP8_HW, VideoEncoder.VP9_HW, VideoEncoder.AV1_HW) ||
                     settings.audio !in setOf(AudioEncoder.OPUS, AudioEncoder.NONE)))
-            add("WebM needs VP9/AV1 video and Opus audio (or no audio).")
+            add("WebM needs VP8/VP9/AV1 video and Opus audio (or no audio).")
+        if (settings.container == Container.MP4 && settings.video == VideoEncoder.VP8_HW)
+            add("VP8 device encoding requires WebM or MKV, not this MP4 profile.")
         if (settings.container == Container.MP4 && settings.audio !in setOf(AudioEncoder.AAC, AudioEncoder.NONE))
             add("This MP4 profile supports AAC audio or no audio.")
         if (settings.container == Container.M4A && settings.audio != AudioEncoder.AAC) add("This M4A profile needs AAC.")

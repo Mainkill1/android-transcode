@@ -40,7 +40,7 @@ fun accelerationChecks() {
     expect(choose(AccelerationMode.HARDWARE_REQUIRED, r = request.copy(constantQuality = true)).backend == EncodeBackend.UNAVAILABLE, "No hardware CRF")
     expect(choose(enc = emptySet()).backend == EncodeBackend.UNAVAILABLE, "No pretend encoder")
     val reversed = listOf(candidate.copy(name = "z.encoder"), candidate.copy(name = "a.encoder"))
-    expect(choose(c = reversed).codecName == "a.encoder", "Stable ordering")
+    expect(choose(c = reversed).codecName == "z.encoder", "Preserve Android preferred component order")
     val semi = choose(c = listOf(candidate.copy(bufferFormat = BufferFormat.NV12)))
     expect(semi.bufferFormat == BufferFormat.NV12, "Keep selected buffer representation")
     val args = choose().videoOptions(request)
