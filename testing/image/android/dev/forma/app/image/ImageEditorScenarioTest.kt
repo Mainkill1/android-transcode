@@ -22,7 +22,7 @@ class ImageEditorScenarioTest {
     private val androidCases=listOf("source_uri_revoked","preview_stale","draft_corrupt")
     @Test fun selectedCases()=runBlocking {
         val instrument=InstrumentationRegistry.getInstrumentation();val context=instrument.targetContext
-        val args=InstrumentationRegistry.getArguments();val requested=args.getString("formaImageCase")?:error("formaImageCase is required; choose a named case or all.")
+        val args=InstrumentationRegistry.getArguments();org.junit.Assume.assumeTrue("Native image scenarios require explicit formaImageCase/runId arguments.",args.containsKey("formaImageCase"));val requested=args.getString("formaImageCase")?:error("formaImageCase is required; choose a named case or all.")
         val runId=ImageReport.validateRunId(args.getString("formaImageRunId")?:error("formaImageRunId is required."))
         val selected=if(requested=="all")nativeCases+androidCases else listOf(requested)
         require(selected.isNotEmpty() && selected.all{it in nativeCases+androidCases+"native_missing"}){"Unknown or unsupported image case."}

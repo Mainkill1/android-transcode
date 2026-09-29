@@ -26,12 +26,13 @@ import java.util.UUID
 class ShareImportTest {
     @get:Rule val compose = createEmptyComposeRule()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
-    private val one = Uri.parse("content://dev.forma.transcode.test.shared-media/tone-one.wav")
-    private val two = Uri.parse("content://dev.forma.transcode.test.shared-media/tone-two.wav")
-    private fun sender() = Intent().setComponent(ComponentName("dev.forma.transcode.test", "dev.forma.app.SharedMediaSenderActivity"))
+    private val fixturePackage get() = InstrumentationRegistry.getInstrumentation().context.packageName
+    private val one get() = Uri.parse("content://$fixturePackage.shared-media/tone-one.wav")
+    private val two get() = Uri.parse("content://$fixturePackage.shared-media/tone-two.wav")
+    private fun sender() = Intent().setComponent(ComponentName(fixturePackage, "dev.forma.app.SharedMediaSenderActivity"))
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     @Before fun restoreSenderAccess() {
-        assertEquals(PackageManager.PERMISSION_DENIED, context.checkPermission("dev.forma.transcode.test.READ_MEDIA", Process.myPid(), Process.myUid()))
+        assertEquals(PackageManager.PERMISSION_DENIED, context.checkPermission("$fixturePackage.READ_MEDIA", Process.myPid(), Process.myUid()))
         val token = UUID.randomUUID().toString()
         context.startActivity(sender().putExtra("grantOnly", true).putExtra("setupToken", token))
         compose.waitUntil(10_000) { runCatching { context.contentResolver.call(one, "state", null, null)?.getString("setupToken") }.getOrNull() == token }

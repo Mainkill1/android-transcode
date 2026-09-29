@@ -251,7 +251,11 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             imageSave?.cancelAndJoin()
             if(discard){graph.imageDrafts.discard(d.source.hash);val clean=ImageEditDocument(source=d.source,revision=d.revision+1)
                 imageHistory[d.source.uri]=ImageHistory(clean);mutable.update {it.copy(imageDocuments=it.imageDocuments+(d.source.uri to clean))}}
-            else graph.imageDrafts.save(d,d.revision)
+            else when(graph.imageDrafts.save(d,d.revision)) {
+                ImageDraftSaveResult.Preserved -> {mutable.update{it.copy(message="DRAFT_CORRUPT: Existing saved data is preserved; this draft could not replace it.")};return@launch}
+                ImageDraftSaveResult.Conflict -> {mutable.update{it.copy(message="A newer draft was saved; this edit remains open.")};return@launch}
+                is ImageDraftSaveResult.Saved -> Unit
+            }
             mutable.update{it.copy(imageEditor=it.imageEditor.copy(open=false,dirty=false))}
         }
     }
