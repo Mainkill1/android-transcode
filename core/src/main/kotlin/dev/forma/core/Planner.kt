@@ -47,7 +47,14 @@ object Planner {
         if (caps != null) {
             if (!caps.available) add(caps.reason)
             else {
-                if (video && !settings.video.isCompiled(caps.encoders)) add("Encoder ${settings.video.ffmpeg} is not enabled in this build/profile.")
+                if (video) {
+                    if (!settings.video.isCompiled(caps.encoders))
+                        add("Encoder ${settings.video.ffmpeg} is not enabled in this build/profile.")
+                    else if (settings.video.automatic &&
+                        (settings.rateControl == RateControl.QUALITY || settings.fps == 0) &&
+                        settings.video.format.software !in caps.encoders)
+                        add("Automatic constant-quality or source-rate output requires software encoder ${settings.video.format.software} in this build.")
+                }
                 if (settings.audio != AudioEncoder.NONE && source.audioTracks > 0 && settings.audio.ffmpeg !in caps.encoders)
                     add("Encoder ${settings.audio.ffmpeg} is not included in this FFmpeg build.")
                 if (settings.container.muxer !in caps.muxers) add("Output format ${settings.container.muxer} is unavailable.")

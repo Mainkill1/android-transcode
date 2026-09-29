@@ -9,6 +9,14 @@ object EncoderChoiceChecks {
             Capabilities(true, "", enc + "aac", setOf("mp4", "webm"), setOf("scale"))).isEmpty()
         check(valid(settings, setOf("h264_mediacodec"))) { "Auto works even when only hardware is compiled" }
         check(valid(settings, setOf("libx264"))) { "Auto works when only CPU is compiled" }
+        check(!valid(settings.copy(rateControl = RateControl.QUALITY), setOf("h264_mediacodec"))) {
+            "Auto constant quality needs the same-format software encoder"
+        }
+        check(!valid(settings.copy(fps = 0), setOf("h264_mediacodec"))) {
+            "Auto source-rate timing needs the same-format software encoder"
+        }
+        check(valid(settings.copy(rateControl = RateControl.QUALITY), setOf("libx264")))
+        check(valid(settings.copy(fps = 0), setOf("libx264")))
         check(!valid(settings, emptySet()))
         check(Settings().video == VideoEncoder.X264) { "Do not reinterpret old default queues" }
         check(VideoEncoder.valueOf("H264_HW").hardware)

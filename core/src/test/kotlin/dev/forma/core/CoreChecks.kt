@@ -33,6 +33,28 @@ object CoreChecks {
         "reject HDR until real color pipeline exists" to { rejects(src = source.copy(hdr = true)) },
         "missing runtime blocks execution" to { check(Planner.validate(source, Trim(), defaults, Capabilities()).isNotEmpty()) },
         "missing encoder is not inferred from decoder" to { check(Planner.validate(source, Trim(), defaults, Capabilities(true, "", setOf("aac"), setOf("mp4"), setOf("scale"))).isNotEmpty()) },
+        "automatic bitrate accepts device-only build" to {
+            val settings = defaults.copy(video = VideoEncoder.H264_AUTO, rateControl = RateControl.BITRATE, fps = 30)
+            val caps = Capabilities(true, "", setOf("h264_mediacodec", "aac"), setOf("mp4"), setOf("scale"))
+            check(Planner.validate(source, Trim(), settings, caps).isEmpty())
+        },
+        "automatic quality rejects device-only build before export" to {
+            val settings = defaults.copy(video = VideoEncoder.H264_AUTO, rateControl = RateControl.QUALITY, fps = 30)
+            val caps = Capabilities(true, "", setOf("h264_mediacodec", "aac"), setOf("mp4"), setOf("scale"))
+            check(Planner.validate(source, Trim(), settings, caps).any { "requires software encoder libx264" in it })
+        },
+        "automatic source rate rejects device-only build before export" to {
+            val settings = defaults.copy(video = VideoEncoder.H264_AUTO, rateControl = RateControl.BITRATE, fps = 0)
+            val caps = Capabilities(true, "", setOf("h264_mediacodec", "aac"), setOf("mp4"), setOf("scale"))
+            check(Planner.validate(source, Trim(), settings, caps).any { "requires software encoder libx264" in it })
+        },
+        "automatic software semantics accept compiled software encoder" to {
+            val caps = Capabilities(true, "", setOf("libx264", "aac"), setOf("mp4"), setOf("scale"))
+            val quality = defaults.copy(video = VideoEncoder.H264_AUTO, rateControl = RateControl.QUALITY, fps = 30)
+            val sourceRate = defaults.copy(video = VideoEncoder.H264_AUTO, rateControl = RateControl.BITRATE, fps = 0)
+            check(Planner.validate(source, Trim(), quality, caps).isEmpty())
+            check(Planner.validate(source, Trim(), sourceRate, caps).isEmpty())
+        },
         "presets do not carry trim or source" to { val edit = SourceEdit(source, Trim(1000, 5000)); Planner.preset(Goal.SMALLER, Quality.SMALL); check(edit.trim.startMs == 1000L) },
         "advanced mode does not change settings" to { val e = Editor(defaults.copy(crf = 18), custom = true); check(e.copy(advanced = true).copy(advanced = false).settings == e.settings) },
         "queued configuration is a snapshot" to { var s = defaults; val j = JobSpec("1", source, Trim(), s); s = s.copy(crf = 12); check(j.settings.crf == 23 && s.crf == 12) },
