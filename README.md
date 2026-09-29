@@ -114,3 +114,11 @@ Finish current, completion notifications and bounded screen-off wake handling.
 See [native UX, threading and performance validation](docs/native-ux.md).
 Run `tools/check-ux.sh` for the host concurrency checks. This does not close the
 remaining native upload-fit/URL/image/full-editor or physical-device test gates.
+
+## Audio-editor proposal
+
+Read the [feature roadmap and framework decisions](docs/audio-editor.md),
+[native UI layouts](docs/audio-editor-ui.md), and
+[file-by-file implementation and Android testing plan](docs/superpowers/plans/2026-09-29-audio-editor.md).
+These documents propose non-destructive audio editing; they do not claim the
+effects, new dependencies or device qualification are already implemented.
