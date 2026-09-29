@@ -85,8 +85,11 @@ object PowerPolicy {
         if (stopped) actions += PowerAction.STOP
         if (sample.percent == null || sample.charging == ChargeState.UNKNOWN) warnings += "battery_unknown"
         if (sample.thermal == null) warnings += "thermal_unavailable"
+        // Unknown telemetry is not a new charge state. Retain the last known sample
+        // only for transition detection; eligibility still uses the current sample.
+        val lastKnownCharge = sample.charging.takeUnless { it == ChargeState.UNKNOWN } ?: previous.previousCharge
         val state = PowerState(low.active, low.since, thermal.active, thermal.since, critical,
-            unplug.active, unplug.since, sample.charging, waitUser, stopped)
+            unplug.active, unplug.since, lastKnownCharge, waitUser, stopped)
         return PowerDecision(reasons.isEmpty(), if (activeAttempt) actions.maxOrNull() ?: PowerAction.CONTINUE else PowerAction.CONTINUE,
             reasons.toSet(), warnings.toSet(), state, if (policy.respectSaver && sample.batterySaver) 2 else null)
     }

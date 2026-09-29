@@ -6,8 +6,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -145,7 +148,9 @@ import dev.forma.core.settings.*
         }
     }
     selectedId?.let { id ->
-        SettingSheet(SettingCatalog[id], resolved.getValue(id).value, jobScope,
+        val spec = SettingCatalog[id]
+        SettingSheet(spec, resolved.getValue(id).value, jobScope,
+            inheritedValue=if (jobScope) appDefaults[id] ?: spec.defaultValue else spec.defaultValue,
             onChange={ onValuesChanged(draft.values.with(id,it)); selectedId=null },
             onReset={ onValuesChanged(draft.values.without(id)); selectedId=null }, onClose={ selectedId=null })
     }
@@ -157,32 +162,47 @@ import dev.forma.core.settings.*
 }
 
 @Composable private fun SettingSheet(spec: SettingSpec, value: SettingValue, jobScope: Boolean,
-    onChange: (SettingValue) -> Unit, onReset: () -> Unit, onClose: () -> Unit) {
-    ModalBottomSheet(onDismissRequest=onClose) {
-        Column(Modifier.fillMaxWidth().padding(horizontal=20.dp).navigationBarsPadding()) {
+    inheritedValue: SettingValue, onChange: (SettingValue) -> Unit, onReset: () -> Unit, onClose: () -> Unit) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    var query by rememberSaveable(spec.id) { mutableStateOf("") }
+    val options = spec.options.filter { query.isBlank() || it.id.contains(query.trim(), ignoreCase=true) || it.label.contains(query.trim(), ignoreCase=true) }
+    fun choose(next: SettingValue) { keyboard?.hide(); onChange(next) }
+    ModalBottomSheet(onDismissRequest={ keyboard?.hide(); onClose() },
+        sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
+        // One scroll owner includes help, all finite choices and Reset. Fixed headers/footers
+        // previously overflowed small windows and large-font layouts outside the inner list.
+        Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding()
+            .verticalScroll(rememberScrollState()).padding(horizontal=20.dp)) {
             Text(spec.label, style=MaterialTheme.typography.titleLarge)
             Text(spec.help, Modifier.padding(vertical=8.dp), style=MaterialTheme.typography.bodyMedium)
             Text(spec.id, style=MaterialTheme.typography.labelSmall)
+            Text("${if (jobScope) "Inherited" else "Factory default"}: ${spec.display(inheritedValue)}",
+                Modifier.padding(vertical=8.dp), style=MaterialTheme.typography.bodySmall)
             if (!spec.wired) Text("Planned — not active in exports.", Modifier.padding(vertical=8.dp))
             when (value) {
-                is SettingValue.Choice -> LazyColumn(Modifier.fillMaxWidth().heightIn(max=400.dp)) {
-                    items(spec.options, key={ it.id }) { option ->
+                is SettingValue.Choice -> {
+                    if (spec.options.size > 8) OutlinedTextField(value=query, onValueChange={ query=it }, singleLine=true,
+                        label={ Text("Search choices") }, modifier=Modifier.fillMaxWidth().testTag("settings-choice-search"))
+                    if (options.isEmpty()) Text("No matching choices.", Modifier.padding(vertical=16.dp))
+                    options.forEach { option ->
                         val enabled = spec.wired && option.available
                         Row(Modifier.fillMaxWidth().heightIn(min=56.dp).testTag("settings-option:${spec.id}:${option.id}")
                             .selectable(selected=value.value == option.id, enabled=enabled, role=Role.RadioButton,
-                                onClick={ onChange(SettingValue.Choice(option.id)) }), verticalAlignment=Alignment.CenterVertically) {
+                                onClick={ choose(SettingValue.Choice(option.id)) }), verticalAlignment=Alignment.CenterVertically) {
                             RadioButton(selected=value.value == option.id, onClick=null, enabled=enabled)
                             Text(option.label + if (!enabled) " · Planned" else "", Modifier.padding(start=12.dp))
                         }
                     }
                 }
-                is SettingValue.Flag -> Row(Modifier.fillMaxWidth().heightIn(min=56.dp), verticalAlignment=Alignment.CenterVertically) {
+                is SettingValue.Flag -> Row(Modifier.fillMaxWidth().heightIn(min=56.dp)
+                    .toggleable(value=value.value, enabled=spec.wired, role=Role.Switch,
+                        onValueChange={ choose(SettingValue.Flag(it)) }), verticalAlignment=Alignment.CenterVertically) {
                     Text(if (value.value) "On" else "Off", Modifier.weight(1f))
-                    Switch(checked=value.value, onCheckedChange={ onChange(SettingValue.Flag(it)) }, enabled=spec.wired)
+                    Switch(checked=value.value, onCheckedChange=null, enabled=spec.wired)
                 }
-                else -> NumericOrTextEditor(spec, value, onChange)
+                else -> NumericOrTextEditor(spec, value, ::choose)
             }
-            TextButton(onClick=onReset) { Text(if (jobScope) "Use inherited value" else "Use factory default") }
+            TextButton(onClick={ keyboard?.hide(); onReset() }) { Text(if (jobScope) "Use inherited value" else "Use factory default") }
             Spacer(Modifier.height(12.dp))
         }
     }
