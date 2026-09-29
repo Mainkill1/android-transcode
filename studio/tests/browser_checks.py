@@ -6,6 +6,7 @@ Normal mode uses the actual HTTP origin directly. Downloads are verified by API 
 from pathlib import Path
 import argparse,base64,http.client,json,os,sys,threading,time,traceback
 from playwright.sync_api import sync_playwright,expect
+from browser_support import launch_options, record_browser
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 from server import Workbench,Handler,ThreadingHTTPServer
 INLINE='--inline' in sys.argv
@@ -43,7 +44,8 @@ def run():
         conn.request(payload['method'],payload['path'],body=base64.b64decode(payload['body']) if payload['body'] else None,headers=payload['headers'])
         r=conn.getresponse();body=r.read();reply={'status':r.status,'headers':dict(r.getheaders()),'body':base64.b64encode(body).decode()};conn.close();return reply
     with sync_playwright() as p:
-        browser=p.chromium.launch(executable_path=os.environ.get('FORMA_BROWSER') or ('/usr/bin/chromium' if Path('/usr/bin/chromium').exists() else None),channel=os.environ.get('FORMA_BROWSER_CHANNEL'),headless=True,args=['--no-sandbox'])
+        browser=p.chromium.launch(**launch_options())
+        record_browser(browser)
         page=browser.new_page(viewport={'width':390,'height':844},reduced_motion='reduce')
         errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
         expect.set_options(timeout=4000)

@@ -5,13 +5,15 @@ import os
 import shutil
 import pytest
 from playwright.sync_api import sync_playwright, expect
+from browser_support import launch_options, record_browser
 
 ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture(scope='module')
 def browser():
     with sync_playwright() as p:
-        b = p.chromium.launch(executable_path=os.environ.get('FORMA_BROWSER') or shutil.which('chromium'), channel=os.environ.get('FORMA_BROWSER_CHANNEL'), headless=True, args=['--no-sandbox'])
+        b = p.chromium.launch(**launch_options())
+        record_browser(b)
         yield b
         b.close()
 
