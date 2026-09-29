@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
     var baselineWire by rememberSaveable { mutableStateOf<String?>(null) }
     var draftWire by rememberSaveable { mutableStateOf<String?>(null) }
     var inheritedWire by rememberSaveable { mutableStateOf<String?>(null) }
+    var backRequest by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<String?>(null) }
     var confirmClose by rememberSaveable { mutableStateOf(false) }
@@ -72,7 +73,8 @@ import kotlinx.coroutines.launch
         }
     }
     val preview = if (jobScope) inherited else draft?.values ?: loaded.document?.values ?: PreferenceValues.EMPTY
-    Dialog(onDismissRequest={ close() }, properties=DialogProperties(usePlatformDefaultWidth=false, dismissOnClickOutside=false, dismissOnBackPress=false)) {
+    Dialog(onDismissRequest={ if (draft == null) close() else backRequest++ },
+        properties=DialogProperties(usePlatformDefaultWidth=false, dismissOnClickOutside=false, dismissOnBackPress=true)) {
         FormaTheme(preview) {
             BackHandler(enabled=draft == null) { onDismiss() }
             Surface(Modifier.fillMaxSize()) {
@@ -95,7 +97,7 @@ import kotlinx.coroutines.launch
                     SettingsPanel(draft, inherited, jobScope,
                         onValuesChanged={ values -> draftWire=SettingsCodec.encode(SettingsDocument(draft.saved.revision,values)); failure=null },
                         onSave={ save() }, onDiscard={ draftWire=baselineWire; failure=null }, onClose={ close() },
-                        busy=busy, error=validation ?: failure, canSave=validation == null,
+                        busy=busy, error=validation ?: failure, canSave=validation == null, backRequest=backRequest,
                         runControls={ SettingsRunControls(run.mode != RunMode.IDLE, run.mode == RunMode.STOPPING) { graph.runs.stop() } })
                 }
             }

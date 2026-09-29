@@ -61,7 +61,7 @@ def main() -> int:
         (output / f"{run_id}.log").write_text(result.stdout + result.stderr, encoding="utf-8")
         if result.returncode or any(marker in result.stdout for marker in ("FAILURES!!!", "INSTRUMENTATION_FAILED", "Process crashed")):
             raise ValueError("Instrumentation failed; see the captured log")
-        captured = subprocess.run(adb + ["exec-out", "run-as", "dev.forma.transcode.test", "cat",
+        captured = subprocess.run(adb + ["exec-out", "run-as", "dev.forma.transcode", "cat",
                                         "files/settings-tests/last-result.json"],
                                   capture_output=True, text=True, timeout=30, check=True)
         report = json.loads(captured.stdout)

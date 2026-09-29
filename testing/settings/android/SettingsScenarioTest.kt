@@ -39,8 +39,15 @@ class SettingsScenarioTest {
             failure = error
             report.put("result","FAIL").put("reason",error.message ?: error.javaClass.simpleName)
         }
-        val directory = File(instrumentation.context.filesDir,"settings-tests").apply { check(isDirectory || mkdirs()) }
-        File(directory,"last-result.json").writeText(report.toString(2))
+        // Instrumentation runs as the target application's UID, not the test APK's UID.
+        // Keep this test-only report separate from preferences, queue state and media files.
+        val directory = File(instrumentation.targetContext.filesDir,"settings-tests").apply {
+            check(isDirectory || mkdirs()) { "Could not create the test report directory in the target app sandbox." }
+        }
+        val resultFile = File(directory,"last-result.json")
+        val encoded = report.toString(2)
+        resultFile.writeText(encoded)
+        check(resultFile.readText() == encoded) { "The instrumentation report did not round trip." }
         instrumentation.sendStatus(0, Bundle().apply { putString("stream", report.toString()) })
         failure?.let { throw it }
     }

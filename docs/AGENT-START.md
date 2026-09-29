@@ -44,8 +44,26 @@ release the run slot before native cancellation cleanup completes. Keep Stop
 independent of import/save and queue-mutation busy flags. Native upload-fit and
 full editor parity are still required; host/Compose checks are not phone timing.
 
-## Advanced settings design and agent handoff
+## Advanced settings implementation and handoff
 
-For the proposed Settings menu, read the [native layout and behavior design](superpowers/specs/2026-09-29-advanced-settings-design.md), the [64-option catalog](advanced-settings-catalog.md), and the [implementation/test plan](superpowers/plans/2026-09-29-advanced-settings.md).
+Read the [current implementation status](advanced-settings-implementation.md) first.
+The branch now contains the 64-key typed registry, native Settings screen, atomic
+preference repository, 14 media bindings, four appearance controls and isolated
+tests. This is no longer a documentation-only settings proposal.
 
-This is a design handoff, not a claim that these preferences are wired. Preserve app-default/preset/job provenance, explicit overrides and immutable queued media settings. Battery/thermal policy is separately versioned and live; waiting after cancellation means restarting from the original, not resuming a partial export. Keep Planned controls honest and coordinate external test-source/ADB work with the editor framework draft rather than shipping a production test endpoint.
+The [layout design](superpowers/specs/2026-09-29-advanced-settings-design.md),
+[64-option catalog](advanced-settings-catalog.md), and
+[implementation plan](superpowers/plans/2026-09-29-advanced-settings.md) describe
+the full target. Their original design-only paragraphs are historical; the status
+page distinguishes implemented code, verified checks and remaining gates.
+
+Preserve immutable queued media values. Full persistent preset/job provenance is
+not migrated yet; the legacy editor adapter captures explicit values rather than
+guessing their origin. PowerPolicy is a tested pure reducer, not live enforcement:
+Android monitoring/service integration must be completed before enabling power
+rows. Auto encoding is currently labeled conservative software, not hardware proof.
+
+Keep tests under `testing/settings/` with test-only source-set references. Coordinate
+with the editor framework draft rather than adding a production command endpoint or
+another instrumentation runner. Do not promote a no-native or synthetic-policy test
+to physical-device export or battery/thermal qualification.

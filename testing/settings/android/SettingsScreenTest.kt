@@ -38,6 +38,18 @@ class SettingsScreenTest {
         compose.runOnIdle { assertEquals(1, stops) }
     }
 
+    @Test fun windowBackRequestReturnsToCategoriesBeforeClosing() {
+        val request = mutableStateOf(0)
+        var closed = false
+        compose.setContent { FormaTheme { SettingsPanel(SettingsDraft(SettingsDocument()), PreferenceValues.EMPTY, false,
+            onValuesChanged={}, onSave={}, onDiscard={}, onClose={ closed=true }, backRequest=request.value) } }
+        compose.onNodeWithText("Video & picture").performClick()
+        compose.onNodeWithTag("settings-row:video.codec").assertExists()
+        compose.runOnIdle { request.value++ }
+        compose.onNodeWithTag("settings-row:video.codec").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(false, closed) }
+    }
+
     @Test fun plannedBatteryOptionExplainsWhyItCannotBeActivated() {
         val draft = SettingsDraft(SettingsDocument())
         compose.setContent { FormaTheme { SettingsPanel(draft, PreferenceValues.EMPTY, false,

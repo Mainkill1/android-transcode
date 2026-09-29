@@ -28,7 +28,7 @@ import dev.forma.core.settings.*
     draft: SettingsDraft, appDefaults: PreferenceValues, jobScope: Boolean,
     onValuesChanged: (PreferenceValues) -> Unit, onSave: () -> Unit,
     onDiscard: () -> Unit, onClose: () -> Unit,
-    busy: Boolean = false, error: String? = null, canSave: Boolean = true,
+    busy: Boolean = false, error: String? = null, canSave: Boolean = true, backRequest: Int = 0,
     runControls: @Composable () -> Unit = {}
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
@@ -55,6 +55,8 @@ import dev.forma.core.settings.*
             category != null -> categoryId = null; else -> onClose() }
     }
     BackHandler { back() }
+    // Dialog window Back reaches onDismissRequest, not necessarily the Activity dispatcher.
+    LaunchedEffect(backRequest) { if (backRequest > 0) back() }
     Scaffold(
         topBar = { Surface(tonalElevation=1.dp) {
             Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal=16.dp)) {
