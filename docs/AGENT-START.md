@@ -43,3 +43,9 @@ encoding back into ViewModel scope, collect raw progress at the editor root or
 release the run slot before native cancellation cleanup completes. Keep Stop
 independent of import/save and queue-mutation busy flags. Native upload-fit and
 full editor parity are still required; host/Compose checks are not phone timing.
+
+## Advanced settings design and agent handoff
+
+For the proposed Settings menu, read the [native layout and behavior design](superpowers/specs/2026-09-29-advanced-settings-design.md), the [64-option catalog](advanced-settings-catalog.md), and the [implementation/test plan](superpowers/plans/2026-09-29-advanced-settings.md).
+
+This is a design handoff, not a claim that these preferences are wired. Preserve app-default/preset/job provenance, explicit overrides and immutable queued media settings. Battery/thermal policy is separately versioned and live; waiting after cancellation means restarting from the original, not resuming a partial export. Keep Planned controls honest and coordinate external test-source/ADB work with the editor framework draft rather than shipping a production test endpoint.
