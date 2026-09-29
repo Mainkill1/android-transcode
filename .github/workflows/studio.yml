@@ -12,6 +12,9 @@ jobs:
   studio:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      # H.264/AAC preview tests need a browser with those media codecs.
+      FORMA_BROWSER_CHANNEL: chrome
     defaults:
       run:
         working-directory: studio
@@ -25,12 +28,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           python -m pip install -r requirements-dev.txt
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps chrome
       - name: Build the standalone reference with generated samples
+        id: build
         run: python build.py --samples
       - name: Planner, real encode, API and touch tests
         run: python -m pytest tests -q --junitxml=test-results/pytest.xml
       - name: Browser workflow over ordinary HTTP
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: python tests/browser_checks.py
       - name: Upload preview and test artifacts
         if: always()

@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse, copy, http.client, ipaddress, json, mimetypes, os, re, secrets, shutil
 import socket, ssl, subprocess, threading, time, uuid, webbrowser
 from collections import deque
+from fractions import Fraction
+from upload_limits import image_header, next_plan, SIZE_PRESETS_MB
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit, urljoin, parse_qs, unquote
@@ -16,6 +18,7 @@ MAX_FILE=2*1024**3
 MAX_JSON=256*1024
 
 def inspect_media(path: Path, ffprobe: str='ffprobe') -> dict:
+    image = image_header(path)
     result=subprocess.run([ffprobe,'-v','error','-protocol_whitelist','file,pipe','-format_whitelist',SAFE_DEMUXERS,
         '-show_format','-show_streams','-of','json',str(path)],capture_output=True,text=True,timeout=45)
     if result.returncode:raise ValueError('FFprobe could not open this as a supported media file. Playlists, webpages and live streams are not supported by this runner.')
@@ -26,7 +29,7 @@ def inspect_media(path: Path, ffprobe: str='ffprobe') -> dict:
     v=videos[0] if videos else {}
     try:duration=float(data.get('format',{}).get('duration') or max(float(s.get('duration') or 0) for s in videos+audios))
     except (ValueError,TypeError):duration=0
-    if not 0<duration<=86400*7:raise ValueError('A finite media duration is required. Live streams are not supported.')
+    if not image and not 0<duration<=86400*7:raise ValueError('A finite media duration is required. Live streams are not supported.')
     w=int(v.get('width',0));h=int(v.get('height',0));sar=1.0
     try:
         a,b=v.get('sample_aspect_ratio','1:1').split(':');sar=float(a)/float(b)
@@ -37,7 +40,14 @@ def inspect_media(path: Path, ffprobe: str='ffprobe') -> dict:
     for side in v.get('side_data_list',[]):
         if 'rotation' in side:rotation=int(round(float(side['rotation'])))%360
     if rotation in (90,270):w,h=h,w
-    return dict(duration=duration,width=w,height=h,sar=sar,rotation=rotation,
+    if image:
+        if not w or not h or w * h > 40_000_000: raise ValueError('Invalid image dimensions or more than 40 megapixels.')
+        return dict(kind='image', duration=0, width=w, height=h, hasVideo=False, hasAudio=False,
+                    imageCodec=v.get('codec_name'), hasAlpha=any(x in v.get('pix_fmt','') for x in ('rgba','bgra','argb','abgr','yuva','gbrap','pal8','ya8','ya16')),
+                    hdr=v.get('color_transfer') in ('smpte2084','arib-std-b67'), audioTracks=[])
+    try: fps = float(Fraction(v.get('avg_frame_rate') or '0'))
+    except (ValueError, ZeroDivisionError): fps = 0
+    return dict(kind='video' if videos else 'audio', fps=fps, duration=duration,width=w,height=h,sar=sar,rotation=rotation,
         hasVideo=bool(videos),hasAudio=bool(audios),videoIndex=v.get('index',0),videoCodec=v.get('codec_name'),
         hdr=v.get('color_transfer') in ('smpte2084','arib-std-b67'),
         audioTracks=[dict(index=s['index'],codec=s.get('codec_name'),channels=s.get('channels',2),
@@ -131,7 +141,7 @@ class Workbench:
         identity=uuid.uuid4().hex;out=self.data/(identity+'.'+plan['extension'])
         job=dict(id=identity,status='queued',progress=0,outputName=plan['outputName'],sourceName=src['name'],sourceId=src['id'],
             duration=plan['duration'],width=plan['width'],height=plan['height'],mode=plan['settings']['mode'],
-            settings=copy.deepcopy(plan['settings']),plan=plan,input=src['path'],output=str(out),error='',cancel=False,process=None)
+            settings=copy.deepcopy(settings),targetBytes=plan.get('targetBytes'),attempt=0,maxAttempts=plan.get('maxAttempts',1),attempts=[],phase='Waiting',plan=plan,input=src['path'],output=str(out),error='',cancel=False,process=None)
         with self.lock:self.jobs[identity]=job;self.pending.append(identity);self.wake.set()
         return self.public_job(job)
     @staticmethod
@@ -147,51 +157,101 @@ class Workbench:
                 try:p.kill()
                 except ProcessLookupError:pass
             return self.public_job(job)
+    def encode_attempt(self, job, plan, log):
+        """Encode a complete candidate from the original staged input, never a retry file."""
+        args = build_command(plan, job['input'], job['output'], self.ffmpeg)
+        with self.lock:
+            if job['cancel']: return
+            p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=log, text=True, bufsize=1)
+            job['process'] = p
+        try:
+            for line in p.stdout:
+                if line.startswith('out_time_us=') and plan['duration'] > 0:
+                    try: ratio = int(line.split('=', 1)[1]) / 1_000_000 / plan['duration']
+                    except ValueError: continue
+                    with self.lock: job['progress'] = max(0, min(.99, ratio))
+            code = p.wait()
+        finally:
+            p.stdout.close()
+            if p.poll() is None: p.kill(); p.wait()
+            with self.lock: job['process'] = None
+        if job['cancel']: return
+        if code:
+            log.flush(); log.seek(max(0, log.tell() - 4000))
+            detail = log.read().replace(job['input'], '[source]').replace(job['output'], '[output]')
+            raise ValueError(detail or 'FFmpeg exited without a valid output.')
+
+    def verify_attempt(self, job, plan):
+        path = Path(job['output'])
+        if not path.is_file() or path.stat().st_size <= 0:
+            raise ValueError('FFmpeg did not produce a nonempty output.')
+        result = inspect_media(path, self.ffprobe)
+        if plan.get('kind') == 'image':
+            if result.get('kind') != 'image': raise ValueError('The output is not a still image.')
+            decoded = subprocess.run([self.ffmpeg, '-v', 'error', '-nostdin', '-protocol_whitelist', 'file,pipe',
+                '-format_whitelist', SAFE_DEMUXERS, '-i', str(path), '-frames:v', '1', '-f', 'null', '-'],
+                capture_output=True, timeout=45)
+            if decoded.returncode: raise ValueError('The output image could not be decoded.')
+        else:
+            if bool(result['hasVideo']) != bool(plan['videoEncoder']) or bool(result['hasAudio']) != bool(plan['audioEncoder']):
+                raise ValueError('The output stream verification failed.')
+            if abs(result['duration'] - plan['duration']) > max(.35, plan['duration'] * .02):
+                raise ValueError('The output duration verification failed.')
+        if (plan.get('kind') == 'image' or plan['videoEncoder']) and (result['width'], result['height']) != (plan['width'], plan['height']):
+            raise ValueError('The output picture dimensions do not match the plan.')
+        return path.stat().st_size
+
+    def process_job(self, job, log):
+        plan = job['plan']
+        while True:
+            with self.lock:
+                if job['cancel']: return
+                job.update(status='encoding', progress=0, attempt=plan.get('attempt', 1),
+                           phase='Compressing' if plan.get('attempt', 1) == 1 else 'Retrying with stronger compression')
+            log.write(f"Attempt {job['attempt']}/{job['maxAttempts']} limit={job['targetBytes']} settings={json.dumps(plan['settings'])}\n")
+            log.flush()
+            self.encode_attempt(job, plan, log)
+            with self.lock:
+                if job['cancel']: return
+                job.update(status='verifying', phase='Checking output and file size')
+            measured = self.verify_attempt(job, plan)
+            target = job['targetBytes']
+            fits = target is None or measured < target
+            with self.lock:
+                job['attempts'].append(dict(attempt=job['attempt'], bytes=measured, fitsLimit=fits,
+                    width=plan['width'], height=plan['height'], settings=copy.deepcopy(plan['settings'])))
+            log.seek(0, 2); log.write(f"Measured {measured} bytes; fits={fits}\n"); log.flush()
+            with self.lock:
+                if job['cancel']: return
+                if fits:
+                    job.update(status='completed', progress=1, phase='Ready to upload' if target else 'Complete',
+                        size=measured, verified=True, fitsLimit=True if target else None,
+                        width=plan['width'], height=plan['height'], effectiveSettings=copy.deepcopy(plan['settings']))
+                    return
+            # Only a valid but oversized output is retried. Corrupt input, missing
+            # codecs, disk failures and cancellation are not compression problems.
+            next_attempt = next_plan(self.source(job['sourceId']), job['settings'], plan, measured, self.encoders)
+            if next_attempt is None:
+                raise ValueError(f'Could not fit below the {target:,}-byte upload limit after {job["attempt"]} attempt(s). '
+                                 'Trim the clip or choose a larger limit. No oversized output was published.')
+            Path(job['output']).unlink(missing_ok=True)
+            plan = next_attempt
+
     def run(self):
         while not self.stopping:
             self.wake.wait(.5)
             with self.lock:
-                if not self.pending:self.wake.clear();continue
-                job=self.jobs[self.pending.popleft()]
-                if job['cancel']:continue
-                job['status']='encoding'
-            logpath=self.data/(job['id']+'.log')
+                if not self.pending: self.wake.clear(); continue
+                job = self.jobs[self.pending.popleft()]
+                if job['cancel']: continue
             try:
-                args=build_command(job['plan'],job['input'],job['output'],self.ffmpeg)
-                with logpath.open('w+',encoding='utf8') as log:
-                    with self.lock:
-                        if job['cancel']:continue
-                        p=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=log,text=True,bufsize=1)
-                        job['process']=p
-                    for line in p.stdout:
-                        if line.startswith('out_time_us='):
-                            try:ratio=int(line.split('=',1)[1])/1_000_000/job['duration']
-                            except ValueError:continue
-                            with self.lock:job['progress']=max(0,min(.99,ratio))
-                    code=p.wait();p.stdout.close()
-                    with self.lock:job['process']=None
-                    if job['cancel']:continue
-                    if code:
-                        log.seek(0);detail=log.read()[-3000:]
-                        # Avoid exposing private filesystem paths in the UI.
-                        detail=detail.replace(job['input'],'[source]').replace(job['output'],'[output]')
-                        raise ValueError(detail or 'FFmpeg exited without a valid output.')
-                with self.lock:
-                    if job['cancel']:continue
-                    job['status']='verifying'
-                result=inspect_media(Path(job['output']),self.ffprobe)
-                plan=job['plan']
-                if bool(result['hasVideo'])!=bool(plan['videoEncoder']) or bool(result['hasAudio'])!=bool(plan['audioEncoder']):raise ValueError('The output stream verification failed.')
-                if abs(result['duration']-plan['duration'])>max(.35,plan['duration']*.02):raise ValueError('The output duration verification failed.')
-                if plan['videoEncoder'] and (result['width'],result['height'])!=(plan['width'],plan['height']):raise ValueError('The output picture dimensions do not match the plan.')
-                with self.lock:
-                    if not job['cancel']:
-                        job.update(status='completed',progress=1,size=Path(job['output']).stat().st_size,verified=True)
+                with (self.data / (job['id'] + '.log')).open('w+', encoding='utf8') as log:
+                    self.process_job(job, log)
             except Exception as exc:
                 with self.lock:
-                    if not job['cancel']:job.update(status='failed',error=str(exc)[:3500])
+                    if not job['cancel']: job.update(status='failed', phase='Could not export', error=str(exc)[:3500])
             finally:
-                if job['status']!='completed':Path(job['output']).unlink(missing_ok=True)
+                if job['status'] != 'completed': Path(job['output']).unlink(missing_ok=True)
     def close(self):
         self.stopping=True
         for identity in list(self.jobs):self.cancel(identity)
@@ -255,7 +315,7 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/session':
                 return self.respond(dict(token=self.app.token,available=bool(self.app.ffmpeg and self.app.ffprobe),
                     encoders=sorted(self.app.encoders),videoFormats=VIDEO_FORMATS,audioFormats=AUDIO_FORMATS,
-                    allowPrivateUrls=self.app.allow_private))
+                    allowPrivateUrls=self.app.allow_private,sizePresetsMB=SIZE_PRESETS_MB))
             if path=='/api/jobs':
                 with self.app.lock:jobs=[self.app.public_job(j) for j in self.app.jobs.values()]
                 return self.respond(jobs)
@@ -266,6 +326,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not job or job['status']!='completed':return self.respond({'error':'No verified output is available.'},404)
                 return self.send_file(job['output'],job['outputName'] if 'download' in parse_qs(url.query,keep_blank_values=True) else None)
             files={'/':ROOT/'web/index.html','/index.html':ROOT/'web/index.html','/ui.js':ROOT/'web/ui.js','/ui.css':ROOT/'web/ui.css','/touch.css':ROOT/'web/touch.css',
+                   '/upload.css':ROOT/'web/upload.css','/upload-ui.js':ROOT/'web/upload-ui.js',
                    '/timeline.js':ROOT/'web/timeline.js','/timeline.css':ROOT/'web/timeline.css',
                    '/sample.mp4':ROOT/'media/sample.mp4','/sample.wav':ROOT/'media/sample.wav'}
             if path in files:return self.send_file(files[path])

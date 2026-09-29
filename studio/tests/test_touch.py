@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.fixture(scope='module')
 def browser():
     with sync_playwright() as p:
-        b = p.chromium.launch(executable_path=os.environ.get('FORMA_BROWSER') or shutil.which('chromium'), headless=True, args=['--no-sandbox'])
+        b = p.chromium.launch(executable_path=os.environ.get('FORMA_BROWSER') or shutil.which('chromium'), channel=os.environ.get('FORMA_BROWSER_CHANNEL'), headless=True, args=['--no-sandbox'])
         yield b
         b.close()
 

@@ -9,11 +9,12 @@ VIDEO_ENCODERS = {'h264':'libx264','hevc':'libx265','vp9':'libvpx-vp9','av1':'li
 VIDEO_FORMATS = {'mp4':['h264','hevc','av1'], 'mkv':['h264','hevc','vp9','av1'],
                  'mov':['h264','hevc'], 'webm':['vp9','av1']}
 AUDIO_FORMATS = {'mp3':'libmp3lame','m4a':'aac','flac':'flac','wav':'pcm_s16le','opus':'libopus'}
-SAFE_DEMUXERS = 'mov,matroska,webm,avi,mpegts,mp3,wav,flac,ogg,aac,mpeg,aiff,asf'
+SAFE_DEMUXERS = 'mov,matroska,webm,avi,mpegts,mp3,wav,flac,ogg,aac,mpeg,aiff,asf,png_pipe,jpeg_pipe,webp_pipe'
 
 def default_settings(source: dict | None = None) -> dict:
+    image = source is not None and source.get('kind') == 'image'
     audio = source is not None and not source.get('hasVideo',False)
-    return dict(mode='audio' if audio else 'video',format='mp3' if audio else 'mp4',
+    return dict(mode='image' if image else 'audio' if audio else 'video',format='webp' if image else 'mp3' if audio else 'mp4',
         videoCodec='h264',rateMode='quality',crf=23,videoBitrate=2500,preset='fast',
         resolution='source',fps='source',audioBitrate=192,audioTrack=0,channels='source',
         sampleRate='source',segments=[],crop=dict(left=0,right=0,top=0,bottom=0),
@@ -44,6 +45,15 @@ def safe_name(name: str, extension: str) -> str:
     return name+'.'+extension
 
 def make_plan(source: dict, settings: dict, encoders: set[str] | None = None) -> dict:
+    from upload_limits import target_limit, media_plan, image_plan
+    if not isinstance(settings, dict): raise ValueError('Settings must be an object.')
+    target = target_limit(settings)
+    if source.get('kind') == 'image': return image_plan(source, settings, encoders)
+    if target is not None: return media_plan(source, settings, encoders)
+    return _make_media_plan(source, settings, encoders)
+
+
+def _make_media_plan(source: dict, settings: dict, encoders: set[str] | None = None) -> dict:
     if not isinstance(settings,dict): raise ValueError('Settings must be an object.')
     s=default_settings(source);s.update(settings)
     mode=choice(s['mode'],'output mode',('video','audio'))
@@ -63,10 +73,11 @@ def make_plan(source: dict, settings: dict, encoders: set[str] | None = None) ->
     choice(s['rateMode'],'rate control',('quality','bitrate'))
     choice(s['preset'],'encoder preset',('ultrafast','fast','medium','slow'))
     crf=number(s['crf'],'Video quality',0,51 if codec in ('h264','hevc') else 63,True)
-    bitrate=number(s['videoBitrate'],'Video bitrate',100,200000,True)
+    bitrate=number(s['videoBitrate'],'Video bitrate',64 if s.get('targetBytes') else 100,200000,True)
     abitrate=number(s['audioBitrate'],'Audio bitrate',16,320,True)
-    resolution=choice(str(s['resolution']),'resolution',('source','480','720','1080','2160'))
-    fps=choice(str(s['fps']),'frame rate',('source','24','25','30','50','60'))
+    resolution=choice(str(s['resolution']),'resolution',('source','240','360','480','720','1080','2160'))
+    fps = str(s['fps'])
+    if fps != 'source': fps = num(number(fps, 'Frame rate', 1, 120))
     channels=choice(str(s['channels']),'audio channels',('source','1','2'))
     samplerate=choice(str(s['sampleRate']),'sample rate',('source','22050','32000','44100','48000','96000'))
     speed=number(s['speed'],'Playback speed',.5,2)
@@ -111,7 +122,7 @@ def make_plan(source: dict, settings: dict, encoders: set[str] | None = None) ->
         cw=min(cw,sw-x);ch=min(ch,sh-y)
         width,height=(ch,cw) if rotation in (90,270) else (cw,ch)
         if resolution!='source':
-            short=int(resolution);long={480:854,720:1280,1080:1920,2160:3840}[short]
+            short=int(resolution);long={240:426,360:640,480:854,720:1280,1080:1920,2160:3840}[short]
             mw,mh=(long,short) if width>=height else (short,long)
             factor=min(1,mw/width,mh/height);width=even(width*factor);height=even(height*factor)
     graph=[];count=len(normalized)
@@ -152,6 +163,9 @@ def make_plan(source: dict, settings: dict, encoders: set[str] | None = None) ->
                 extension=fmt,outputName=output,duration=outduration,width=width,height=height,sampleRate=sample)
 
 def build_command(plan: dict,input_path: str,output_path: str,ffmpeg: str='ffmpeg') -> list[str]:
+    if plan.get('kind') == 'image':
+        from upload_limits import image_command
+        return image_command(plan, input_path, output_path, ffmpeg)
     if Path(input_path).resolve()==Path(output_path).resolve(): raise ValueError('Output must never overwrite the source.')
     s=plan['settings']
     args=[ffmpeg,'-hide_banner','-loglevel','error','-nostdin','-y','-protocol_whitelist','file,pipe',

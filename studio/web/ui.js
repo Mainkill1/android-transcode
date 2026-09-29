@@ -15,12 +15,12 @@
     engine:{available:false,encoders:[],token:null},engineChecked:false,history:[],future:[],selected:0,
     jobs:[],plan:null,planError:'',planPending:false,videoFormat:'mp4',audioFormat:'mp3',pendingView:null};
   const media=$('#media');let mediaObjectUrl=null,toastTimer,planTimer,planSequence=0,playIndex=0;
-  function defaults(src){const audio=!src.hasVideo;return {mode:audio?'audio':'video',format:audio?'mp3':'mp4',videoCodec:'h264',
+  function defaults(src){const image=src.kind==='image',audio=!src.hasVideo;return {targetBytes:window.FormaUpload?.selectedBytes??null,mode:image?'image':audio?'audio':'video',format:image?'webp':audio?'m4a':'mp4',videoCodec:'h264',
     rateMode:'quality',crf:23,videoBitrate:2500,preset:'fast',resolution:'source',fps:'source',audioBitrate:192,audioTrack:0,
     channels:'source',sampleRate:'source',segments:src.duration?[{start:0,end:src.duration}]:[],crop:{left:0,right:0,top:0,bottom:0},
     rotation:0,flip:false,speed:1,volume:1,mute:false,normalize:false,fadeIn:0,fadeOut:0,stripMetadata:true,filename:''};}
   function time(v,precise=false){if(!Number.isFinite(v))return 'Unknown';const minutes=Math.floor(v/60);const sec=v-minutes*60;return `${String(minutes).padStart(2,'0')}:${precise?sec.toFixed(2).padStart(5,'0'):String(Math.floor(sec)).padStart(2,'0')}`;}
-  function size(n){return n>=1073741824?`${(n/1073741824).toFixed(2)} GiB`:n>=1048576?`${(n/1048576).toFixed(1)} MB`:`${Math.max(1,Math.round(n/1024))} KB`;}
+  function size(n){return n>=1e9?`${(n/1e9).toFixed(2)} GB`:n>=1e6?`${(n/1e6).toFixed(2)} MB`:`${Math.max(1,Math.round(n/1000))} KB`;}
   function duration(){return state.settings?state.settings.segments.reduce((n,r)=>n+r.end-r.start,0)/state.settings.speed:0;}
   function toast(text){$('#toast').textContent=text;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);}
   function busy(on,text='Inspecting your media…'){$('#busy-label').textContent=text;$('#busy').hidden=!on;}
@@ -59,7 +59,7 @@
     if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
   });
   function navigate(page){
-    if(['video','audio','edit'].includes(page)){
+    if(['video','audio','edit','image'].includes(page)){
       if(!state.source){state.pendingView=page;page='home';$('#home-message').textContent='Select media or enter a media URL to continue.';}
       else{setView(page);page='workspace';}
     }
@@ -75,6 +75,7 @@
     const tab=e.target.closest('[data-tab]');if(tab){setView(tab.dataset.tab);return;}
     const jump=e.target.closest('[data-jump]');if(jump){
       if(!state.source){state.pendingView=jump.dataset.jump==='advanced'?'video':'edit';navigate('home');$('#home-message').textContent='Add a source first. Your tools will open after inspection.';return;}
+      if(state.source.kind==='image'&&jump.dataset.jump!=='advanced'){toast('Timeline editing is available for video and audio.');return;}
       if(jump.dataset.jump==='advanced'){navigate(state.settings.mode);state.advanced=true;render();$('#advanced-toggle')?.scrollIntoView({behavior:'smooth',block:'start'});}
       else{navigate('edit');state.inspector=jump.dataset.jump;renderInspector();}return;
     }
@@ -94,6 +95,8 @@
   });
   function setView(view){
     if(!state.source)return;
+    if(state.source.kind==='image'&&view!=='image'){toast('This is a still image. Use the Image controls.');return;}
+    if(view==='image'&&state.source.kind!=='image')return;
     if(view==='video'&&!state.source.hasVideo){toast('This source contains audio only.');return;}
     if(view==='audio'&&!state.source.hasAudio){toast('This source has no audio track to export.');return;}
     if(view!=='edit'){
@@ -109,7 +112,7 @@
       const list=VIDEO[s.format]||VIDEO.mp4;
       if(!list.includes(s.videoCodec)||!available(VENC[s.videoCodec]))s.videoCodec=list.find(c=>available(VENC[c]))||list[0];
       state.videoFormat=s.format;
-    }else state.audioFormat=s.format;
+    }else if(s.mode==='audio')state.audioFormat=s.format;
   }
   function pushHistory(){state.history.push(copy(state.settings));if(state.history.length>80)state.history.shift();state.future=[];}
   function change(patch){
@@ -129,7 +132,15 @@
   for(const name of ['dragenter','dragover'])document.addEventListener(name,e=>{if(e.dataTransfer?.types.includes('Files')){e.preventDefault();document.body.classList.add('dragging');}});
   document.addEventListener('dragleave',e=>{if(!e.relatedTarget)document.body.classList.remove('dragging');});
   document.addEventListener('drop',e=>{document.body.classList.remove('dragging');if(e.dataTransfer?.files.length){e.preventDefault();importLocal(e.dataTransfer.files[0]);}});
-  function localMetadata(file,url){return new Promise(resolve=>{
+  function localMetadata(file,url){
+    if(file.type.startsWith('image/')||/\.(png|jpe?g|webp)$/i.test(file.name))return new Promise(resolve=>{
+      const img=new Image();let done=false;
+      const finish=info=>{if(done)return;done=true;resolve(info);};
+      img.onload=()=>finish({kind:'image',duration:0,width:img.naturalWidth,height:img.naturalHeight,hasVideo:false,hasAudio:false,audioTracks:[],verified:false});
+      img.onerror=()=>finish({kind:'image',duration:0,width:0,height:0,hasVideo:false,hasAudio:false,audioTracks:[],verified:false});
+      img.src=url;setTimeout(()=>img.onerror?.(),6500);
+    });
+    return new Promise(resolve=>{
     const v=document.createElement('video');let done=false;
     const end=info=>{if(done)return;done=true;v.removeAttribute('src');v.load();resolve(info);};
     const audio=file.type.startsWith('audio/')||/\.(mp3|m4a|aac|wav|flac|ogg|opus)$/i.test(file.name);
@@ -172,13 +183,14 @@
   };
   function activate(src,url){
     media.pause();if(mediaObjectUrl)URL.revokeObjectURL(mediaObjectUrl);mediaObjectUrl=url.startsWith('blob:')?url:null;
-    state.source=src;state.settings=defaults(src);state.selected=0;state.history=[];state.future=[];state.advanced=false;
+    state.source={...src,previewUrl:url};state.settings=defaults(src);state.selected=0;state.history=[];state.future=[];state.advanced=false;
     state.videoFormat='mp4';state.audioFormat='mp3';state.plan=null;state.planError='';
-    const opts=outputOptions(state.settings.mode);const supported=opts.find(o=>!o.disabled);if(supported)state.settings.format=supported.value;
-    fixCompatibility();$('#preview-error').hidden=true;media.src=url;media.load();
+    const opts=src.kind==='image'?[]:outputOptions(state.settings.mode);const supported=opts.find(o=>!o.disabled);if(supported)state.settings.format=supported.value;
+    fixCompatibility();$('#preview-error').hidden=true;if(src.kind==='image'){media.removeAttribute('src');}else media.src=url;media.load();
     state.view=state.pendingView||state.settings.mode;state.pendingView=null;if(state.view==='video'&&!src.hasVideo)state.view='audio';
     if(state.view==='audio'&&src.hasAudio){state.settings.mode='audio';state.settings.format=state.audioFormat;}
     if(state.view==='audio'&&!src.hasAudio)state.view='video';
+    if(src.kind==='image')state.view='image';
     navigate('workspace');window.FormaTimeline?.refresh();schedulePlan();
   }
   function select(label,key,options,value,helptext=''){
@@ -198,7 +210,7 @@
       (!['flac','wav'].includes(s.format)?select('Audio bitrate','audioBitrate',[96,128,160,192,256,320].map(x=>({value:x,label:`${x} kb/s`})),s.audioBitrate):'')+
       (s.format==='opus'?'<p class="helper">Opus output uses 48 kHz. The runner resamples if needed.</p>':'');
   }
-  function renderConversion(){const s=state.settings,audio=s.mode==='audio',lossless=['flac','wav'].includes(s.format);
+  function renderConversion(){if(window.FormaUpload&&(state.settings.targetBytes!=null||state.source.kind==='image')){window.FormaUpload.render();return;}const s=state.settings,audio=s.mode==='audio',lossless=['flac','wav'].includes(s.format);
     const selected=audio?(s.audioBitrate<=96?'small':s.audioBitrate>=320?'high':'balanced'):(s.rateMode==='quality'?(s.crf>=28?'small':s.crf<=18?'high':'balanced'):'');
     const labels=audio?{small:['Smaller','Good for speech'],balanced:['Balanced','Everyday listening'],high:['Higher quality','More audio detail']}:{small:['Smaller file','Less space, easy sharing'],balanced:['Balanced','A little of everything'],high:['Higher quality','Keep more detail']};
     $('#conversion-panel').innerHTML=`<div class="conversion-content">${!state.engine.available?'<p class="engine-note">Layout preview · Start the included local runner to enable real FFmpeg export.</p>':''}
@@ -218,12 +230,12 @@
     document.body.classList.toggle('editing',state.view==='edit');
     const focus=document.activeElement?.dataset.setting;
     $('#source-name').textContent=state.source.name;
-    $('#source-meta').textContent=[state.source.hasVideo?`${state.source.width||'?'} × ${state.source.height||'?'}`:'Audio source',time(state.source.duration),size(state.source.size),state.source.backend?'Inspected by FFprobe':'Browser preview only'].join('  ·  ');
-    $('#source-icon').innerHTML=icon(state.source.hasVideo?'video':'audio');
+    $('#source-meta').textContent=[state.source.hasVideo||state.source.kind==='image'?`${state.source.width||'?'} × ${state.source.height||'?'}`:'Audio source',state.source.kind==='image'?'Still image':time(state.source.duration),size(state.source.size),state.source.backend?'Inspected by FFprobe':'Browser preview only'].join('  ·  ');
+    $('#source-icon').innerHTML=icon(state.source.kind==='image'?'image':state.source.hasVideo?'video':'audio');
     $('#workspace-eyebrow').textContent=state.view==='edit'?'EDIT BEFORE EXPORT':'CONVERT';
-    $('#workspace-title').textContent=state.view==='edit'?'Edit your media.':state.view==='audio'?'Make it sound right.':'Choose your output.';
+    $('#workspace-title').textContent=state.view==='edit'?'Edit your media.':state.view==='audio'?'Make it sound right.':state.view==='image'?'Prepare your image.':state.settings.targetBytes?'Ready to make it fit.':'Choose your output.';
     $$('.workspace-tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===state.view)));
-    $('#tab-video').disabled=!state.source.hasVideo;$('#tab-audio').disabled=!state.source.hasAudio;
+    $('#tab-image').hidden=state.source.kind!=='image';$('#tab-edit').disabled=state.source.kind==='image';$('#tab-video').disabled=!state.source.hasVideo;$('#tab-audio').disabled=!state.source.hasAudio;
     $$('#shelf [data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav===state.view));
     $('#conversion-panel').hidden=state.view==='edit';$('#edit-panel').hidden=state.view!=='edit';$('#history-buttons').hidden=state.view!=='edit';
     $('#undo').disabled=!state.history.length;$('#redo').disabled=!state.future.length;
@@ -237,8 +249,8 @@
     const s=state.settings;if(!s)return;
     const name=state.plan?.outputName||`${s.filename||state.source.name.replace(/\.[^.]+$/,'')+'-converted'}.${s.format}`;
     $('#output-name').textContent=name;
-    $('#output-summary').textContent=`${s.format.toUpperCase()} · ${time(duration())} ${s.mode==='audio'?'audio':'video'}`;
-    $('#convert-label').textContent=`${state.view==='edit'?'Export':'Convert'} ${s.mode}`;
+    $('#output-summary').textContent=s.targetBytes?`Below ${window.FormaUpload.mb(s.targetBytes)} · Size checked after export`:`${s.format.toUpperCase()} · ${s.mode==='image'?'Image':time(duration())+' '+s.mode}`;
+    $('#convert-label').textContent=s.targetBytes?`Make it under ${window.FormaUpload.mb(s.targetBytes)}`:`${state.view==='edit'?'Export':'Convert'} ${s.mode}`;
     const ready=state.engine.available&&state.source.backend&&state.plan&&!state.planError&&!state.planPending;
     $('#convert').disabled=!ready;$('#add-queue').disabled=!ready;
     const message=state.planError||(!state.engine.available?'Preview only. Run python server.py from the included package to encode with FFmpeg.':'');
@@ -371,7 +383,7 @@
     const sourceId=state.source.id,settings=copy(state.settings);
     planTimer=setTimeout(async()=>{try{const p=await api('/api/plan',{sourceId,settings});if(serial!==planSequence)return;state.plan=p;state.planError='';}
       catch(e){if(serial!==planSequence)return;state.planError=e.message;}
-      finally{if(serial===planSequence){state.planPending=false;renderFooter();}}},180);
+      finally{if(serial===planSequence){state.planPending=false;renderFooter();window.FormaUpload?.updateSummary();}}},180);
   }
   async function enqueue(showQueue){
     if(!state.engine.available||!state.source?.backend){help();return;}
@@ -386,9 +398,10 @@
   async function pollQueue(){try{await refreshQueue();}catch{ /* A stopped runner never manufactures a successful job. */ }setTimeout(pollQueue,900);}
   function renderQueue(){
     if(!state.jobs.length){$('#queue-list').innerHTML='<div class="queue-empty">No exports yet.<br><br>Add media, choose a result, and convert.</div>';return;}
-    $('#queue-list').innerHTML=[...state.jobs].reverse().map(j=>`<article class="queue-item" data-job="${esc(j.id)}"><div class="job-top"><div class="job-icon">${icon(j.mode==='video'?'video':'audio')}</div><div class="job-info"><b>${esc(j.outputName)}</b><span>${esc(j.sourceName)} · ${time(j.duration)}${j.size?' · '+size(j.size):''}</span></div><span class="job-status ${esc(j.status)}">${esc(j.status)}</span></div>${j.status==='encoding'||j.status==='verifying'?`<div class="progress" role="progressbar" aria-label="Encoding progress" aria-valuenow="${Math.round(j.progress*100)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${Math.round(j.progress*100)}%"></span></div>`:''}${j.error?`<pre class="job-error">${esc(j.error)}</pre>`:''}<div class="job-actions">${['encoding','queued','verifying'].includes(j.status)?`<button data-cancel="${esc(j.id)}" class="small-button">Cancel</button>`:''}${j.status==='completed'?`<span class="pill">VERIFIED OUTPUT</span><a href="/output/${encodeURIComponent(j.id)}" target="_blank" rel="noopener" class="small-button">Open</a><a href="/output/${encodeURIComponent(j.id)}?download=1" class="small-button" download="${esc(j.outputName)}">${icon('download')}Save file</a>`:''}</div></article>`).join('');
+    $('#queue-list').innerHTML=[...state.jobs].reverse().map(j=>`<article class="queue-item" data-job="${esc(j.id)}"><div class="job-top"><div class="job-icon">${icon(j.mode==='image'?'image':j.mode==='video'?'video':'audio')}</div><div class="job-info"><b>${esc(j.outputName)}</b><span>${esc(j.sourceName)} · ${j.mode==='image'?'Still image':time(j.duration)}${j.size?' · '+size(j.size):''}</span></div><span class="job-status ${esc(j.status)}">${esc(j.status)}</span></div>${j.status==='encoding'||j.status==='verifying'?`<div class="progress" role="progressbar" aria-label="Encoding progress" aria-valuenow="${Math.round(j.progress*100)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${Math.round(j.progress*100)}%"></span></div>`:''}${j.targetBytes?`<p class="job-limit">${j.fitsLimit?'Fits your limit · ':''}Under ${window.FormaUpload.mb(j.targetBytes)}${j.size?' · '+j.size.toLocaleString()+' bytes measured':''}</p><p class="job-attempt">${esc(j.phase||j.status)} · Attempt ${j.attempt||0}/${j.maxAttempts}</p>`:''}${j.attempts?.length?`<details class="job-attempts"><summary>Conversion details</summary>${j.attempts.map(a=>`<div>Attempt ${a.attempt}: ${a.bytes.toLocaleString()} bytes · ${a.fitsLimit?'Within limit':'Too large; stronger compression needed'}</div>`).join('')}</details>`:''}${j.error?`<pre class="job-error">${esc(j.error)}</pre>`:''}<div class="job-actions">${['encoding','queued','verifying'].includes(j.status)?`<button data-cancel="${esc(j.id)}" class="small-button">Cancel</button>`:''}${j.status==='completed'?`<span class="pill">VERIFIED OUTPUT</span><a href="/output/${encodeURIComponent(j.id)}" target="_blank" rel="noopener" class="small-button">Open</a><a href="/output/${encodeURIComponent(j.id)}?download=1" class="small-button" download="${esc(j.outputName)}">${icon('download')}Save file</a>`:''}</div></article>`).join('');
   }
   window.FormaStudio={state,activate,defaults,change,navigate,setView,render,draw,duration,applyCrop,setTrim,clampTrim,updatePlayhead,time};
+  window.FormaUpload?.bind(window.FormaStudio);
   const measureFooter=()=>{
     const h=$('#export-bar').hidden?0:Math.ceil($('#export-bar').getBoundingClientRect().height);
     document.documentElement.style.setProperty('--export-height',`${h}px`);

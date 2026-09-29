@@ -43,7 +43,7 @@ def run():
         conn.request(payload['method'],payload['path'],body=base64.b64decode(payload['body']) if payload['body'] else None,headers=payload['headers'])
         r=conn.getresponse();body=r.read();reply={'status':r.status,'headers':dict(r.getheaders()),'body':base64.b64encode(body).decode()};conn.close();return reply
     with sync_playwright() as p:
-        browser=p.chromium.launch(executable_path=os.environ.get('FORMA_BROWSER') or ('/usr/bin/chromium' if Path('/usr/bin/chromium').exists() else None),headless=True,args=['--no-sandbox'])
+        browser=p.chromium.launch(executable_path=os.environ.get('FORMA_BROWSER') or ('/usr/bin/chromium' if Path('/usr/bin/chromium').exists() else None),channel=os.environ.get('FORMA_BROWSER_CHANNEL'),headless=True,args=['--no-sandbox'])
         page=browser.new_page(viewport={'width':390,'height':844},reduced_motion='reduce')
         errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
         expect.set_options(timeout=4000)
@@ -62,6 +62,7 @@ def run():
             page.keyboard.press('Escape');check('Escape dismisses phone shelf',lambda:expect(page.locator('#shelf')).to_be_hidden())
             page.locator('#file-input').set_input_files(str(ROOT/'media/sample.wav'));page.wait_for_function('FormaStudio.state.source?.hasVideo===false')
             check('audio source starts on Audio, not Video',lambda:(expect(page.locator('#tab-audio')).to_have_attribute('aria-selected','true'),expect(page.locator('#tab-video')).to_be_disabled()))
+            page.locator('#advanced-toggle').click();page.locator('#manual-conversion').click()
             page.locator('[data-setting=format]').select_option('flac')
             check('lossless format hides meaningless bitrate quality presets',lambda:expect(page.locator('.goal-row')).to_have_count(0))
             page.screenshot(path=str(ROOT/'screenshots/mobile-audio-lossless.png'))
@@ -75,6 +76,9 @@ def run():
             page.wait_for_function('FormaStudio.state.engine.available')
             check('capabilities come from the installed FFmpeg process',lambda:assert_('libx264' in page.evaluate('FormaStudio.state.engine.encoders')))
             page.locator('#file-input').set_input_files(str(ROOT/'media/sample.mp4'));page.wait_for_function('FormaStudio.state.plan !== null')
+            check('upload goal defaults to ten decimal MB',lambda:assert_(page.evaluate('FormaStudio.state.plan.targetBytes')==10_000_000))
+            page.locator('#advanced-toggle').click();page.locator('#manual-conversion').click();page.wait_for_function('FormaStudio.state.plan!==null')
+            if page.evaluate('FormaStudio.state.advanced'):page.locator('#advanced-toggle').click()
             check('local upload is FFprobe-inspected with true audio stream index',lambda:assert_(page.evaluate('FormaStudio.state.source.audioTracks[0].index')==1))
             for fmt in ('webm','mkv','mov','mp4'):
                 page.locator('[data-setting=format]').select_option(fmt);page.wait_for_function('FormaStudio.state.plan!==null')

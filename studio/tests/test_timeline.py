@@ -32,6 +32,10 @@ def drag(page, edge, seconds, touch=False):
         send('touchStart', [{'x':x,'y':y}])
         for i in range(1,9): send('touchMove', [{'x':x+(target-x)*i/8,'y':y}])
         send('touchEnd', [])
+        # CDP submits raw input, not a completed compositor gesture. Starting
+        # another tap immediately can suppress its click in Chromium. Keep the
+        # assertions intact and allow the prior touch gesture to settle.
+        page.wait_for_timeout(150)
         cdp.detach()
     else:
         page.mouse.move(x,y); page.mouse.down()
