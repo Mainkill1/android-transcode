@@ -40,6 +40,21 @@ object CoreChecks {
         "reject out of range audio track" to { rejects(defaults.copy(audioTrack = 2)) },
         "reject h264 in webm" to { rejects(defaults.copy(container = Container.WEBM)) },
         "accept vp9 opus in webm" to { check(Planner.validate(source, Trim(), defaults.copy(container = Container.WEBM, video = VideoEncoder.VP9, audio = AudioEncoder.OPUS)).isEmpty()) },
+        "software codec selection keeps requested encoder" to {
+            listOf(
+                VideoEncoder.X265 to defaults.copy(video = VideoEncoder.X265),
+                VideoEncoder.VP9 to defaults.copy(container = Container.WEBM, video = VideoEncoder.VP9, audio = AudioEncoder.OPUS),
+                VideoEncoder.AV1 to defaults.copy(container = Container.WEBM, video = VideoEncoder.AV1, audio = AudioEncoder.OPUS)
+            ).forEach { (encoder, settings) ->
+                val arguments = Planner.arguments(source, Trim(), settings, "/private/input.mp4", "/private/output.${settings.container.extension}")
+                check(arguments[arguments.indexOf("-c:v") + 1] == encoder.ffmpeg)
+                check("libx264" !in arguments)
+                val required = Capabilities(true, "", setOf(encoder.ffmpeg, settings.audio.ffmpeg),
+                    setOf(settings.container.muxer), setOf("scale"))
+                check(Planner.validate(source, Trim(), settings, required).isEmpty())
+                check(Planner.validate(source, Trim(), settings, required.copy(encoders = setOf(settings.audio.ffmpeg))).isNotEmpty())
+            }
+        },
         "reject hardware CRF" to { rejects(defaults.copy(video = VideoEncoder.H264_HW)) },
         "reject odd height" to { rejects(defaults.copy(maxHeight = 721)) },
         "reject invalid bitrate" to { rejects(defaults.copy(videoKbps = 0)) },
