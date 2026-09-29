@@ -2,6 +2,7 @@ package dev.forma.app.data
 
 import dev.forma.core.*
 import dev.forma.ffmpeg.FfmpegBridge
+import dev.forma.ffmpeg.verifyOutputStreams
 import java.io.File
 import dev.forma.core.audio.*
 import dev.forma.ffmpeg.audio.*
@@ -48,6 +49,7 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
             val decoded = bridge.execute(listOf("-hide_banner", "-nostdin", "-v", "error", "-xerror", "-i", temporary.absolutePath,
                 "-map", "0:v?", "-map", "0:a?", "-f", "null", "-")) {}
             check(decoded.exitCode == 0) { "The output could not be fully decoded. ${decoded.diagnostics}" }
+            verifyOutputStreams(bridge, actual, spec.trim, spec.settings, input.absolutePath, temporary.absolutePath)
             if (normalization.mode != NormalizationMode.OFF) {
                 val finalSettings=spec.settings.copy(audioTrack=0,audioEdit=AudioEdit(output=AudioOutputPolicy(channels=ChannelMode.SOURCE,normalization=normalization)))
                 val measured=AudioAnalyzer(bridge).analyze(AudioAnalysisRequest("final",temporary,output,Trim(),finalSettings)).measurement
@@ -58,12 +60,7 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
                 } else check((measured as? AudioMeasurementResult.Peak)?.samplePeakDb?.let { kotlin.math.abs(it-normalization.peakDb)<=0.1 } == true) { "The encoded output exceeded its sample-peak target." }
             }
             currentCoroutineContext().ensureActive()
-            // Keep publication and its durable state notification together across cancellation.
-            // Process death between filesystem rename and queue fsync still needs startup recovery.
-            withContext(NonCancellable) {
-                check(temporary.renameTo(published)) { "The verified output could not be published." }
-                onState(JobState.COMPLETED)
-            }
+            publishVerified(temporary,published) { onState(JobState.COMPLETED) }
         } finally { directory.deleteRecursively() }
     }
 }

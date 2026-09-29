@@ -7,6 +7,8 @@ import dev.forma.core.audio.*
 import dev.forma.ffmpeg.*
 import dev.forma.ffmpeg.audio.*
 import kotlinx.coroutines.*
+import org.junit.Assume.assumeTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.Assume.assumeTrue
 import org.junit.runner.RunWith
@@ -17,6 +19,11 @@ import kotlin.math.*
 
 @RunWith(AndroidJUnit4::class)
 class AudioAnalysisDeviceTest {
+    @Before fun requireNativeOptIn() {
+        assumeTrue("Run explicitly with -e formaNative true on a native Android build.",
+            InstrumentationRegistry.getArguments().getString("formaNative") == "true")
+    }
+
     @Test fun twoPassAndSilentMeasurements():Unit=runBlocking(Dispatchers.IO) {
         assumeTrue("Run explicitly with -e formaNative true on a native Android build.",
             InstrumentationRegistry.getArguments().getString("formaNative") == "true")

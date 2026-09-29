@@ -36,7 +36,7 @@ class AudioJobCodecTest {
     @Test fun unknownEffectAndItsFutureFieldsRemainAfterSaveAndExplicitBypass() {
         val root = JSONObject(JobCodec.encode(listOf(oldEntry))).put("schema", 2)
         val unknown = JSONObject("""{"id":"future","type":"new-filter","version":7,"enabled":true,"parameters":{"amount":3},"futureField":{"keep":42}}""")
-        val audio = JSONObject().put("schema", 1).put("nodes", JSONArray().put(unknown)).put("output", JSONObject())
+        val audio = AudioEditCodec.encode(AudioEdit()).put("nodes", JSONArray().put(unknown))
         root.getJSONArray("jobs").getJSONObject(0).getJSONObject("settings").put("audioEdit", audio)
         val loaded = JobCodec.decode(root.toString()).single()
         assertEquals("new-filter", loaded.spec.settings.audioEdit.nodes.single().type)

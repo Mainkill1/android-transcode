@@ -180,29 +180,3 @@ class MediaFiles(private val context: Context,private val imageBridge: dev.forma
         val source = output(spec)
         require(source.isFile && source.length() > 0) { "The completed output is no longer available." }
         val total = source.length()
-        val firstByte=try{resolver.openInputStream(destination)?.use{it.read()}}
-            catch(cancel:CancellationException){throw cancel}catch(_:Exception){null}
-        requireEmptyExportDestination(spec.source.uri,destination.toString(),firstByte)
-        currentCoroutineContext().ensureActive()
-        try {
-            resolver.openOutputStream(destination, "w")?.use { out -> source.inputStream().use { input ->
-                val buffer = ByteArray(64 * 1024)
-                var copied = 0L
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    out.write(buffer, 0, read)
-                    copied += read
-                    onBytes(copied, total)
-                }
-                out.flush()
-                check(copied == total) { "The output changed during saving." }
-            } } ?: throw IOException("The destination is not writable.")
-        } catch (error: Exception) {
-            // Only the new ACTION_CREATE_DOCUMENT result is eligible for cleanup.
-            runCatching { DocumentsContract.deleteDocument(resolver, destination) }
-            throw error
-        }
-    }
-}
