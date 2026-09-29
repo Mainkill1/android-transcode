@@ -10,9 +10,6 @@ import java.util.UUID
 
 /** Versioned queue wire format. Unknown/corrupt data is surfaced, never silently erased. */
 object JobCodec {
-<<<<<<< HEAD
-    fun encode(entries: List<QueueEntry>): String = JSONObject().put("schema", 3)
-=======
     private fun fields(value: JSONObject, allowed: Set<String>, required: Set<String> = allowed) {
         val keys=value.keys().asSequence().toSet()
         require(keys.all { it in allowed } && keys.containsAll(required)) {
@@ -34,8 +31,7 @@ object JobCodec {
         require(it is Boolean) { "Saved $key must be a Boolean." };it
     }
 
-    fun encode(entries: List<QueueEntry>): String = JSONObject().put("schema", 2)
->>>>>>> feat/native-audio-editor
+    fun encode(entries: List<QueueEntry>): String = JSONObject().put("schema", 3)
         .put("jobs", JSONArray(entries.map { entry ->
             val tagged = entry.spec
             if (tagged is QueueJobSpec.Image) {
@@ -68,8 +64,8 @@ object JobCodec {
 
     fun decode(text: String): List<QueueEntry> {
         val root = JSONObject(text)
-<<<<<<< HEAD
-        val schema = root.getInt("schema")
+        fields(root,setOf("schema","jobs"))
+        val schema = int(root,"schema")
         require(schema in 1..3) { "Unsupported queue schema. The original file has been preserved." }
         val jobs = root.getJSONArray("jobs")
         return (0 until jobs.length()).map { i ->
@@ -83,33 +79,20 @@ object JobCodec {
                     if (j.isNull("info")) null else ImageDocumentCodec.decodeInfo(j.getJSONObject("info")),if(j.isNull("resolvedFormat"))null else ImageFormat.valueOf(j.getString("resolvedFormat")))), JobState.valueOf(j.getString("state")), j.getString("message"))
             }
             require(schema < 3 || j.getString("kind") == "av") { "Unsupported queue kind; original preserved." }
-=======
-        fields(root,setOf("schema","jobs"))
-        val schema = int(root,"schema")
-        require(schema in 1..2) { "Unsupported queue schema. The original file has been preserved." }
-        val jobs = root.getJSONArray("jobs")
-        return (0 until jobs.length()).map { i ->
-            val j = jobs.getJSONObject(i)
             val base=setOf("id","state","message","source","trim","settings")
-            fields(j,base)
->>>>>>> feat/native-audio-editor
+            fields(j,if(schema>=3)base+"kind" else base)
             val source = j.getJSONObject("source")
             val trim = j.getJSONObject("trim")
             require(trim.has("endMs")){"Missing saved trim endpoint; original queue preserved."}
             val s = j.getJSONObject("settings")
-<<<<<<< HEAD
-            if(schema>=2)validateSavedAudioNodeIntent(s.getJSONObject("audioEdit"))
-            val id = j.getString("id")
-=======
             val sourceFields=setOf("uri","name","durationMs","width","height","videoTracks","audioTracks","hdr","bytes")
-            fields(source,sourceFields+"audioStreams",if(schema==2) sourceFields+"audioStreams" else sourceFields)
+            fields(source,sourceFields+"audioStreams",if(schema>=2) sourceFields+"audioStreams" else sourceFields)
             fields(trim,setOf("startMs","endMs"))
             val settingFields=setOf("container","video","rateControl","crf","videoKbps","maxHeight","fps","audio","audioKbps","audioTrack","stereo","denoise","deinterlace","keepMetadata")
             fields(s,if(schema==1) settingFields else settingFields+"audioEdit")
-            if(schema>1) validateAudioWire(s.getJSONObject("audioEdit"),schema==2)
-            if(schema==2) validateSavedAudioNodeIntent(s.getJSONObject("audioEdit"))
+            if(schema>1) validateAudioWire(s.getJSONObject("audioEdit"),schema>=2)
+            if(schema>=2) validateSavedAudioNodeIntent(s.getJSONObject("audioEdit"))
             val id = string(j,"id")
->>>>>>> feat/native-audio-editor
             require(UUID.fromString(id).toString() == id) { "Invalid job identifier." }
             val settings = Settings(Container.valueOf(string(s,"container")), VideoEncoder.valueOf(string(s,"video")),
                     RateControl.valueOf(string(s,"rateControl")), int(s,"crf"), int(s,"videoKbps"),
