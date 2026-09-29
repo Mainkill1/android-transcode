@@ -14,6 +14,8 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    sourceSets["test"].java.srcDir(rootProject.file("testing/acceleration/appTest"))
+    sourceSets["androidTest"].java.srcDir(rootProject.file("testing/acceleration/androidTest"))
     buildFeatures { compose = true }
     buildTypes {
         release {

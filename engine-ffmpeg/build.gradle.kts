@@ -8,11 +8,13 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    sourceSets["test"].java.srcDir(rootProject.file("testing/acceleration/jvm"))
     sourceSets["main"].java.srcDir(if (nativeEnabled) "src/native/kotlin" else "src/missing/kotlin")
 }
 kotlin { jvmToolchain(17) }
 dependencies {
     api(project(":core"))
     implementation(libs.coroutines)
+    testImplementation(libs.junit)
     if (nativeEnabled) implementation("com.arthenica:ffmpeg-kit-next:9.0.0")
 }

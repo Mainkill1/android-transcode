@@ -2,8 +2,6 @@ package dev.forma.ffmpeg
 
 import dev.forma.core.*
 
-data class NativeResult(val exitCode: Int, val diagnostics: String)
-
 /** No activity, document-picker or queue ownership crosses this boundary. */
 interface FfmpegBridge {
     suspend fun capabilities(): Capabilities
@@ -15,5 +13,8 @@ interface FfmpegBridge {
         }
         return Planner.arguments(source, trim, settings, input, output)
     }
+    /** Complete routes for the same immutable job. Retry selection does not alter its output intent. */
+    suspend fun prepareAttempts(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<PreparedAttempt> =
+        listOf(PreparedAttempt(prepare(source, trim, settings, input, output)))
     suspend fun execute(arguments: List<String>, onProgress: (Progress) -> Unit): NativeResult
 }

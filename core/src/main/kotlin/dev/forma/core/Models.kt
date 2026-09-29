@@ -4,11 +4,27 @@ enum class Container(val extension: String, val muxer: String, val mime: String)
     MP4("mp4", "mp4", "video/mp4"), MKV("mkv", "matroska", "video/x-matroska"),
     WEBM("webm", "webm", "video/webm"), M4A("m4a", "ipod", "audio/mp4")
 }
-enum class VideoEncoder(val ffmpeg: String, val label: String, val hardware: Boolean = false) {
+enum class VideoEncoder(val ffmpeg: String, val label: String, val hardware: Boolean = false, val automatic: Boolean = false) {
     X264("libx264", "H.264 · software"), X265("libx265", "H.265 · software"),
     VP9("libvpx-vp9", "VP9 · software"), AV1("libsvtav1", "AV1 · software"),
     H264_HW("h264_mediacodec", "H.264 · device", true),
-    H265_HW("hevc_mediacodec", "H.265 · device", true)
+    H265_HW("hevc_mediacodec", "H.265 · device", true),
+    VP9_HW("vp9_mediacodec", "VP9 · device", true),
+    AV1_HW("av1_mediacodec", "AV1 · device", true),
+    H264_AUTO("libx264", "H.264 · automatic", automatic = true),
+    H265_AUTO("libx265", "H.265 · automatic", automatic = true);
+
+    val format: VideoFormat get() = VideoFormat.values().first { ffmpeg == it.software || ffmpeg == it.device }
+    val deviceRequested: Boolean get() = hardware || automatic
+    val accelerationMode: AccelerationMode get() = when {
+        automatic -> AccelerationMode.AUTO
+        hardware -> AccelerationMode.HARDWARE_REQUIRED
+        else -> AccelerationMode.SOFTWARE_ONLY
+    }
+    fun isCompiled(encoders: Set<String>): Boolean = if (automatic)
+        format.software in encoders || format.device in encoders else ffmpeg in encoders
+    fun softwareVariant(): VideoEncoder = values().first { !it.deviceRequested && it.ffmpeg == format.software }
+    fun deviceVariant(): VideoEncoder = values().first { it.hardware && it.ffmpeg == format.device }
 }
 enum class AudioEncoder(val ffmpeg: String) { AAC("aac"), OPUS("libopus"), FLAC("flac"), NONE("") }
 enum class RateControl { QUALITY, BITRATE }

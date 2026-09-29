@@ -31,10 +31,12 @@ import kotlin.math.roundToLong
             Choice("Output format", s.container, Container.entries, { it.name }) { update(s.copy(container = it)) }
             if (s.container != Container.M4A) {
                 Choice("Video encoder", s.video, VideoEncoder.entries, { it.label },
-                    enabled = { if (it.hardware) ui.capabilities.available && it.ffmpeg in ui.capabilities.encoders else !ui.capabilities.available || it.ffmpeg in ui.capabilities.encoders }) {
-                    update(if (it.hardware) s.copy(video = it, rateControl = RateControl.BITRATE, fps = if (s.fps == 0) 30 else s.fps) else s.copy(video = it))
+                    enabled = { if (it.deviceRequested) ui.capabilities.available && it.isCompiled(ui.capabilities.encoders) else !ui.capabilities.available || it.isCompiled(ui.capabilities.encoders) }) {
+                    update(if (it.deviceRequested) s.copy(video = it, rateControl = RateControl.BITRATE, fps = if (s.fps == 0) 30 else s.fps) else s.copy(video = it))
                 }
-                if (s.video.hardware) Text("Device encoding uses bitrate mode. The actual device component is checked for this file before export; support is not guaranteed.", style = MaterialTheme.typography.bodySmall)
+                if (s.video.deviceRequested) Text(if (s.video.automatic)
+                    "Tries device encoders, then software for codec failures. Constant quality or source frame rate uses software. Reports show the actual route."
+                else "Tries device configurations without software fallback. Older Android versions may not identify whether the component is hardware.", style = MaterialTheme.typography.bodySmall)
                 Choice("Rate control", s.rateControl, if (s.video.hardware) listOf(RateControl.BITRATE) else RateControl.entries,
                     { if (it == RateControl.QUALITY) "Constant quality" else "Average bitrate" }) { update(s.copy(rateControl = it)) }
                 if (s.rateControl == RateControl.QUALITY) {

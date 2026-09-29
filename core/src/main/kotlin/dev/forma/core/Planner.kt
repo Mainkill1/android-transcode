@@ -34,11 +34,11 @@ object Planner {
         if (settings.fps !in 0..120) add("Frame rate must be 0 (source) or 1–120.")
         if (settings.videoKbps !in 100..200_000) add("Video bitrate must be 100–200000 kb/s.")
         if (settings.audioKbps !in 32..512) add("Audio bitrate must be 32–512 kb/s.")
-        val maxCrf = if (settings.video in setOf(VideoEncoder.VP9, VideoEncoder.AV1)) 63 else 51
+        val maxCrf = if (settings.video.format in setOf(VideoFormat.VP9, VideoFormat.AV1)) 63 else 51
         if (settings.crf !in 0..maxCrf) add("The quality value is outside this encoder's range.")
         if (video && settings.video.hardware && settings.rateControl == RateControl.QUALITY)
             add("Device encoders require bitrate mode; CRF is not a device quality scale.")
-        if (settings.container == Container.WEBM && (settings.video !in setOf(VideoEncoder.VP9, VideoEncoder.AV1) ||
+        if (settings.container == Container.WEBM && (settings.video.format !in setOf(VideoFormat.VP9, VideoFormat.AV1) ||
                     settings.audio !in setOf(AudioEncoder.OPUS, AudioEncoder.NONE)))
             add("WebM needs VP9/AV1 video and Opus audio (or no audio).")
         if (settings.container == Container.MP4 && settings.audio !in setOf(AudioEncoder.AAC, AudioEncoder.NONE))
@@ -47,7 +47,7 @@ object Planner {
         if (caps != null) {
             if (!caps.available) add(caps.reason)
             else {
-                if (video && settings.video.ffmpeg !in caps.encoders) add("Encoder ${settings.video.ffmpeg} is not enabled in this build/profile.")
+                if (video && !settings.video.isCompiled(caps.encoders)) add("Encoder ${settings.video.ffmpeg} is not enabled in this build/profile.")
                 if (settings.audio != AudioEncoder.NONE && source.audioTracks > 0 && settings.audio.ffmpeg !in caps.encoders)
                     add("Encoder ${settings.audio.ffmpeg} is not included in this FFmpeg build.")
                 if (settings.container.muxer !in caps.muxers) add("Output format ${settings.container.muxer} is unavailable.")
@@ -67,7 +67,7 @@ object Planner {
         require(problems.isEmpty()) { problems.joinToString("\n") }
         fun seconds(ms: Long) = String.format(Locale.ROOT, "%.3f", ms / 1000.0)
         return buildList {
-            addAll(listOf("-hide_banner", "-loglevel", "warning", "-nostdin", "-n", "-i", input))
+            addAll(listOf("-hide_banner", "-loglevel", "warning", "-nostdin", "-xerror", "-n", "-i", input))
             if (trim.startMs > 0) addAll(listOf("-ss", seconds(trim.startMs)))
             addAll(listOf("-t", seconds(duration(source, trim))))
             if (settings.container == Container.M4A) add("-vn") else {
