@@ -557,13 +557,12 @@
     "installedTestSha256": "881c9d0dc76a86fc771b2121a4c72c2bfe1d8eacdf58fcf49e85eb6c1d008d2a",
     "nativeOptinTestRevision": "eb9abf71178d782bdea4f335b25e15ddd042f53d",
     "nativeOptinTestSha256": "4990bb2e2465a3bd2bb1297c802f2bd8104e34d8966c07697a9aec1aa8630b4b",
-    "nativeOptinQualification": "verified-absent-flag4 intentionalassumption-skips; explicitformaNative4passed/noskips; CI-rerun36591188813pending",
+    "nativeOptinQualification": "verified-absent-flag4 intentionalassumption-skips; explicitformaNative4passed/noskips",
     "priorNoNativeCi": "d4c0b79 failed4 inheritedaudio-native methods missingopt-in; test-onlyguard correction eb9abf7",
     "nativeOptinAbsentSkips": 4,
     "nativeOptinExplicitPassed": 4,
     "nativeOptinAbsentLog": "vendor/pr-readiness/pr8/audio-opt-in-absent-device.txt",
     "nativeOptinExplicitLog": "vendor/pr-readiness/pr8/audio-opt-in-native-device.txt",
-    "ciRun": "36591188813",
-    "ciStatus": "pending"
+    "ciChecksUrl": "https://github.com/Mainkill1/android-transcode/pull/8/checks"
   }
 }

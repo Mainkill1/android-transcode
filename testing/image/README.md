@@ -161,7 +161,8 @@ The root verified both branches on the installed new test APK: absent flag gives
 four intentional assumption skips (0.044 seconds, not native passes); explicit
 `formaNative=true` passes all four with zero skips (42.775 seconds). Fresh logs
 are `audio-opt-in-absent-device.txt` and `audio-opt-in-native-device.txt` under
-`vendor/pr-readiness/pr8/`. CI rerun `36591188813` remains pending.
+`vendor/pr-readiness/pr8/`. The latest CI status is tracked in
+[PR8 checks](https://github.com/Mainkill1/android-transcode/pull/8/checks).
 
 ## Required report contract
 

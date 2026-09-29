@@ -365,7 +365,7 @@ native/Compose suite passed 27/27 (66.467 seconds, zero skips), including publis
 bitmap redraw/replacement, audio DSP/analysis/jobs/preview, native H.264 and audio
 Share/service regression checks. Together these are 28 physical test methods,
 separate from the 26-case direct runner above. Decode dimensions and preview
-budgets remain bounded. The installed app/test APK hashes were verified and are
+budgets remain bounded. The installed app/test APK hashes were verified and
 are `0a831af90192b71137c9d26c554c54a327376d981115b4db41d3d20efd3d653e` and
 `881c9d0dc76a86fc771b2121a4c72c2bfe1d8eacdf58fcf49e85eb6c1d008d2a`.
 The current `3310a26` product-only unsigned release APK SHA-256 is
@@ -384,7 +384,8 @@ APK above. On the newly installed `4990…` test APK, absent opt-in produced fou
 intentional assumption skips in 0.044 seconds; these are not native passes.
 Explicit `formaNative=true` passed all four methods with zero skips in 42.775
 seconds. Fresh logs are `audio-opt-in-absent-device.txt` and
-`audio-opt-in-native-device.txt`. CI rerun `36591188813` remains pending.
+`audio-opt-in-native-device.txt`. The latest CI status is tracked in
+[PR8 checks](https://github.com/Mainkill1/android-transcode/pull/8/checks).
 
 Parent-owned provenance/reports are retained under `vendor/pr-readiness/pr8` and
 `vendor/pr-readiness/pr8-native-provenance.json` outside source commits.
