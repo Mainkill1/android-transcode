@@ -53,6 +53,14 @@ object Planner {
         if (video && settings.audioEdit.rate.value != 1.0) add("Audio speed changes are unavailable while linked to video.")
         val audioFacts = AudioGraphPlanner.sourceFacts(source, trim, settings)
         addAll(AudioEffectRegistry.validate(settings.audioEdit, audioFacts, caps).map { it.message })
+        if (video && source.audioStreams.getOrNull(settings.audioTrack)?.timelineOffsetUs?.let { it != 0L } == true &&
+            (settings.audioEdit.nodes.any { it.enabled } || settings.audioEdit.output != dev.forma.core.audio.AudioOutputPolicy()))
+            add("Audio with a timeline offset is not yet qualified for linked processing. Export just the audio or bypass its edits.")
+        val audioRate = settings.audioEdit.output.sampleRateHz ?: source.audioStreams.getOrNull(settings.audioTrack)?.sampleRateHz
+        if (settings.audio == AudioEncoder.AAC && audioRate != null && audioRate !in setOf(7350,8000,11025,12000,16000,22050,24000,32000,44100,48000,64000,88200,96000))
+            add("AAC does not support that sample rate. Choose 44.1 or 48 kHz.")
+        if (settings.audio == AudioEncoder.OPUS && settings.audioEdit.output.sampleRateHz?.let { it != 48000 } == true)
+            add("This Opus profile requires a 48 kHz output rate.")
         if (caps != null) {
             if (!caps.available) add(caps.reason)
             else {

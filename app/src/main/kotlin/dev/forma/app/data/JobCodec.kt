@@ -24,7 +24,7 @@ object JobCodec {
                             .put("sampleFormat", f.sampleFormat ?: JSONObject.NULL).put("durationUs", f.durationUs)
                             .put("codecDelaySamples", f.encoderDelaySamples ?: JSONObject.NULL)
                             .put("paddingSamples", f.paddingSamples ?: JSONObject.NULL).put("totalSamples", f.totalSamples ?: JSONObject.NULL)
-                            .put("codec", f.codec ?: JSONObject.NULL).put("language", f.language ?: JSONObject.NULL).put("title", f.title ?: JSONObject.NULL)
+                            .put("codec", f.codec ?: JSONObject.NULL).put("language", f.language ?: JSONObject.NULL).put("title", f.title ?: JSONObject.NULL).put("timelineOffsetUs", f.timelineOffsetUs ?: JSONObject.NULL)
                     })))
                 .put("trim", JSONObject().put("startMs", j.trim.startMs).put("endMs", j.trim.endMs ?: JSONObject.NULL))
                 .put("settings", JSONObject().put("container", s.container.name).put("video", s.video.name)
@@ -69,7 +69,7 @@ object JobCodec {
             val f = streams.getJSONObject(i)
             SourceAudioFacts(f.getInt("streamIndex"), f.long("sampleRateHz")?.toInt(), f.long("channels")?.toInt(),
                 f.text("layout"), f.text("sampleFormat"), f.getLong("durationUs"), f.long("codecDelaySamples"),
-                f.long("paddingSamples"), f.long("totalSamples"), f.text("codec"), f.text("language"), f.text("title"))
+                f.long("paddingSamples"), f.long("totalSamples"), f.text("codec"), f.text("language"), f.text("title"), f.long("timelineOffsetUs"))
         }
     }
 }

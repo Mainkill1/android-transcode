@@ -15,5 +15,6 @@ dependencies {
     api(project(":core"))
     implementation(libs.coroutines)
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
     if (nativeEnabled) implementation("com.arthenica:ffmpeg-kit-next:9.0.0")
 }

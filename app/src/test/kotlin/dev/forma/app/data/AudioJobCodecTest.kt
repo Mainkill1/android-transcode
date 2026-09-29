@@ -64,4 +64,12 @@ class AudioJobCodecTest {
             settings = oldEntry.spec.settings.copy(audioEdit = AudioEdit(rate = AudioRate(3, 2)))))
         assertEquals(listOf(entry), JobCodec.decode(JobCodec.encode(listOf(entry))))
     }
+
+    @Test fun malformedPresentParametersRemainOpaqueAndBlocked() {
+        val raw=JSONObject().put("schema",1).put("nodes",org.json.JSONArray().put(JSONObject().put("id","g").put("type","gain").put("version",1).put("enabled",true).put("parameters",JSONObject().put("gainDb","invalid"))))
+        val restored=AudioEditCodec.decode(raw)
+        assertTrue(restored.nodes.single().parameters is UnsupportedParameters)
+        assertEquals("invalid",AudioEditCodec.encode(restored).getJSONArray("nodes").getJSONObject(0).getJSONObject("parameters").getString("gainDb"))
+        assertTrue(AudioEffectRegistry.validate(restored,SourceAudioFacts()).isNotEmpty())
+    }
 }

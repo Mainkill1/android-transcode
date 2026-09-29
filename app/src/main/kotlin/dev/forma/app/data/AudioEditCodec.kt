@@ -13,7 +13,7 @@ internal object AudioEditCodec {
         return JSONObject().put("schema", edit.schemaVersion).put("nodes", JSONArray(edit.nodes.map(::encodeNode)))
             .put("rate", JSONObject().put("numerator", edit.rate.numerator).put("denominator", edit.rate.denominator))
             .put("output", JSONObject().put("channels", output.channels?.name ?: JSONObject.NULL)
-                .put("sampleRateHz", output.sampleRateHz ?: JSONObject.NULL)
+                .put("sampleRateHz", output.sampleRateHz ?: JSONObject.NULL).put("maxBytes", output.maxBytes ?: JSONObject.NULL)
                 .put("normalization", JSONObject().put("mode", normalization.mode.name)
                     .put("peakDb", normalization.peakDb).put("integratedLufs", normalization.integratedLufs)
                     .put("truePeakDb", normalization.truePeakDb).put("preserveDynamics", normalization.preserveDynamics)))
@@ -45,7 +45,7 @@ internal object AudioEditCodec {
             val rate = json.optJSONObject("rate") ?: JSONObject()
             if (hasUnknown(rate, setOf("numerator", "denominator"))) return opaque()
             val output = json.optJSONObject("output") ?: JSONObject()
-            if (hasUnknown(output, setOf("channels", "sampleRateHz", "normalization"))) return opaque()
+            if (hasUnknown(output, setOf("channels", "sampleRateHz", "normalization", "maxBytes"))) return opaque()
             val normalization = output.optJSONObject("normalization") ?: JSONObject()
             if (hasUnknown(normalization, setOf("mode", "peakDb", "integratedLufs", "truePeakDb", "preserveDynamics"))) return opaque()
             val nodes = json.getJSONArray("nodes")
@@ -53,12 +53,28 @@ internal object AudioEditCodec {
                 output = AudioOutputPolicy(if (output.isNull("channels")) null else ChannelMode.valueOf(output.getString("channels")),
                     if (output.isNull("sampleRateHz")) null else output.getInt("sampleRateHz"),
                     NormalizationPolicy(NormalizationMode.valueOf(normalization.optString("mode", "OFF")),
-                        normalization.optDouble("peakDb", -1.0), normalization.optDouble("integratedLufs", -16.0),
-                        normalization.optDouble("truePeakDb", -1.5), normalization.optBoolean("preserveDynamics", true))),
-                rate = AudioRate(rate.optInt("numerator", 1), rate.optInt("denominator", 1)))
+                        normalization.decimal("peakDb", -1.0), normalization.decimal("integratedLufs", -16.0),
+                        normalization.decimal("truePeakDb", -1.5), normalization.boolean("preserveDynamics", true)), if (output.isNull("maxBytes")) null else output.getLong("maxBytes")),
+                rate = AudioRate(rate.intValue("numerator", 1), rate.intValue("denominator", 1)))
         } catch (_: IllegalArgumentException) { opaque() }
     }
 
+    private fun JSONObject.decimal(key: String, fallback: Double): Double {
+        if (!has(key)) return fallback
+        val value=get(key); require(value is Number && value.toDouble().isFinite()) { "Invalid $key" }
+        return value.toDouble()
+    }
+    private fun JSONObject.integer(key: String, fallback: Long): Long {
+        if (!has(key)) return fallback
+        val value=get(key);require(value is Int || value is Long) { "Invalid $key" };return (value as Number).toLong()
+    }
+    private fun JSONObject.intValue(key: String, fallback: Int): Int {
+        val value=integer(key,fallback.toLong());require(value in Int.MIN_VALUE..Int.MAX_VALUE) { "Invalid $key" };return value.toInt()
+    }
+    private fun JSONObject.boolean(key: String, fallback: Boolean): Boolean {
+        if(!has(key))return fallback
+        val value=get(key);require(value is Boolean) { "Invalid $key" };return value
+    }
     private fun hasUnknown(json: JSONObject, known: Set<String>) = json.keys().asSequence().any { it !in known }
     private fun decodeNode(json: JSONObject): AudioEffectNode {
         val id = json.getString("id")
@@ -77,21 +93,21 @@ internal object AudioEditCodec {
         if (hasUnknown(p, keys)) return opaque()
         val parameters = try {
             when (type) {
-                "gain" -> GainParameters(p.optDouble("gainDb", 0.0), p.optBoolean("muted", false))
-                "fades" -> FadeParameters(p.optLong("fadeInUs", 0), p.optLong("fadeOutUs", 0))
+                "gain" -> GainParameters(p.decimal("gainDb", 0.0), p.boolean("muted", false))
+                "fades" -> FadeParameters(p.integer("fadeInUs", 0), p.integer("fadeOutUs", 0))
                 "eq" -> {
                     val bands = p.getJSONArray("bands")
                     EqParameters((0 until bands.length()).map { i ->
                         val band = bands.getJSONObject(i)
                         if (hasUnknown(band, setOf("id", "type", "frequencyHz", "gainDb", "q", "slopeDbPerOctave", "enabled"))) return opaque()
                         EqBand(band.getString("id"), EqType.valueOf(band.optString("type", "BELL")),
-                            band.optDouble("frequencyHz", 1000.0), band.optDouble("gainDb", 0.0),
-                            band.optDouble("q", 0.707), band.optInt("slopeDbPerOctave", 12), band.optBoolean("enabled", true))
+                            band.decimal("frequencyHz", 1000.0), band.decimal("gainDb", 0.0),
+                            band.decimal("q", 0.707), band.intValue("slopeDbPerOctave", 12), band.boolean("enabled", true))
                     })
                 }
-                "compressor" -> CompressorParameters(p.optDouble("thresholdDb", -18.0), p.optDouble("ratio", 2.0),
-                    p.optDouble("kneeDb", 6.0), p.optDouble("attackMs", 20.0), p.optDouble("releaseMs", 250.0), p.optDouble("makeupDb", 0.0))
-                else -> LimiterParameters(p.optDouble("ceilingDb", -1.0), p.optDouble("attackMs", 5.0), p.optDouble("releaseMs", 50.0))
+                "compressor" -> CompressorParameters(p.decimal("thresholdDb", -18.0), p.decimal("ratio", 2.0),
+                    p.decimal("kneeDb", 6.0), p.decimal("attackMs", 20.0), p.decimal("releaseMs", 250.0), p.decimal("makeupDb", 0.0))
+                else -> LimiterParameters(p.decimal("ceilingDb", -1.0), p.decimal("attackMs", 5.0), p.decimal("releaseMs", 50.0))
             }
         } catch (_: IllegalArgumentException) { return opaque() }
         return AudioEffectNode(id, type, version, enabled, parameters)

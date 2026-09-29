@@ -21,4 +21,10 @@ class AudioArtifactVerificationTest {
         assertTrue(AudioArtifactVerification.problems(input,Trim(),edit,output,96044).isEmpty())
     }
     @Test fun validExactPcmPasses() { assertTrue(AudioArtifactVerification.problems(input,Trim(),settings,input,192044).isEmpty()) }
+
+    @Test fun finalBytesMustBeStrictlyBelowDecimalCap() {
+        val capped=settings.copy(audioEdit=AudioEdit(output=AudioOutputPolicy(maxBytes=192044)))
+        assertTrue(AudioArtifactVerification.problems(input,Trim(),capped,input,192044).any { "limit" in it })
+        assertTrue(AudioArtifactVerification.problems(input,Trim(),capped,input,192043).isEmpty())
+    }
 }

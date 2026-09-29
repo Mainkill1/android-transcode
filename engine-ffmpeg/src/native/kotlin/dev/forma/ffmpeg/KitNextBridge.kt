@@ -63,7 +63,9 @@ internal class KitNextBridge : FfmpegBridge {
                 SourceAudioFacts(stream.optInt("index"), sampleRate, stream.optInt("channels").takeIf { it > 0 },
                     stream.optString("channel_layout").takeIf { it.isNotEmpty() }, stream.optString("sample_fmt").takeIf { it.isNotEmpty() },
                     us, totalSamples = total, codec = codec, language = tags?.optString("language")?.takeIf { it.isNotEmpty() },
-                    title = tags?.optString("title")?.takeIf { it.isNotEmpty() })
+                    title = tags?.optString("title")?.takeIf { it.isNotEmpty() },
+                    timelineOffsetUs = stream.optString("start_time").toDoubleOrNull()?.takeIf { it.isFinite() }?.let {
+                        ((it - (v?.optString("start_time")?.toDoubleOrNull() ?: 0.0)) * 1000000).toLong() })
             })
     }
 

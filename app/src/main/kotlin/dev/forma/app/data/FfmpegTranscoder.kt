@@ -3,7 +3,8 @@ package dev.forma.app.data
 import dev.forma.core.*
 import dev.forma.ffmpeg.FfmpegBridge
 import java.io.File
-import dev.forma.core.audio.AudioArtifactVerification
+import dev.forma.core.audio.*
+import dev.forma.ffmpeg.audio.*
 import kotlinx.coroutines.*
 
 /** Staging -> native execution -> structural verification -> private publication. */
@@ -21,10 +22,23 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
             val actual = inspected.copy(uri = spec.source.uri, name = spec.source.name)
             val problems = Planner.validate(actual, spec.trim, spec.settings, caps)
             require(problems.isEmpty()) { problems.joinToString("\n") }
-            val arguments = bridge.prepare(actual, spec.trim, spec.settings, input.absolutePath, temporary.absolutePath)
+            val normalization=spec.settings.audioEdit.output.normalization
+            val measurements = if (normalization.mode != NormalizationMode.OFF) {
+                val identity=AudioAnalysisIdentity.create(AudioAnalysisIdentity.fingerprint(input),caps.build,actual,spec.trim,spec.settings)
+                val analyzed=AudioAnalyzer(bridge).analyze(AudioAnalysisRequest(identity,input,actual,spec.trim,spec.settings))
+                check(analyzed.identity==identity) { "Audio analysis is stale. Try again." }
+                (analyzed.measurement as? AudioMeasurementResult.Measured)?.values
+                    ?: error((analyzed.measurement as AudioMeasurementResult.NotMeasurable).reason)
+            } else null
+            val prepared = bridge.prepare(actual, spec.trim, spec.settings, input.absolutePath, temporary.absolutePath)
+            val arguments = AudioAnalyzer.appendFilter(prepared,measurements?.normalizationFilter(normalization).orEmpty(),
+                AudioGraphPlanner.plan(actual,spec.trim,spec.settings).sampleRateHz).toMutableList()
+            if(normalization.mode==NormalizationMode.LOUDNESS) arguments[arguments.indexOf("-loglevel")+1]="info"
             onState(JobState.RUNNING)
             val result = bridge.execute(arguments, onProgress)
             check(result.exitCode == 0) { "FFmpeg failed (${result.exitCode}). ${result.diagnostics}" }
+            if (normalization.mode==NormalizationMode.LOUDNESS && normalization.preserveDynamics)
+                check(Regex(""""normalization_type"\s*:\s*"linear"""").containsMatchIn(result.diagnostics)) { "The requested normalization did not preserve dynamics." }
             currentCoroutineContext().ensureActive()
             onState(JobState.VERIFYING)
             check(temporary.isFile && temporary.length() > 0) { "FFmpeg did not produce a non-empty output." }
@@ -34,6 +48,15 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
             val decoded = bridge.execute(listOf("-hide_banner", "-nostdin", "-v", "error", "-xerror", "-i", temporary.absolutePath,
                 "-map", "0:v?", "-map", "0:a?", "-f", "null", "-")) {}
             check(decoded.exitCode == 0) { "The output could not be fully decoded. ${decoded.diagnostics}" }
+            if (normalization.mode != NormalizationMode.OFF) {
+                val finalSettings=spec.settings.copy(audioTrack=0,audioEdit=AudioEdit(output=AudioOutputPolicy(channels=ChannelMode.SOURCE)))
+                val measured=AudioAnalyzer(bridge).analyze(AudioAnalysisRequest("final",temporary,output,Trim(),finalSettings)).measurement
+                val values=(measured as? AudioMeasurementResult.Measured)?.values ?: error("The encoded output could not be measured.")
+                if(normalization.mode==NormalizationMode.LOUDNESS) {
+                    check(kotlin.math.abs(values.integratedLufs-normalization.integratedLufs)<=0.5) { "The encoded output missed its loudness target." }
+                    check(values.truePeakDb<=normalization.truePeakDb+0.1) { "The encoded output exceeded its true-peak ceiling." }
+                } else check(values.samplePeakDb?.let { it <= normalization.peakDb+0.1 } == true) { "The encoded output exceeded its sample-peak target." }
+            }
             currentCoroutineContext().ensureActive()
             // Keep publication and its durable state notification together across cancellation.
             // Process death between filesystem rename and queue fsync still needs startup recovery.

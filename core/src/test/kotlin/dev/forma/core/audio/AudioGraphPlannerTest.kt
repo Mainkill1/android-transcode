@@ -82,4 +82,26 @@ class AudioGraphPlannerTest {
         val args=Planner.arguments(source,Trim(),settings,"input","output")
         assertEquals("30.000",args[args.indexOf("-t")+1])
     }
+
+    @Test fun unsupportedExplicitAacClockIsRejectedBeforeNativeExecution() {
+        val source=Source("in","in.wav",2000,audioTracks=1,audioStreams=listOf(SourceAudioFacts(sampleRateHz=48000,channels=1,durationUs=2000000)))
+        val settings=Settings(container=Container.M4A,audioEdit=AudioEdit(output=AudioOutputPolicy(sampleRateHz=192000)))
+        assertTrue(Planner.validate(source,Trim(),settings).any { "AAC" in it && "rate" in it })
+    }
+    @Test fun opusDecodedClockIsPlannedAt48Khz() {
+        val source=Source("in","clip",2000,videoTracks=1,audioTracks=1,audioStreams=listOf(SourceAudioFacts(sampleRateHz=44100,channels=2,durationUs=2000000)))
+        assertEquals(48000,AudioGraphPlanner.plan(source,Trim(),Settings(container=Container.WEBM,video=VideoEncoder.VP9,audio=AudioEncoder.OPUS)).sampleRateHz)
+    }
+
+    @Test fun linkedOffsetIsBlockedUntilItsProcessingIsQualified() {
+        val source=Source("in","clip",2000,width=320,height=240,videoTracks=1,audioTracks=1,audioStreams=listOf(SourceAudioFacts(sampleRateHz=48000,channels=2,durationUs=1500000,timelineOffsetUs=500000)))
+        val settings=Settings(audioEdit=AudioEdit(nodes=listOf(AudioEffectNode("g","gain",parameters=GainParameters(-6.0)))))
+        assertTrue(Planner.validate(source,Trim(),settings).any { "offset" in it })
+    }
+
+    @Test fun fullLengthFadeOnNonAlignedTrimCannotStartBeforeZero() {
+        val source=Source("in","in.wav",2000,audioTracks=1,audioStreams=listOf(SourceAudioFacts(sampleRateHz=44100,channels=1,durationUs=2000000)))
+        val settings=Settings(container=Container.WAV,audio=AudioEncoder.PCM_F32LE,audioEdit=AudioEdit(nodes=listOf(AudioEffectNode("fade","fades",parameters=FadeParameters(fadeOutUs=1001000)))))
+        assertFalse(AudioGraphPlanner.plan(source,Trim(endMs=1001),settings).filters.any { "st=-" in it })
+    }
 }

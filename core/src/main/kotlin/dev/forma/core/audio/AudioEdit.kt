@@ -6,7 +6,7 @@ import java.util.Collections
 data class SourceAudioFacts(val streamIndex: Int = 0, val sampleRateHz: Int? = null,
     val channels: Int? = null, val channelLayout: String? = null, val sampleFormat: String? = null,
     val durationUs: Long = 0, val encoderDelaySamples: Long? = null, val paddingSamples: Long? = null,
-    val totalSamples: Long? = null, val codec: String? = null, val language: String? = null, val title: String? = null)
+    val totalSamples: Long? = null, val codec: String? = null, val language: String? = null, val title: String? = null, val timelineOffsetUs: Long? = null)
 
 data class AudioRate(val numerator: Int = 1, val denominator: Int = 1) {
     val value: Double get() = numerator.toDouble() / denominator
@@ -35,7 +35,7 @@ data class NormalizationPolicy(val mode: NormalizationMode = NormalizationMode.O
     val preserveDynamics: Boolean = true)
 /** Null channel/rate retains the legacy encoding policy until explicitly edited. */
 data class AudioOutputPolicy(val channels: ChannelMode? = null, val sampleRateHz: Int? = null,
-    val normalization: NormalizationPolicy = NormalizationPolicy())
+    val normalization: NormalizationPolicy = NormalizationPolicy(), val maxBytes: Long? = null)
 /** Defensive snapshots protect queued jobs even when a caller supplied mutable lists. */
 class AudioEdit(val schemaVersion: Int = 1, nodes: List<AudioEffectNode> = emptyList(),
     val output: AudioOutputPolicy = AudioOutputPolicy(), val preservedJson: String? = null,

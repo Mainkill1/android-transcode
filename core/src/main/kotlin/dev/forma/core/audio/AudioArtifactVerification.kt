@@ -6,6 +6,7 @@ import kotlin.math.abs
 /** Structural facts supplement, never replace, full native decoder verification. */
 object AudioArtifactVerification {
     fun problems(source: Source, trim: Trim, settings: Settings, output: Source, bytes: Long): List<String> = buildList {
+        settings.audioEdit.output.maxBytes?.let { if (bytes >= it) add("The verified output exceeds the byte limit. Choose a lower bitrate or a larger limit.") }
         if (bytes <= 0) add("The output is empty.")
         val expectedVideo = if (settings.container.audioOnly) 0 else 1
         val expectedAudio = if (source.audioTracks > 0 && settings.audio != AudioEncoder.NONE) 1 else 0

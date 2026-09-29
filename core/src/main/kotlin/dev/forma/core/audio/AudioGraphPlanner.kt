@@ -38,7 +38,7 @@ object AudioGraphPlanner {
         val problems = AudioEffectRegistry.validate(edit, facts)
         require(problems.isEmpty()) { problems.joinToString("\n") { it.message } }
         val measured = source.audioStreams.getOrNull(settings.audioTrack)
-        val outputRate = edit.output.sampleRateHz ?: measured?.sampleRateHz
+        val outputRate = if (settings.audio == AudioEncoder.OPUS) 48000 else edit.output.sampleRateHz ?: measured?.sampleRateHz
         val outputChannels = when (edit.output.channels) {
             ChannelMode.MONO, ChannelMode.LEFT, ChannelMode.RIGHT -> 1
             ChannelMode.STEREO, ChannelMode.SWAP -> 2
@@ -69,8 +69,8 @@ object AudioGraphPlanner {
             for (node in edit.nodes.filter { it.enabled }) when (val p = node.parameters) {
                 is GainParameters -> if (p.muted || p.gainDb != 0.0) add(if (p.muted) "volume=0:precision=float" else "volume=${number(p.gainDb)}dB:precision=float")
                 is FadeParameters -> {
-                    if (p.fadeInUs > 0) add("afade=t=in:st=0:d=${number(p.fadeInUs / 1000000.0)}")
-                    if (p.fadeOutUs > 0) add("afade=t=out:st=${number((durationUs - p.fadeOutUs) / 1000000.0)}:d=${number(p.fadeOutUs / 1000000.0)}")
+                    if (p.fadeInUs > 0) add("afade=t=in:st=0:d=${number(p.fadeInUs.coerceAtMost(durationUs) / 1000000.0)}")
+                    if (p.fadeOutUs > 0) add("afade=t=out:st=${number((durationUs - p.fadeOutUs).coerceAtLeast(0) / 1000000.0)}:d=${number(p.fadeOutUs.coerceAtMost(durationUs) / 1000000.0)}")
                 }
                 is EqParameters -> for (band in p.bands.filter { it.enabled }) {
                     if (band.type in setOf(EqType.BELL, EqType.LOW_SHELF, EqType.HIGH_SHELF) && band.gainDb == 0.0) continue

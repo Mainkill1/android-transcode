@@ -30,6 +30,7 @@ object AudioEffectRegistry {
         else descriptor(node.type)?.requiredFilters.orEmpty()
 
     fun validate(edit: AudioEdit, source: SourceAudioFacts, capabilities: Capabilities? = null): List<AudioProblem> = buildList {
+        if (edit.output.maxBytes?.let { it <= 0 } == true) add(AudioProblem(parameterId = "maxBytes", message = "The byte limit must be positive."))
         if (edit.schemaVersion != 1 || edit.preservedJson != null) {
             add(AudioProblem(message = "Audio edit version ${edit.schemaVersion} is unsupported. Reset the edits explicitly to continue."))
             return@buildList
