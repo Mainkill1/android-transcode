@@ -32,4 +32,14 @@ class AudioAnalysisTest {
         assertEquals("volume=9dB:precision=double",measurements.normalizationFilter(NormalizationPolicy(mode=NormalizationMode.PEAK)))
         assertTrue(measurements.normalizationFilter(NormalizationPolicy(mode=NormalizationMode.LOUDNESS,integratedLufs=-20.0)).startsWith("loudnorm="))
     }
+
+    @Test fun shortNonSilentProgramsCanMeasurePeakWithoutLufs() {
+        val log="Peak level dB: -18.063656\n{\"input_i\":\"-inf\",\"input_tp\":\"-18.0\",\"input_lra\":\"0\",\"input_thresh\":\"-70\",\"target_offset\":\"inf\"}"
+        assertFalse(AudioMeasurements.parseLoudness(log,NormalizationMode.PEAK) is AudioMeasurementResult.NotMeasurable)
+    }
+
+    @Test fun zeroLoudnessRangeUsesMeasuredLinearGainWhenDynamicsMustBePreserved() {
+        val m=AudioMeasurements(-24.0,-12.0,0.0,-34.0,0.0)
+        assertEquals("volume=8dB:precision=double",m.normalizationFilter(NormalizationPolicy(mode=NormalizationMode.LOUDNESS)))
+    }
 }

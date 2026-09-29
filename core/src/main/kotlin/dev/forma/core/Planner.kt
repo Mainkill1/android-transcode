@@ -82,13 +82,16 @@ object Planner {
         }
     }
 
-    fun arguments(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<String> {
+    fun audioArguments(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<String> =
+        arguments(source,trim,settings,input,output,audioTransport=true)
+
+    fun arguments(source: Source, trim: Trim, settings: Settings, input: String, output: String, audioTransport: Boolean = false): List<String> {
         require(input.isNotBlank() && output.isNotBlank() && input != output) { "Separate input and output paths are required." }
         require('\u0000' !in input && '\u0000' !in output) { "Paths cannot contain a NUL character." }
         val problems = validate(source, trim, settings)
         require(problems.isEmpty()) { problems.joinToString("\n") }
         fun seconds(ms: Long) = String.format(Locale.ROOT, "%.3f", ms / 1000.0)
-        val audio = if (source.audioTracks > 0 && settings.audio != AudioEncoder.NONE) AudioGraphPlanner.plan(source, trim, settings) else null
+        val audio = if (source.audioTracks > 0 && settings.audio != AudioEncoder.NONE) AudioGraphPlanner.plan(source, trim, settings, forceProcessed=audioTransport) else null
         val filtered = audio?.processed == true
         val durationUs = if (settings.container.audioOnly) audio?.outputDurationUs else null
         val durationText = durationUs?.let { if (it % 1000 == 0L) seconds(it / 1000) else String.format(Locale.ROOT, "%.6f", it / 1000000.0) }
@@ -96,8 +99,8 @@ object Planner {
         return buildList {
             addAll(listOf("-hide_banner", "-loglevel", "warning", "-nostdin", "-n", "-i", input))
             if (trim.startMs > 0 && !filtered) addAll(listOf("-ss", seconds(trim.startMs)))
-            if (!filtered || !settings.container.audioOnly) addAll(listOf("-t", durationText))
-            if (settings.container.audioOnly) add("-vn") else {
+            if (!audioTransport && (!filtered || !settings.container.audioOnly)) addAll(listOf("-t", durationText))
+            if (audioTransport || settings.container.audioOnly) add("-vn") else {
                 addAll(listOf("-map", "0:v:0", "-c:v", settings.video.ffmpeg))
                 if (settings.rateControl == RateControl.QUALITY) {
                     addAll(listOf("-crf", settings.crf.toString()))
@@ -124,15 +127,15 @@ object Planner {
                 else addAll(listOf("-fps_mode", "passthrough"))
             }
             if (source.audioTracks == 0 || settings.audio == AudioEncoder.NONE) add("-an") else {
-                addAll(listOf("-map", "0:a:${settings.audioTrack}", "-c:a", settings.audio.ffmpeg))
-                if (settings.audio.usesBitrate) addAll(listOf("-b:a", "${settings.audioKbps}k"))
+                addAll(listOf("-map", "0:a:${settings.audioTrack}", "-c:a", if(audioTransport) AudioEncoder.PCM_F32LE.ffmpeg else settings.audio.ffmpeg))
+                if (!audioTransport && settings.audio.usesBitrate) addAll(listOf("-b:a", "${settings.audioKbps}k"))
                 if (filtered) addAll(listOf("-af", audio!!.filters.joinToString(",")))
                 if (settings.audioEdit.output.channels == null && settings.stereo) addAll(listOf("-ac", "2"))
                 settings.audioEdit.output.sampleRateHz?.let { addAll(listOf("-ar", it.toString())) }
             }
             addAll(listOf("-sn", "-dn", "-map_chapters", "-1", "-map_metadata", if (settings.keepMetadata) "0" else "-1"))
-            if (settings.container in setOf(Container.MP4, Container.M4A)) addAll(listOf("-movflags", "+faststart"))
-            addAll(listOf("-f", settings.container.muxer, output))
+            if (!audioTransport && settings.container in setOf(Container.MP4, Container.M4A)) addAll(listOf("-movflags", "+faststart"))
+            addAll(listOf("-f", if(audioTransport) Container.WAV.muxer else settings.container.muxer, output))
         }
     }
 }

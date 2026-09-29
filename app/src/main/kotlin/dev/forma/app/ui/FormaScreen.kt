@@ -146,6 +146,7 @@ import kotlin.math.ceil
                             items(ui.sources, key = { "source:${it.source.uri}" }, contentType = { "source" }) { source ->
                                 SourceCard(source, ui.selected?.source?.uri == source.source.uri, onAction)
                             }
+                            item(key = "audio-editor") { dev.forma.app.ui.audio.AudioEditorPanel(ui, onAction) }
                             item(key = "simple-options") { SimpleOptions(ui.editor, onAction) }
                             item(key = "advanced-toggle") {
                                 OutlinedButton(onClick = { onAction(UiAction.ToggleAdvanced) }, modifier = Modifier.fillMaxWidth().testTag("mode-toggle")) {

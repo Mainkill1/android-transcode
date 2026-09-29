@@ -27,17 +27,17 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
                 val identity=AudioAnalysisIdentity.create(AudioAnalysisIdentity.fingerprint(input),caps.build,actual,spec.trim,spec.settings)
                 val analyzed=AudioAnalyzer(bridge).analyze(AudioAnalysisRequest(identity,input,actual,spec.trim,spec.settings))
                 check(analyzed.identity==identity) { "Audio analysis is stale. Try again." }
-                (analyzed.measurement as? AudioMeasurementResult.Measured)?.values
-                    ?: error((analyzed.measurement as AudioMeasurementResult.NotMeasurable).reason)
+                analyzed.measurement
             } else null
             val prepared = bridge.prepare(actual, spec.trim, spec.settings, input.absolutePath, temporary.absolutePath)
-            val arguments = AudioAnalyzer.appendFilter(prepared,measurements?.normalizationFilter(normalization).orEmpty(),
+            val normalizationFilter=measurements?.normalizationFilter(normalization).orEmpty()
+            val arguments = AudioAnalyzer.appendFilter(prepared,normalizationFilter,
                 AudioGraphPlanner.plan(actual,spec.trim,spec.settings).sampleRateHz).toMutableList()
             if(normalization.mode==NormalizationMode.LOUDNESS) arguments[arguments.indexOf("-loglevel")+1]="info"
             onState(JobState.RUNNING)
             val result = bridge.execute(arguments, onProgress)
             check(result.exitCode == 0) { "FFmpeg failed (${result.exitCode}). ${result.diagnostics}" }
-            if (normalization.mode==NormalizationMode.LOUDNESS && normalization.preserveDynamics)
+            if (normalization.mode==NormalizationMode.LOUDNESS && normalization.preserveDynamics && normalizationFilter.startsWith("loudnorm="))
                 check(Regex(""""normalization_type"\s*:\s*"linear"""").containsMatchIn(result.diagnostics)) { "The requested normalization did not preserve dynamics." }
             currentCoroutineContext().ensureActive()
             onState(JobState.VERIFYING)
@@ -49,13 +49,13 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
                 "-map", "0:v?", "-map", "0:a?", "-f", "null", "-")) {}
             check(decoded.exitCode == 0) { "The output could not be fully decoded. ${decoded.diagnostics}" }
             if (normalization.mode != NormalizationMode.OFF) {
-                val finalSettings=spec.settings.copy(audioTrack=0,audioEdit=AudioEdit(output=AudioOutputPolicy(channels=ChannelMode.SOURCE)))
+                val finalSettings=spec.settings.copy(audioTrack=0,audioEdit=AudioEdit(output=AudioOutputPolicy(channels=ChannelMode.SOURCE,normalization=normalization)))
                 val measured=AudioAnalyzer(bridge).analyze(AudioAnalysisRequest("final",temporary,output,Trim(),finalSettings)).measurement
-                val values=(measured as? AudioMeasurementResult.Measured)?.values ?: error("The encoded output could not be measured.")
                 if(normalization.mode==NormalizationMode.LOUDNESS) {
+                    val values=(measured as? AudioMeasurementResult.Measured)?.values ?: error("The encoded output could not be measured.")
                     check(kotlin.math.abs(values.integratedLufs-normalization.integratedLufs)<=0.5) { "The encoded output missed its loudness target." }
                     check(values.truePeakDb<=normalization.truePeakDb+0.1) { "The encoded output exceeded its true-peak ceiling." }
-                } else check(values.samplePeakDb?.let { it <= normalization.peakDb+0.1 } == true) { "The encoded output exceeded its sample-peak target." }
+                } else check((measured as? AudioMeasurementResult.Peak)?.samplePeakDb?.let { kotlin.math.abs(it-normalization.peakDb)<=0.1 } == true) { "The encoded output exceeded its sample-peak target." }
             }
             currentCoroutineContext().ensureActive()
             // Keep publication and its durable state notification together across cancellation.

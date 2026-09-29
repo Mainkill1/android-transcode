@@ -69,7 +69,7 @@ class TranscodeService : Service() {
             stopSelfResult(startId)
             return START_NOT_STICKY
         }
-        val started = graph.runs.start { run -> process(run) }
+        val started = graph.runs.start { run -> graph.previews.cancelAndJoin(); process(run) }
         if (started == null) {
             releaseWake(awake)
             graph.queue.error.value = "The previous conversion is still stopping. Its files are being released."

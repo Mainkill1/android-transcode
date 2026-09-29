@@ -32,7 +32,7 @@ object AudioGraphPlanner {
             roundRatio(selected, rate.denominator.toLong(), rate.numerator.toLong()) else 0)
     }
 
-    fun plan(source: Source, trim: Trim, settings: Settings): AudioGraphPlan {
+    fun plan(source: Source, trim: Trim, settings: Settings, forceProcessed: Boolean = false): AudioGraphPlan {
         val edit = settings.audioEdit
         val facts = sourceFacts(source, trim, settings)
         val problems = AudioEffectRegistry.validate(edit, facts)
@@ -45,7 +45,7 @@ object AudioGraphPlanner {
             ChannelMode.SOURCE -> measured?.channels
             null -> if (settings.stereo) 2 else measured?.channels
         }
-        val processed = edit.nodes.any { it.enabled } || edit.output != AudioOutputPolicy() || edit.rate.value != 1.0 ||
+        val processed = forceProcessed || edit.nodes.any { it.enabled } || edit.output != AudioOutputPolicy() || edit.rate.value != 1.0 ||
             settings.container in setOf(Container.WAV, Container.FLAC)
         if (!processed) return AudioGraphPlan(outputDurationUs = facts.durationUs, sampleRateHz = outputRate, channels = outputChannels)
         val inputRate = measured?.sampleRateHz
@@ -60,14 +60,17 @@ object AudioGraphPlanner {
             if (!settings.container.audioOnly) roundRatio(endUs - startUs, outputRate.toLong(), 1000000)
             else roundRatio(endSample - startSample, outputRate.toLong() * edit.rate.denominator, inputRate.toLong() * edit.rate.numerator) else null
         val durationUs = if (outputFrames != null && outputRate != null) roundRatio(outputFrames, 1000000, outputRate.toLong()) else facts.durationUs
+        val doublePrecision = measured?.sampleFormat in setOf("dbl","dblp","s32","s32p","s64","s64p")
+        val precision = if (doublePrecision) "double" else "float"
         val filters = buildList {
+            inputRate?.let { add("aformat=sample_rates=$it") }
             if (startSample != null && endSample != null) add("atrim=start_sample=$startSample:end_sample=$endSample")
             else add("atrim=start=${number(startUs / 1000000.0)}:end=${number(endUs / 1000000.0)}")
             add("asetpts=PTS-STARTPTS")
             if (edit.rate.value != 1.0) add("atempo=${number(edit.rate.value)}")
-            if (edit.nodes.any { it.enabled }) add("aformat=sample_fmts=fltp")
+            if (edit.nodes.any { it.enabled }) add("aformat=sample_fmts=${if(doublePrecision) "dblp" else "fltp"}")
             for (node in edit.nodes.filter { it.enabled }) when (val p = node.parameters) {
-                is GainParameters -> if (p.muted || p.gainDb != 0.0) add(if (p.muted) "volume=0:precision=float" else "volume=${number(p.gainDb)}dB:precision=float")
+                is GainParameters -> if (p.muted || p.gainDb != 0.0) add(if (p.muted) "volume=0:precision=$precision" else "volume=${number(p.gainDb)}dB:precision=$precision")
                 is FadeParameters -> {
                     if (p.fadeInUs > 0) add("afade=t=in:st=0:d=${number(p.fadeInUs.coerceAtMost(durationUs) / 1000000.0)}")
                     if (p.fadeOutUs > 0) add("afade=t=out:st=${number((durationUs - p.fadeOutUs).coerceAtLeast(0) / 1000000.0)}:d=${number(p.fadeOutUs.coerceAtMost(durationUs) / 1000000.0)}")
@@ -93,8 +96,10 @@ object AudioGraphPlanner {
                 ChannelMode.SWAP -> add("pan=stereo|c0=c1|c1=c0")
                 else -> Unit
             }
-            if (edit.output.sampleRateHz != null && edit.output.sampleRateHz != inputRate) add("aresample=${edit.output.sampleRateHz}")
+            if (edit.output.channels == null && settings.stereo) add("aformat=channel_layouts=stereo")
+            if (outputRate != null && outputRate != inputRate) add("aresample=$outputRate")
             if (outputFrames != null) {
+                add("aformat=sample_rates=$outputRate")
                 add("apad=whole_len=$outputFrames")
                 add("atrim=end_sample=$outputFrames")
             }

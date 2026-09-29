@@ -10,7 +10,7 @@ import org.json.JSONObject
 
 object AudioAnalysisIdentity {
     fun create(fingerprint:String,build:String,source:Source,trim:Trim,settings:Settings):String {
-        val graph=AudioGraphPlanner.plan(source,trim,settings.copy(container=Container.WAV,audio=AudioEncoder.PCM_F32LE))
+        val graph=AudioGraphPlanner.plan(source,trim,settings,forceProcessed=true)
         return digest(listOf(fingerprint,build,settings.audioTrack,source.audioStreams,trim,graph.identity).joinToString("|"))
     }
     private fun digest(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
@@ -33,22 +33,28 @@ data class AudioMeasurements(val integratedLufs:Double,val truePeakDb:Double,val
                 require(!policy.preserveDynamics || truePeakDb + policy.integratedLufs-integratedLufs <= policy.truePeakDb) {
                     "That loudness would exceed the peak ceiling. Lower the target or allow dynamic normalization."
                 }
-                "loudnorm=I=${n(policy.integratedLufs)}:TP=${n(policy.truePeakDb)}:LRA=50:measured_I=${n(integratedLufs)}:measured_TP=${n(truePeakDb)}:measured_LRA=${n(rangeLu)}:measured_thresh=${n(thresholdLufs)}:offset=${n(offset)}:linear=true:print_format=json"
+                // FFmpeg treats measured_LRA=0 as unset and falls back to dynamic mode.
+                if(policy.preserveDynamics && rangeLu==0.0) "volume=${n(policy.integratedLufs-integratedLufs)}dB:precision=double"
+                else "loudnorm=I=${n(policy.integratedLufs)}:TP=${n(policy.truePeakDb)}:LRA=50:measured_I=${n(integratedLufs)}:measured_TP=${n(truePeakDb)}:measured_LRA=${n(rangeLu)}:measured_thresh=${n(thresholdLufs)}:offset=${n(offset)}:linear=true:print_format=json"
             }
         }
     }
     companion object {
-        fun parseLoudness(log:String):AudioMeasurementResult = try {
+        fun parseLoudness(log:String,mode:NormalizationMode=NormalizationMode.LOUDNESS):AudioMeasurementResult = try {
             val start=log.lastIndexOf('{');val end=log.indexOf('}',start)
             require(start>=0 && end>start)
             val json=JSONObject(log.substring(start,end+1))
             fun value(key:String)=json.getString(key).toDouble().also { require(it.isFinite()) }
             val peak=Regex("Peak level dB: ([^\\s]+)").findAll(log).lastOrNull()?.groupValues?.get(1)?.toDoubleOrNull()?.takeIf { it.isFinite() }
-            AudioMeasurementResult.Measured(AudioMeasurements(value("input_i"),value("input_tp"),value("input_lra"),value("input_thresh"),value("target_offset"),peak))
+            if(mode==NormalizationMode.PEAK) {
+                require(peak!=null)
+                AudioMeasurementResult.Peak(peak)
+            } else AudioMeasurementResult.Measured(AudioMeasurements(value("input_i"),value("input_tp"),value("input_lra"),value("input_thresh"),value("target_offset"),peak))
         } catch (_: Exception) { AudioMeasurementResult.NotMeasurable("Silent, too short, or not measurable.") }
     }
 }
 sealed interface AudioMeasurementResult {
+    data class Peak(val samplePeakDb:Double):AudioMeasurementResult
     data class Measured(val values:AudioMeasurements):AudioMeasurementResult
     data class NotMeasurable(val reason:String):AudioMeasurementResult
 }
@@ -60,8 +66,7 @@ class AudioAnalyzer(private val bridge:FfmpegBridge) {
     suspend fun analyze(request:AudioAnalysisRequest):AudioAnalysisResult {
         val r=request
         val policy=r.settings.audioEdit.output.normalization
-        val working=r.settings.copy(container=Container.WAV,audio=AudioEncoder.PCM_F32LE)
-        val args=bridge.prepare(r.source,r.trim,working,r.input.path,"-").toMutableList()
+        val args=bridge.prepareAudio(r.source,r.trim,r.settings,r.input.path,"-").toMutableList()
         val normalization="loudnorm=I=${AudioGraphPlanner.number(policy.integratedLufs)}:TP=${AudioGraphPlanner.number(policy.truePeakDb)}:LRA=50:print_format=json"
         val af=args.indexOf("-af");check(af>=0)
         args[af+1]+=",astats=reset=0,$normalization"
@@ -70,7 +75,7 @@ class AudioAnalyzer(private val bridge:FfmpegBridge) {
         val result=bridge.execute(args) {}
         check(result.exitCode==0) { "Audio analysis failed. ${result.diagnostics}" }
         currentCoroutineContext().ensureActive()
-        return AudioAnalysisResult(r.identity,AudioMeasurements.parseLoudness(result.diagnostics))
+        return AudioAnalysisResult(r.identity,AudioMeasurements.parseLoudness(result.diagnostics,policy.mode))
     }
     companion object {
         fun appendFilter(arguments:List<String>,filter:String,rate:Int?):List<String> {
@@ -81,4 +86,13 @@ class AudioAnalyzer(private val bridge:FfmpegBridge) {
             return args
         }
     }
+}
+
+fun AudioMeasurementResult.normalizationFilter(policy:NormalizationPolicy):String = when(this) {
+    is AudioMeasurementResult.Measured -> values.normalizationFilter(policy)
+    is AudioMeasurementResult.Peak -> {
+        require(policy.mode==NormalizationMode.PEAK)
+        "volume=${AudioGraphPlanner.number(policy.peakDb-samplePeakDb)}dB:precision=double"
+    }
+    is AudioMeasurementResult.NotMeasurable -> error(reason)
 }

@@ -10,8 +10,10 @@ junit = "4.13.2"
 androidx-test = "1.3.0"
 runner = "1.7.0"
 espresso = "3.7.0"
+media3 = "1.11.1"
 
 [libraries]
+media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
 androidx-core = { module = "androidx.core:core-ktx", version.ref = "core" }
 androidx-activity = { module = "androidx.activity:activity-compose", version.ref = "activity" }
 androidx-lifecycle-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }

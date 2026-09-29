@@ -15,5 +15,7 @@ interface FfmpegBridge {
         }
         return Planner.arguments(source, trim, settings, input, output)
     }
+    suspend fun prepareAudio(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<String> =
+        Planner.audioArguments(source,trim,settings,input,output)
     suspend fun execute(arguments: List<String>, onProgress: (Progress) -> Unit): NativeResult
 }

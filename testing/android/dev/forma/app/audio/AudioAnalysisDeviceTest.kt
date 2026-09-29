@@ -27,7 +27,7 @@ class AudioAnalysisDeviceTest {
             writeFloatWav(input,FloatArray(480000) { ((.03*sin(2*PI*440*it/48000) + .015*sin(2*PI*1300*it/48000))*(.6+.4*sin(2*PI*it/48000/3).pow(2))).toFloat() },48000)
             val source=bridge.probe(input.path)
             val policy=NormalizationPolicy(mode=NormalizationMode.LOUDNESS,integratedLufs=-16.0,truePeakDb=-1.5)
-            val settings=Settings(container=Container.M4A,stereo=false,audioEdit=AudioEdit(output=AudioOutputPolicy(normalization=policy)))
+            val settings=Settings(container=Container.M4A,stereo=true,audioEdit=AudioEdit(output=AudioOutputPolicy(normalization=policy)))
             val identity=AudioAnalysisIdentity.create(AudioAnalysisIdentity.fingerprint(input),caps.build,source,Trim(),settings)
             val measured=analyzer.analyze(AudioAnalysisRequest(identity,input,source,Trim(),settings))
             check(measured.identity==identity)
@@ -36,7 +36,7 @@ class AudioAnalysisDeviceTest {
             val args=AudioAnalyzer.appendFilter(bridge.prepare(source,Trim(),settings,input.path,output.path),values.normalizationFilter(policy),48000)
             val result=bridge.execute(args) {};check(result.exitCode==0) { result.diagnostics }
             val delivered=bridge.probe(output.path)
-            val final=analyzer.analyze(AudioAnalysisRequest("final",output,delivered,Trim(),Settings(container=Container.WAV,audio=AudioEncoder.PCM_F32LE,stereo=false)))
+            val final=analyzer.analyze(AudioAnalysisRequest("final",output,delivered,Trim(),Settings(container=Container.WAV,audio=AudioEncoder.PCM_F32LE,stereo=true)))
             val actual=(final.measurement as AudioMeasurementResult.Measured).values
             check(abs(actual.integratedLufs+16)<=.5) { "Delivered LUFS ${actual.integratedLufs}" }
             check(actual.truePeakDb<=-1.4) { "Delivered true peak ${actual.truePeakDb}" }

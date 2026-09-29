@@ -104,4 +104,36 @@ class AudioGraphPlannerTest {
         val settings=Settings(container=Container.WAV,audio=AudioEncoder.PCM_F32LE,audioEdit=AudioEdit(nodes=listOf(AudioEffectNode("fade","fades",parameters=FadeParameters(fadeOutUs=1001000)))))
         assertFalse(AudioGraphPlanner.plan(source,Trim(endMs=1001),settings).filters.any { "st=-" in it })
     }
+
+    @Test fun legacyStereoRoutingOccursInsideTheAnalyzedCreativeGraph() {
+        val source=Source("in","mono",2000,audioTracks=1,audioStreams=listOf(SourceAudioFacts(sampleRateHz=48000,channels=1,durationUs=2000000)))
+        val settings=Settings(container=Container.WAV,audio=AudioEncoder.PCM_F32LE,stereo=true,audioEdit=AudioEdit(output=AudioOutputPolicy(normalization=NormalizationPolicy(mode=NormalizationMode.LOUDNESS))))
+        assertTrue(AudioGraphPlanner.plan(source,Trim(),settings).filters.contains("aformat=channel_layouts=stereo"))
+    }
+
+    @Test fun pcmTransportPreservesLinkedProgramAndFadeTiming() {
+        val source=Source("in","clip.mp4",8000,width=320,height=240,videoTracks=1,audioTracks=1,
+            audioStreams=listOf(SourceAudioFacts(sampleRateHz=48000,channels=1,durationUs=6000000,totalSamples=288000)))
+        val settings=Settings(audioEdit=AudioEdit(nodes=listOf(AudioEffectNode("fade","fades",parameters=FadeParameters(fadeOutUs=2000000)))))
+        val args=Planner.audioArguments(source,Trim(),settings,"in","preview.wav")
+        assertFalse("-c:v" in args)
+        assertTrue(args[args.indexOf("-af")+1].contains("afade=t=out:st=6:d=2"))
+        assertTrue(args[args.indexOf("-af")+1].contains("apad=whole_len=384000"))
+    }
+
+    @Test fun sampleIndexedTrimAndPaddingKeepTheirClockDuringNativeRateNegotiation() {
+        val source=Source("in","tone.wav",10000,audioTracks=1,audioStreams=listOf(SourceAudioFacts(sampleRateHz=48000,channels=1,durationUs=10000000,totalSamples=480000)))
+        val graph=AudioGraphPlanner.plan(source,Trim(),Settings(container=Container.M4A,audioEdit=AudioEdit(output=AudioOutputPolicy(normalization=NormalizationPolicy(mode=NormalizationMode.LOUDNESS)))))
+        assertEquals("aformat=sample_rates=48000",graph.filters.first())
+        val pad=graph.filters.indexOf("apad=whole_len=480000")
+        assertEquals("aformat=sample_rates=48000",graph.filters[pad-1])
+    }
+
+    @Test fun higherPrecisionSourceStaysDoubleUntilTheSelectedEncodingBoundary() {
+        val source=Source("in","double.wav",1000,audioTracks=1,audioStreams=listOf(SourceAudioFacts(sampleRateHz=48000,channels=1,sampleFormat="dbl",durationUs=1000000)))
+        val settings=Settings(container=Container.WAV,audio=AudioEncoder.PCM_F32LE,audioEdit=AudioEdit(nodes=listOf(AudioEffectNode("g","gain",parameters=GainParameters(-6.0)))))
+        val filters=AudioGraphPlanner.plan(source,Trim(),settings).filters
+        assertTrue(filters.contains("aformat=sample_fmts=dblp"))
+        assertTrue(filters.contains("volume=-6dB:precision=double"))
+    }
 }

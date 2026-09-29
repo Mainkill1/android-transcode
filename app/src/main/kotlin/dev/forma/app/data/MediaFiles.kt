@@ -9,6 +9,7 @@ import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import dev.forma.core.*
+import dev.forma.core.audio.SourceAudioFacts
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -85,6 +86,7 @@ class MediaFiles(private val context: Context) {
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(context, uri, null)
+            val audioFacts=mutableListOf<SourceAudioFacts>()
             var video = 0; var audio = 0; var width = 0; var height = 0; var duration = 0L; var hdr = false
             repeat(extractor.trackCount) { index ->
                 currentCoroutineContext().ensureActive()
@@ -100,10 +102,16 @@ class MediaFiles(private val context: Context) {
                     }
                     video++
                 }
-                if (mime.startsWith("audio/")) audio++
+                if (mime.startsWith("audio/")) {
+                    audio++
+                    audioFacts+=SourceAudioFacts(index,
+                        if(f.containsKey(MediaFormat.KEY_SAMPLE_RATE)) f.getInteger(MediaFormat.KEY_SAMPLE_RATE) else null,
+                        if(f.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) f.getInteger(MediaFormat.KEY_CHANNEL_COUNT) else null,
+                        durationUs=if(f.containsKey(MediaFormat.KEY_DURATION)) f.getLong(MediaFormat.KEY_DURATION) else 0)
+                }
             }
             require(video + audio > 0 && duration > 0) { "Android could not inspect this source. Broader FFprobe import support is the next integration step." }
-            Source(uri.toString(), name, duration, width, height, video, audio, hdr, bytes)
+            Source(uri.toString(), name, duration, width, height, video, audio, hdr, bytes, audioFacts.toList())
         } finally { extractor.release() }
     }
 

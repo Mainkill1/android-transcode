@@ -28,7 +28,7 @@ import kotlin.math.roundToLong
     fun update(value: Settings) = action(UiAction.ChangeSettings(value))
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Section("Video & format", true) {
-            Choice("Output format", s.container, Container.entries, { it.name }) { update(s.copy(container = it)) }
+            Choice("Output format", s.container, Container.entries, { it.name }) { update(s.copy(container = it, audio = when(it) { Container.WAV -> AudioEncoder.PCM_S16LE;Container.FLAC -> AudioEncoder.FLAC;Container.M4A,Container.MP4 -> AudioEncoder.AAC;else -> s.audio })) }
             if (!s.container.audioOnly) {
                 Choice("Video encoder", s.video, VideoEncoder.entries, { it.label },
                     enabled = { if (it.hardware) ui.capabilities.available && it.ffmpeg in ui.capabilities.encoders else !ui.capabilities.available || it.ffmpeg in ui.capabilities.encoders }) {
@@ -57,7 +57,7 @@ import kotlin.math.roundToLong
             Choice("Audio encoder", s.audio, AudioEncoder.entries, { if (it == AudioEncoder.NONE) "Remove sound" else it.name }) { update(s.copy(audio = it)) }
             val tracks = ui.selected?.source?.audioTracks ?: 0
             if (tracks > 0 && s.audio != AudioEncoder.NONE) Choice("Source track", s.audioTrack, (0 until tracks).toList(), { "Track ${it + 1}" }) { update(s.copy(audioTrack = it)) }
-            if (s.audio !in setOf(AudioEncoder.NONE, AudioEncoder.FLAC)) Choice("Audio bitrate", s.audioKbps, listOf(64, 96, 128, 160, 192, 256, 320), { "$it kb/s" }) { update(s.copy(audioKbps = it)) }
+            if (s.audio.usesBitrate) Choice("Audio bitrate", s.audioKbps, listOf(64, 96, 128, 160, 192, 256, 320), { "$it kb/s" }) { update(s.copy(audioKbps = it)) }
             if (s.audio != AudioEncoder.NONE) Toggle("Mix down to stereo", s.stereo) { update(s.copy(stereo = it)) }
         }
         ui.selected?.let { edit -> Section("Trim selected file") {
