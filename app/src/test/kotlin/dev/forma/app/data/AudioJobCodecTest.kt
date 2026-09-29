@@ -12,8 +12,12 @@ class AudioJobCodecTest {
         Source("content://files/a", "Old.wav", 30000, audioTracks = 1), Trim(5000, 15000),
         Settings(container = Container.M4A, audioTrack = 0, stereo = false)))
 
+    private fun legacyRoot(schema:Int):JSONObject=JSONObject(JobCodec.encode(listOf(oldEntry))).put("schema",schema).also {
+        val job=it.getJSONArray("jobs").getJSONObject(0)
+        job.remove("preferences");job.remove("completedAtMs")
+    }
     @Test fun legacyJobsUpgradeToAudioSchemaWithoutChangingTheirSettings() {
-        val root = JSONObject(JobCodec.encode(listOf(oldEntry))).put("schema", 1)
+        val root = legacyRoot(1)
         root.getJSONArray("jobs").getJSONObject(0).getJSONObject("settings").remove("audioEdit")
         val legacy = root.toString()
         assertEquals(listOf(oldEntry), JobCodec.decode(legacy))
@@ -34,7 +38,7 @@ class AudioJobCodecTest {
         assertEquals(2, changed.nodes.size)
     }
     @Test fun unknownEffectAndItsFutureFieldsRemainAfterSaveAndExplicitBypass() {
-        val root = JSONObject(JobCodec.encode(listOf(oldEntry))).put("schema", 2)
+        val root = legacyRoot(2)
         val unknown = JSONObject("""{"id":"future","type":"new-filter","version":7,"enabled":true,"parameters":{"amount":3},"futureField":{"keep":42}}""")
         val audio = JSONObject().put("schema", 1).put("nodes", JSONArray().put(unknown)).put("output", JSONObject())
         root.getJSONArray("jobs").getJSONObject(0).getJSONObject("settings").put("audioEdit", audio)
@@ -49,7 +53,7 @@ class AudioJobCodecTest {
         assertFalse(node.getBoolean("enabled"))
     }
     @Test fun futureAudioSchemaIsRetainedButCannotBecomeAnExecutableNeutralEdit() {
-        val root = JSONObject(JobCodec.encode(listOf(oldEntry))).put("schema", 2)
+        val root = legacyRoot(2)
         root.getJSONArray("jobs").getJSONObject(0).getJSONObject("settings").put("audioEdit", JSONObject("""{"schema":99,"future":{"keep":17}}"""))
         val loaded = JobCodec.decode(root.toString()).single()
         assertFalse(AudioEffectRegistry.validate(loaded.spec.settings.audioEdit, SourceAudioFacts()).isEmpty())
