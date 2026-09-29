@@ -37,7 +37,8 @@ class SettingsScenarioTest {
             .put("reportPath", "files/settings-tests/$runId.json")
         var failure: Throwable? = null
         try {
-            val all = SettingsChecks.cases + NativePreferenceChecks.cases + SettingsStoreChecks.cases + PowerRegressionChecks.cases
+            val all = SettingsChecks.cases + NativePreferenceChecks.cases + SettingsStoreChecks.cases +
+                PowerRegressionChecks.cases + PowerRuntimeChecks.cases
             val checks = when (name) {
                 "all" -> all + AndroidSettingsStorageChecks.cases
                 "catalog" -> all.filter { "catalog" in it.first }
@@ -45,6 +46,7 @@ class SettingsScenarioTest {
                 "battery_low" -> all.filter { "battery boundary" in it.first || "battery recovery" in it.first }
                 "charging_exception" -> all.filter { "charging must not" in it.first || "unknown charging" in it.first }
                 "thermal_wait" -> all.filter { "thermal" in it.first }
+                "power_runtime" -> PowerRuntimeChecks.cases
                 "storage_memory" -> SettingsStoreChecks.cases
                 "storage_roundtrip" -> AndroidSettingsStorageChecks.cases
                 else -> throw IllegalArgumentException("Unknown or unimplemented scenario: $name")

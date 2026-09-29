@@ -115,10 +115,36 @@ class PowerRuntime(
         evaluateCurrent().also { mutable.value = it }
     }
 
-    private fun evaluateCurrent(): PowerRuntimeSnapshot = evaluator.evaluate(
-        document = settings.value.document,
-        sample = samples.value,
-        activeAttempt = runs.value.mode != RunMode.IDLE,
-        nowMs = clock().coerceAtLeast(0L)
-    )
+    private fun evaluateCurrent(): PowerRuntimeSnapshot {
+        val loaded = settings.value
+        val sample = samples.value
+        val activeAttempt = runs.value.mode != RunMode.IDLE
+        loaded.error?.let { error ->
+            // A corrupt or unreadable saved policy may contain stricter charging or
+            // battery requirements than factory defaults. Do not silently replace it.
+            val decision = PowerDecision(
+                canStart = false,
+                action = if (activeAttempt) PowerAction.FINISH else PowerAction.CONTINUE,
+                reasons = setOf("settings_unavailable"),
+                warnings = setOf("settings_unavailable"),
+                state = PowerState(waitingForUser = true),
+                threadCeiling = null
+            )
+            return PowerRuntimeSnapshot(
+                settingsRevision = loaded.document?.revision ?: 0,
+                preferences = PowerPreferences(),
+                sample = sample,
+                decision = decision,
+                instruction = PowerWorkerPolicy.instruction(decision, activeAttempt),
+                blockingMessage = "Waiting for Settings review. Saved power safeguards could not be read, so factory defaults were not applied.",
+                warningMessage = error
+            )
+        }
+        return evaluator.evaluate(
+            document = loaded.document,
+            sample = sample,
+            activeAttempt = activeAttempt,
+            nowMs = clock().coerceAtLeast(0L)
+        )
+    }
 }

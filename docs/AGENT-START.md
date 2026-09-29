@@ -44,26 +44,24 @@ release the run slot before native cancellation cleanup completes. Keep Stop
 independent of import/save and queue-mutation busy flags. Native upload-fit and
 full editor parity are still required; host/Compose checks are not phone timing.
 
-## Advanced settings implementation and handoff
+## Advanced settings implementation
 
-Read the [current implementation status](advanced-settings-implementation.md) first.
-The branch now contains the 64-key typed registry, native Settings screen, atomic
-preference repository, 14 media bindings, four appearance controls and isolated
-tests. This is no longer a documentation-only settings proposal.
+Read the [implementation status and handoff](advanced-settings-implementation.md),
+then the [64-option catalog](advanced-settings-catalog.md), [native design](superpowers/specs/2026-09-29-advanced-settings-design.md), and [implementation/test plan](superpowers/plans/2026-09-29-advanced-settings.md).
 
-The [layout design](superpowers/specs/2026-09-29-advanced-settings-design.md),
-[64-option catalog](advanced-settings-catalog.md), and
-[implementation plan](superpowers/plans/2026-09-29-advanced-settings.md) describe
-the full target. Their original design-only paragraphs are historical; the status
-page distinguishes implemented code, verified checks and remaining gates.
+The native Settings surface, typed/versioned defaults, media overrides and eight
+live battery/thermal policy controls are implemented. The catalog currently has
+26 production-consumed rows and 38 explicitly Planned rows. Do not turn Planned
+rows on by changing copy alone; add a real consumer, validation and evidence first.
 
-Preserve immutable queued media values. Full persistent preset/job provenance is
-not migrated yet; the legacy editor adapter captures explicit values rather than
-guessing their origin. PowerPolicy is a tested pure reducer, not live enforcement:
-Android monitoring/service integration must be completed before enabling power
-rows. Auto encoding is currently labeled conservative software, not hardware proof.
+Preserve app-default/preset/job provenance and immutable queued media settings.
+Safety policy is separately versioned and live. The foreground worker refreshes
+it after settings load and before every queue claim; unreadable saved policy blocks
+new work instead of substituting factory safeguards. Finish-current drains only
+the active attempt. Stop-current cancels cooperatively, waits for native cleanup,
+then returns the job to a waiting state that restarts from the original on a later
+explicit Start. It is not partial-file resume.
 
-Keep tests under `testing/settings/` with test-only source-set references. Coordinate
-with the editor framework draft rather than adding a production command endpoint or
-another instrumentation runner. Do not promote a no-native or synthetic-policy test
-to physical-device export or battery/thermal qualification.
+Automatic background continuation, Battery Saver thread-budget integration,
+source-built native payloads and physical-device power/thermal qualification are
+not complete. Keep PR #4 Draft and report those gates as unrun until evidence exists.

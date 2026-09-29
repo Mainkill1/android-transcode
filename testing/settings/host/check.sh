@@ -7,3 +7,4 @@ mapfile -t SOURCES < <(find "$ROOT/core/src/main/kotlin/dev/forma/core/settings"
 kotlinc "$ROOT/core/src/main/kotlin/dev/forma/core/Models.kt" "${SOURCES[@]}" -include-runtime -d "$OUT/settings.jar"
 java -cp "$OUT/settings.jar" dev.forma.core.settings.SettingsChecks "$@"
 java -cp "$OUT/settings.jar" dev.forma.core.settings.PowerRegressionChecks
+java -cp "$OUT/settings.jar" dev.forma.core.settings.PowerRuntimeChecks
