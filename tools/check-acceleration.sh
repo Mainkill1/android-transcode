@@ -8,4 +8,3 @@ kotlinc core/src/main/kotlin/dev/forma/core/Acceleration.kt \
   core/src/main/kotlin/dev/forma/core/CodecRanking.kt \
   tests/acceleration/CodecRankingChecks.kt -include-runtime -d "$work/checks.jar"
 java -jar "$work/checks.jar"
-python3 -m unittest discover -s tests/acceleration -p 'test_*.py' -v

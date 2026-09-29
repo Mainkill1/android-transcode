@@ -22,8 +22,10 @@ class HardwareAccelerationInventoryTest {
         val arguments = InstrumentationRegistry.getArguments()
         assumeTrue("Opt in with formaAccelerationInventory=true.",
             arguments.getString("formaAccelerationInventory") == "true")
-        val runId = requireNotNull(arguments.getString("formaRunId")) { "A fresh formaRunId UUID is required." }
-        require(UUID.fromString(runId).toString() == runId) { "Expected a canonical UUID." }
+        val runId = requireNotNull(arguments.getString("formaRunId")) {
+            "Direct ADB runs must supply a fresh formaRunId UUID."
+        }
+        require(UUID.fromString(runId).toString() == runId) { "Expected a canonical lowercase UUID." }
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val errors = JSONArray()
         val entries = JSONArray()
@@ -62,10 +64,7 @@ class HardwareAccelerationInventoryTest {
             report.put("error", error.javaClass.simpleName)
             throw error
         } finally {
-            val directory = File(context.filesDir, "acceleration")
-            check(directory.isDirectory || directory.mkdirs()) { "Cannot create the test report directory." }
-            // The host validates the nonce and JSON only after JUnit has completed successfully.
-            File(directory, "inventory.json").writeText(report.toString(2))
+            writeFreshReport(File(context.filesDir, "acceleration"), "inventory-$runId.json", report)
         }
     }
 
@@ -138,6 +137,13 @@ class HardwareAccelerationInventoryTest {
     } catch (error: Exception) {
         errors.put(JSONObject().put("query", label).put("error", error.javaClass.simpleName))
         JSONObject.NULL // Missing and failed queries are not a declaration of unsupported hardware.
+    }
+
+    private fun writeFreshReport(directory: File, name: String, report: JSONObject) {
+        check(directory.isDirectory || directory.mkdirs()) { "Cannot create the test report directory." }
+        val target = File(directory, name)
+        check(target.createNewFile()) { "A report already exists for this run ID; use a new formaRunId." }
+        target.writeText(report.toString(2))
     }
 
     private fun sha256(file: File): String {

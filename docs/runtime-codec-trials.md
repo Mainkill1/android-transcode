@@ -1,165 +1,224 @@
-# Runtime codec trials: implementation and handoff
+# Runtime codec trials: implementation and direct ADB testing
 
-This implements the 2026-09-29 request to **try actual Android encoders instead of
-letting capability reports decide everything**. It supersedes the advertised-only
-selection rules in the older acceleration handoff for the application export path.
-The old `AccelerationPolicy.choose` remains an advertised-only helper for existing
-callers/tests; production exports now use `CodecTrials.plan` and `ExportRetry.run`.
+This implementation tries real Android encoder configurations instead of treating
+advertised capability reports as an absolute veto. Production exports use
+`CodecTrials.plan`, `FfmpegBridge.prepareAttempts`, `ExportRetry.run`, and
+`verifyEncodedOutput`; the older `AccelerationPolicy.choose` remains an
+advertised-only helper for existing callers and policy tests.
 
-## What is now implemented
+The device test interface is **direct ADB**. No Python collector, host command
+wrapper, production receiver, or test server is required. The separate
+instrumentation APK accepts arguments through `adb shell am instrument`, and the
+result is copied with `adb exec-out run-as`.
+
+## Implemented behavior
 
 | Area | Implementation |
 | --- | --- |
-| Real application exports | `FfmpegTranscoder` calls `prepareAttempts`, executes bounded trials, decodes/checks each successful output, then publishes only the accepted artifact. |
-| Automatic mode | H.264/H.265 Automatic choices are available in the existing contextual encoder selector. CPU fallback retains format, trim, bitrate, filters, dimensions, audio and requested fps. |
-| Required-device mode | H.264, HEVC, VP9 and AV1 device choices; no fallback to a software FFmpeg encoder. A compiled wrapper and an enumerated encoder component are necessary. |
-| Capability reports | Size/rate/bitrate/buffer support are ordering hints, not vetoes. A reported NO or query failure can still lead to an actual trial. |
-| Trial configurations | Up to 3 distinct components, each with NV12/YUV420P and VBR/CBR. Breadth-first order tries other components before additional variants. At most 12 device attempts plus 1 Auto software attempt. |
-| Error handling | Typed try/catch at the executor. Recognized component-local initialization failures and explicit output rejection can retry. Unknown errors, I/O, cancellation and programming exceptions do not. |
-| Evidence | Private per-job `files/outputs/<job-id>.acceleration.json`; separate instrumentation reports with device identity, media hashes and actual selected route. |
-| Testing | External engine JVM tests, app queue tests, Android instrumentation, and a fail-closed ADB collector; no production test receiver or network server. |
+| Application exports | `FfmpegTranscoder` stages the original, prepares bounded routes, executes and verifies each attempt, and publishes only the accepted output. |
+| Automatic mode | H.264 and H.265 Automatic try device encoders and then the same-format software encoder for eligible initialization/output failures. |
+| Required-device mode | H.264, HEVC, VP9, and AV1 device choices never fall back to a software FFmpeg encoder. |
+| Capability handling | Advertised size/rate/bitrate/buffer support orders trials but does not veto a real attempt. Known software-only components and decoders remain excluded. |
+| Trial matrix | Up to three components, each with NV12/YUV420P and VBR/CBR: at most twelve device attempts plus one Automatic software attempt. |
+| Error handling | Only recognized encoder-local create/configure/start failures and explicitly rejected encoded outputs can advance to another route. Cancellation, I/O, invalid input, unknown native errors, and programming exceptions stop. |
+| Validation | A zero FFmpeg return code is followed by a nonempty-file check, full decode, track, duration, geometry, and SDR validation. |
+| Evidence | Normal jobs write private acceleration sidecars. Device tests write run-ID-specific JSON files under the target app's private `files/acceleration` directory. |
+| Test isolation | JVM, app, and Android instrumentation tests live under `testing/acceleration`; none are included in a release main source set. |
 
-The actual pipeline remains **CPU decode -> CPU filters -> MediaCodec encode ->
-FFmpeg mux**. No GPU, NPU, hardware-decode, NDK-async, zero-copy, or speedup claim is
-made by this change. FFmpeg remains the in-process export owner; source pins and
-licensing policy are unchanged.
+The current accelerated pipeline remains:
 
-## Exact attempt contract
+```text
+CPU decode -> CPU filters/scale -> MediaCodec encode -> FFmpeg mux -> full decode check
+```
 
-1. Stage and inspect the original. Preserve the immutable queued settings.
-2. Resolve Automatic / software-only / required-device intent. Source-rate/VFR,
-   constant-quality, and display-matrix jobs use software in Automatic mode rather
-   than silently changing their semantics. Required-device jobs reject unsupported
-   media semantics. HDR/high-bit-depth remains a separate color-pipeline feature.
-3. Enumerate encoder components for the requested MIME. A decoder is never used as
-   an encoder; known software-only MediaCodec components are excluded. API 26–28
-   and ambiguous newer flags can be tried as **hardware UNKNOWN**, never relabeled
-   as proven hardware. Required-device means no software FFmpeg fallback, not a
-   fabricated guarantee about unknown OEM internals.
-4. Order using advertised configuration, provisional same-device manufacturer
-   performance hints and platform preference. These are not measured speed rankings.
-5. Execute each entire trial through the normal FFmpeg adapter. There is no fake
-   configure-only success, silent resolution downgrade, dropped audio, `-fs`,
-   `cbr_fd`, `-hwaccel auto`, or assumption that an NPU is an encoder.
-6. FFmpeg return codes do not become arbitrary Java MediaCodec exceptions. The
-   adapter accumulates session-local error evidence and recognizes specific encoder
-   create/configure/start messages. A known storage/input/resource/filter error
-   vetoes codec-init fallback. Unknown/new log forms remain fatal until deliberately
-   recognized and tested. Errors after encoded-frame progress are not reclassified
-   as initialization errors. Java exceptions are still propagated unchanged.
-7. Wait for native completion/cancellation cleanup before removing an unsuccessful
-   private output. Never feed that output into the next attempt. Keep one hardware
-   export active under the existing app coordinator and bridge mutex.
-8. A zero return code must be followed by a nonempty output, full decode, track,
-   geometry, SDR color and duration checks. Known invalid-output errors may try
-   another device route; unknown verification/I/O failures stop. Duration tolerance
-   is max(250 ms, two requested frame periods), not the old 5% of the whole film.
-9. Publish only after those checks. Per-attempt verification occurs within RUNNING;
-   the existing VERIFYING state is retained for final publication. Reports say
-   publication is tracked by the durable queue, rather than asserting it early.
+This change does not claim hardware decoding, a GPU surface pipeline, NPU encoding,
+HDR support, zero-copy operation, or measured speedup.
 
-A passing output check is **not** perceptual-quality, per-frame completeness,
-A/V-sync, HDR, thermal, or whole-device qualification. No successful/failed route is
-persistently cached or globally blacklisted yet. Each job can retry a component
-that was temporarily busy earlier; a later bounded positive-preference cache must
-remain an ordering hint keyed to exact configuration and runtime/device identity.
+## Attempt and fallback contract
 
-## User-visible and persistence behavior
+1. Every attempt rereads the original staged input and retains the queued codec
+   family, trim, dimensions, bitrate, frame rate, audio, and filters.
+2. Automatic source-rate/VFR, constant-quality, or display-matrix jobs use software
+   instead of silently changing their semantics. Required-device mode rejects those
+   unimplemented semantics.
+3. Android encoder enumeration is advisory. API 26-28 components and ambiguous
+   newer components may be attempted as hardware `UNKNOWN`; they are never relabeled
+   as confirmed hardware based on their names.
+4. Device attempts are count-bounded and breadth-first across components before
+   less-preferred buffer/rate-mode variants.
+5. The executor waits for native completion and cancellation cleanup before deleting
+   a failed private output or starting the next route.
+6. A partial or failed output is never used as the next input. `-fs`, `cbr_fd`,
+   hidden resolution changes, dropped audio, and removed edits are not fallback tools.
+7. Unknown error text is fatal. The implementation does not use a blanket
+   `catch (Exception) { useSoftware() }` policy.
+8. Software-only jobs still pass through the common output verifier.
+9. Final publication remains tied to the durable queue transition. An attempt report
+   does not itself claim that the file was published or that the device is qualified.
 
-Existing software and explicit-device choices retain their meanings. Default
-`Settings()` is still X264: opening this version does not rewrite older queues to
-Automatic. Selecting an Automatic choice in the UI explicitly selects bitrate
-mode and supplies 30 fps when the prior value was source-rate, just as the existing
-device selector did. Users can choose source-rate or constant-quality afterward;
-Automatic then preserves that intent using software.
+A passing short test is not proof of frame-for-frame completeness, A/V sync,
+perceptual quality, sustained thermal behavior, or every profile/resolution on that
+phone.
 
-The queue continues to serialize encoder enum **names**, not ordinals. App tests
-cover all encoder-name round trips and unchanged legacy defaults. No new queue
-field or schema rewrite is required. Older app versions cannot read the newly
-introduced enum values; their existing unknown/corrupt-data path preserves the
-queue rather than silently resetting it.
+## Build and install
 
-Diagnostics contain chosen backend/component, hardware YES/UNKNOWN, buffer, rate
-mode, attempts and outcomes. They omit source URIs, paths and raw native logs.
-Software-only exports also pass through the common verifier. Decoder/filter/NPU
-stages must not be labeled accelerated based on encoder selection.
+Use the existing source-built native Maven repository and packaging checks:
 
-## Reproducible commands
+```bash
+./gradlew -PffmpegEnabled=true -PffmpegRepo="$NATIVE_REPO" \
+  :core:test :engine-ffmpeg:testDebugUnitTest :app:testDebugUnitTest \
+  :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
 
-Host checks (no phone or Android SDK implied):
+adb -s "$SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s "$SERIAL" install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+```
+
+The commands below assume those matching native debug and test APKs are installed.
+A no-native/UI-only APK must fail an explicitly requested native test.
+
+## Direct ADB: advertised inventory
+
+Generate a new lowercase UUID for every run. The test refuses to overwrite a report
+with the same run ID.
+
+```bash
+RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+
+adb -s "$SERIAL" shell am instrument -w -r \
+  -e class dev.forma.app.HardwareAccelerationInventoryTest \
+  -e formaAccelerationInventory true \
+  -e formaRunId "$RUN_ID" \
+  dev.forma.transcode.test/androidx.test.runner.AndroidJUnitRunner
+
+adb -s "$SERIAL" exec-out run-as dev.forma.transcode \
+  cat "files/acceleration/inventory-$RUN_ID.json" \
+  > "inventory-$RUN_ID.json"
+```
+
+Accept the report only when instrumentation shows exactly one completed test with
+`OK (1 test)` and no `FAILURES!!!`, process-crash, or instrumentation-aborted line.
+The JSON must contain the same `runId`, `inventoryComplete: true`,
+`nativeExecutionTested: false`, and `deviceQualified: false`.
+
+## Direct ADB: real runtime export
+
+Set one of `H264_AUTO`, `H265_AUTO`, `H264_HW`, `H265_HW`, `VP9_HW`, or `AV1_HW`:
+
+```bash
+ENCODER="H264_AUTO"
+RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+
+adb -s "$SERIAL" shell am instrument -w -r \
+  -e class dev.forma.app.RuntimeAccelerationTest \
+  -e formaNative true \
+  -e formaEncoder "$ENCODER" \
+  -e formaRunId "$RUN_ID" \
+  dev.forma.transcode.test/androidx.test.runner.AndroidJUnitRunner
+
+adb -s "$SERIAL" exec-out run-as dev.forma.transcode \
+  cat "files/acceleration/runtime-$RUN_ID.json" \
+  > "runtime-$ENCODER-$RUN_ID.json"
+```
+
+The test creates a real three-second 640x360/30 SDR H.264/AAC input, runs the same
+preparer/retry/verifier used by the app, and records the selected backend,
+component, hardware identity, buffer layout, rate mode, hashes, output bytes, and
+attempt events. VP9/AV1 use MKV for this smoke fixture. The source generator requires
+compiled x264, AAC, and lavfi support.
+
+For a valid successful runtime report, verify:
+
+- instrumentation completed one test without failure;
+- `runId` and `requestedEncoder` match the command;
+- `success` and `nativeExecutionTested` are `true`;
+- `deviceQualified` remains `false`;
+- `outputBytes` is positive and both SHA-256 fields contain 64 lowercase hex digits;
+- the final event is `VERIFIED`;
+- an explicit `*_HW` request selected `MEDIACODEC`, never `SOFTWARE`;
+- an Automatic software result is reported as software rather than hardware success.
+
+After copying a report, it may be removed directly:
+
+```bash
+adb -s "$SERIAL" shell run-as dev.forma.transcode \
+  rm -f "files/acceleration/runtime-$RUN_ID.json"
+```
+
+### PowerShell run-ID setup
+
+The ADB arguments are identical on Windows. Generate the required canonical UUID
+with:
+
+```powershell
+$serial = "DEVICE_SERIAL"
+$runId = [guid]::NewGuid().ToString()
+$encoder = "H264_AUTO"
+```
+
+Then substitute `$serial`, `$runId`, and `$encoder` in the direct `adb` invocation.
+To capture JSON as UTF-8 text in PowerShell:
+
+```powershell
+$lines = adb -s $serial exec-out run-as dev.forma.transcode cat "files/acceleration/runtime-$runId.json"
+[IO.File]::WriteAllLines("runtime-$encoder-$runId.json", $lines, [Text.UTF8Encoding]::new($false))
+```
+
+## Host checks
+
+These checks exercise Kotlin policy and retry contracts only; they do not require or
+simulate a phone:
 
 ```bash
 bash tools/check-acceleration.sh
 bash tools/check-runtime-acceleration.sh
 ```
 
-On a full checkout with JDK 17, SDK 36 and the existing source-built native Maven
-repository, keep the repository's native payload checks and run:
+Python is not part of the device workflow or these acceleration-specific checks.
 
-```bash
-./gradlew -PffmpegEnabled=true -PffmpegRepo="$NATIVE_REPO" \
-  :core:test :engine-ffmpeg:testDebugUnitTest :app:testDebugUnitTest \
-  :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
-adb -s "$SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
-adb -s "$SERIAL" install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-python3 tools/collect-android-acceleration.py --serial "$SERIAL" --output inventory.json
-python3 tools/collect-android-acceleration.py --serial "$SERIAL" --encoder H264_AUTO --timeout 600 --output auto-h264.json
-python3 tools/collect-android-acceleration.py --serial "$SERIAL" --encoder H264_HW --timeout 600 --output device-h264.json
-```
+## Self-review corrections in the direct-ADB follow-up
 
-Additional encoder arguments: H265_AUTO, H265_HW, VP9_HW, AV1_HW. Each native case
-creates a real 3-second 640x360/30 SDR H.264/AAC source, executes the same production
-preparer/retry/verifier, and records the actual selected route. The source generator
-requires compiled x264/AAC/lavfi. A missing native bundle or required codec fails
-an explicitly requested native test. Automatic CPU success is reported as CPU,
-not hardware success. MKV is used for the VP9/AV1 test cases, not an implicit claim
-of every upload destination's support.
+The first implementation used fixed device report names and depended on a Python
+collector to delete/read/validate them. That was unnecessary when direct ADB is
+available and created a stale-evidence hazard if instrumentation failed before
+replacing the fixed file. The follow-up changes therefore:
 
-The collector checks instrumentation completion, a fresh UUID, requested/actual
-encoder agreement, hashes, nonempty output and a final VERIFIED event. It refuses
-to replace evidence files. An ADB timeout does not prove that a native job stopped.
-The fixture is a runtime smoke test, **not an equal-quality encoder benchmark**.
+- remove the Python collector and its Python-only tests;
+- require an explicit canonical `formaRunId` for inventory and runtime tests;
+- require an explicit `formaEncoder` for runtime tests;
+- write `inventory-<runId>.json` and `runtime-<runId>.json`;
+- refuse to replace an existing report for the same run ID;
+- include attempt totals in runtime evidence;
+- make raw `adb shell am instrument` plus `adb exec-out run-as` the documented and
+  supported device interface.
 
-## Test isolation
+The production retry code was also reviewed for cancellation ownership, original
+input reuse, attempt bounds, software fallback rules, output cleanup, verification,
+and unknown-error handling. No blanket fallback was introduced. The remaining
+high-risk gap is native crash/hang containment: a Java catch cannot contain SIGSEGV,
+process death, or a codec call that never returns.
 
-- `testing/acceleration/jvm`: referenced only by engine-ffmpeg's `test` source set.
-- `testing/acceleration/appTest`: referenced only by app's `test` source set.
-- `testing/acceleration/androidTest`: referenced only by app's `androidTest` source set.
-- `tests/acceleration` and `tools/check-*` / collector: host-only utilities.
+## Remaining merge gates
 
-No main source set includes these paths. The production retry planner and executor
-are not test machinery and must remain when deleting the optional harness.
-Remove the three test-source references and engine testImplementation when removing
-this harness. No new scheduled automation or GitHub workflow is introduced.
+- Build and verify a real native AAR/APK payload, including 16 KB alignment checks.
+- Confirm encoder-local FFmpeg log prefixes against the pinned native build; unknown
+  forms must remain fatal until tested.
+- Execute direct-ADB inventory and runtime tests on physical Qualcomm, MediaTek,
+  Tensor, and Exynos devices as available.
+- Check cancellation, repeated runs, full frame counts/timestamps, A/V sync,
+  real-source quality, and sustained thermal behavior.
+- Integrate the native upload-byte-cap controller without treating oversize as a
+  codec failure.
+- Reconcile overlapping production files with the editor/settings branches before
+  combining them.
+- Implement hardware decode and GPU surface processing as independent later work.
 
-## Remaining work before merge / device handoff
+## Primary references
 
-- Run Android compilation, lint, JUnit, real native payload/alignment checks and
-  physical exports. Local host checks do not establish those results.
-- Verify current FFmpegKitNext callback APIs and actual native log prefixes against
-  the pinned, built artifact. Keep unfamiliar errors fatal; do not broaden to
-  `catch (Exception) { useSoftware() }`.
-- Qualify full frame counts, timestamps, rotation/VFR, A/V sync, unusual sources,
-  thermal behavior, repeated jobs/cancellation, and foreground-service lifecycle.
-- Wire the existing planned native upload-byte-cap controller through the same
-  attempt/verifier path. This baseline has no native targetBytes executor; the PR
-  does not claim that it adds size-goal parity. Never treat oversize as codec failure.
-- A Java catch cannot contain SIGSEGV, process death, or a stuck native driver.
-  The current cancellation ownership is retained; process/watchdog containment is
-  separate work. Attempt count is bounded, but native-call wall time is not.
-- Reconcile overlapping files with editor draft #2 and future settings draft #4.
-  This branch intentionally targets main and does not modify those branches.
-- Next performance work remains independent hardware decoding, GPU surfaces and
-  synchronization, then NDK async/mux-header qualification and optional inference.
-
-## Primary API references
-
-- Android MediaCodec lifecycle and error semantics:
+- Android MediaCodec lifecycle and errors:
   https://developer.android.com/reference/android/media/MediaCodec
-- FFmpeg MediaCodec formats and options:
+- FFmpeg MediaCodec encoders and options:
   https://ffmpeg.org/ffmpeg-codecs.html#MediaCodec
-- FFmpeg encoder-local create/configure/start error messages (source reference;
-  confirm against the pinned build rather than treating master as its version):
+- FFmpeg MediaCodec encoder source; confirm messages against the pinned build:
   https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/mediacodecenc.c
-- Manufacturer performance hints are not cross-device benchmarks:
+- Android manufacturer performance hints:
   https://developer.android.com/reference/android/media/MediaCodecInfo.VideoCapabilities

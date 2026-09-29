@@ -14,4 +14,3 @@ kotlinc -cp "$coroutines" core/src/main/kotlin/dev/forma/core/*.kt \
 for main in dev.forma.core.RuntimeCodecChecksKt dev.forma.core.EncoderChoiceChecksKt dev.forma.ffmpeg.ExportRetryChecksKt dev.forma.ffmpeg.OutputValidationChecksKt; do
   java -cp "$work/checks.jar:$coroutines" "$main"
 done
-python3 -m unittest discover -s tests/acceleration -p 'test_*.py' -v

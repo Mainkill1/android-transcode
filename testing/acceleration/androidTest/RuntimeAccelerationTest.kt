@@ -23,9 +23,13 @@ class RuntimeAccelerationTest {
         val args = InstrumentationRegistry.getArguments()
         assumeTrue("Explicit native device test only.", args.getString("formaNative") == "true")
         runBlocking(Dispatchers.IO) {
-            val runId = args.getString("formaRunId") ?: UUID.randomUUID().toString()
-            require(UUID.fromString(runId).toString() == runId)
-            val choice = args.getString("formaEncoder") ?: "H264_AUTO"
+            val runId = requireNotNull(args.getString("formaRunId")) {
+                "Direct ADB runs must supply a fresh formaRunId UUID."
+            }
+            require(UUID.fromString(runId).toString() == runId) { "Expected a canonical lowercase UUID." }
+            val choice = requireNotNull(args.getString("formaEncoder")) {
+                "Direct ADB runs must supply formaEncoder."
+            }
             require(choice in setOf("H264_AUTO", "H265_AUTO", "H264_HW", "H265_HW", "VP9_HW", "AV1_HW"))
             val encoder = VideoEncoder.valueOf(choice)
             val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -58,7 +62,8 @@ class RuntimeAccelerationTest {
                     execute = { attempt, progress -> bridge.execute(attempt.arguments, progress) },
                     verify = { attempt -> verifyEncodedOutput(bridge, source, Trim(), settings, output, attempt) },
                     onAttempt = { event ->
-                        events.put(JSONObject().put("attempt", event.number).put("status", event.status.name)
+                        events.put(JSONObject().put("attempt", event.number).put("total", event.total)
+                            .put("status", event.status.name)
                             .put("component", event.attempt.decision?.codecName ?: JSONObject.NULL)
                             .put("reason", event.reason))
                     })
@@ -75,11 +80,22 @@ class RuntimeAccelerationTest {
                 report.put("success", false).put("errorType", error.javaClass.simpleName)
                 throw error
             } finally {
-                try { File(context.filesDir, "acceleration").apply { mkdirs() }.resolve("runtime.json").writeText(report.toString(2)) }
-                finally { directory.deleteRecursively() }
+                try {
+                    writeFreshReport(File(context.filesDir, "acceleration"), "runtime-$runId.json", report)
+                } finally {
+                    directory.deleteRecursively()
+                }
             }
         }
     }
+
+    private fun writeFreshReport(directory: File, name: String, report: JSONObject) {
+        check(directory.isDirectory || directory.mkdirs()) { "Cannot create the test report directory." }
+        val target = File(directory, name)
+        check(target.createNewFile()) { "A report already exists for this run ID; use a new formaRunId." }
+        target.writeText(report.toString(2))
+    }
+
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
