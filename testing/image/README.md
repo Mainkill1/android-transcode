@@ -1,7 +1,8 @@
 # Image editor testing: isolated sources and direct ADB
 
 **Implemented runner; root verified 26/26 direct native/Android cases at `ac41edf`
-on OnePlus LE2125/API 36. Broader UI/API/16 KiB runtime gates remain pending.**
+and 28 actual service/native/Compose methods at `3310a26` on OnePlus LE2125/API 36.
+Broader accessibility/API/16 KiB runtime coverage remains followup work.**
 `scenarios.json` declares 36 acceptance cases. Direct `all` selects exactly 26
 native/Android cases; eight host cases, one release artifact gate and one explicit no-native case run separately.
 The runner is opt-in: ordinary no-argument test discovery skips it, while any
@@ -133,9 +134,34 @@ adb -s "$SERIAL" shell am instrument -w -r \
 
 Its first real-device run exposed unsafe UI bitmap recycling. `3310a26` removes
 recycling of published thumbnail/source/edited bitmaps and serializes bounded
-platform decodes. The corrected device retry and
-`ImageEditorUiTest#publishedBitmapsSurviveDecodeEditorAndPreviewReplacement`
-remain pending; host checks and latest product-only release exclusion pass.
+platform decodes. The corrected actual Share/editor/service retry passed JUnit
+OK 1 in 9.307 seconds with zero skips. The ordinary native/Compose suite then
+passed 27/27 in 66.467 seconds with zero skips, including
+`ImageEditorUiTest#publishedBitmapsSurviveDecodeEditorAndPreviewReplacement`,
+audio DSP/analysis/jobs/preview, native H.264 and audio Share/service checks.
+These 28 physical test methods are separate from the 26-case direct suite.
+
+The root verified installed `3310a26` app SHA-256
+`0a831af90192b71137c9d26c554c54a327376d981115b4db41d3d20efd3d653e`
+and test SHA-256
+`881c9d0dc76a86fc771b2121a4c72c2bfe1d8eacdf58fcf49e85eb6c1d008d2a`.
+Fresh evidence is retained in `vendor/pr-readiness/pr8/bitmap-share-service-device.txt`,
+`bitmap-ordinary-native-device.txt` and `bitmap-installed-test-sha256.txt`.
+Host checks and the latest product-only release exclusion also pass. Manual
+large-text/TalkBack/keyboard, API 26/27, other-vendor and actual 16 KiB runtime
+coverage remain followups; this phone uses 4096-byte pages.
+
+The earlier no-native Compose CI run failed four inherited audio tests that
+executed without opt-in. Test-only `eb9abf7` adds the same `formaNative=true`
+contract to AudioAnalysis/Dsp/Job/PreviewDeviceTest. Missing opt-in skips only
+those native tests; an explicit request still executes strict native checks.
+The production APK remains unchanged; the new test APK SHA-256 is
+`4990bb2e2465a3bd2bb1297c802f2bd8104e34d8966c07697a9aec1aa8630b4b`.
+The root verified both branches on the installed new test APK: absent flag gives
+four intentional assumption skips (0.044 seconds, not native passes); explicit
+`formaNative=true` passes all four with zero skips (42.775 seconds). Fresh logs
+are `audio-opt-in-absent-device.txt` and `audio-opt-in-native-device.txt` under
+`vendor/pr-readiness/pr8/`. CI rerun `36591188813` remains pending.
 
 ## Required report contract
 

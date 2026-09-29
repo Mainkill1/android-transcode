@@ -1,6 +1,6 @@
 # Image editor: feature catalog and delivery scope
 
-**Status: A implementation is present; focused native qualification passed. Broader device/UI gates remain pending.**
+**Status: A implementation and primary-device native/UI qualification passed. Broader compatibility and accessibility gates remain followups.**
 The branch adds native image contracts, Compose tools, private staging, versioned
 image drafts and tagged queue jobs, verified FFmpeg export, and an isolated direct
 instrumentation runner. Host/build evidence is recorded below. A passing build is
@@ -243,8 +243,10 @@ not merge the other drafts.
 
 Every row below has an implemented production consumer. The direct native/Android
 suite passed 26/26 on OnePlus LE2125, API 36, arm64, 4 KiB pages at production
-revision `ac41edf`, including both WebP alpha variants. Host tests cover pure contracts and persisted data. The matrix
-describes implemented behavior; separate UI/accessibility/API and 16 KiB runtime
+revision `ac41edf`, including both WebP alpha variants. At `3310a26`, the actual
+image Share/editor/foreground-service test and 27 ordinary native/Compose methods
+also passed. Host tests cover pure contracts and persisted data. The matrix
+describes implemented behavior; broader accessibility/API and 16 KiB runtime
 gates below remain pending.
 
 | ID | Production consumer | Behavior/evidence |
@@ -353,8 +355,17 @@ its matching test APK is
 `718fd175d2cd4e1a7a769317b2dba7b877da28ad853fc7d06d95ea8bb185333e`.
 The subsequent `3310a26` UI-only correction removes unsafe recycling of published
 bitmaps and serializes platform display decoding. The actual Share/editor/service
-test exposed the original recycled-bitmap crash; its corrected physical retry is
-pending. Decode dimensions and preview budgets remain bounded. Its app/test APKs
+test exposed the original recycled-bitmap crash. Its corrected physical retry
+passed (JUnit OK 1, 9.307 seconds, zero skips). It uses actual ACTION_SEND,
+Edit image, numeric crop fields and Convert, then checks the frozen queue job,
+foreground notification, durable COMPLETED state, decoded output and released
+worker ownership. PNG policy and the later snapshot-isolation edit use ViewModel
+actions; this does not qualify the format selector UI. The subsequent ordinary
+native/Compose suite passed 27/27 (66.467 seconds, zero skips), including published
+bitmap redraw/replacement, audio DSP/analysis/jobs/preview, native H.264 and audio
+Share/service regression checks. Together these are 28 physical test methods,
+separate from the 26-case direct runner above. Decode dimensions and preview
+budgets remain bounded. The installed app/test APK hashes were verified and are
 are `0a831af90192b71137c9d26c554c54a327376d981115b4db41d3d20efd3d653e` and
 `881c9d0dc76a86fc771b2121a4c72c2bfe1d8eacdf58fcf49e85eb6c1d008d2a`.
 The current `3310a26` product-only unsigned release APK SHA-256 is
@@ -362,13 +373,30 @@ The current `3310a26` product-only unsigned release APK SHA-256 is
 the same physical-removal, DEX/manifest/mapping exclusion and native payload gates
 pass. Release packaging checks do not establish release runtime qualification.
 
+The no-native Compose CI run at `d4c0b79` failed four inherited audio-native
+methods because they lacked opt-in guards. Test-only `eb9abf7` now skips those
+four only when `formaNative=true` is absent; explicit native requests retain
+their strict capability checks and processing assertions. The production app
+and product-only release are unchanged. The rebuilt test APK SHA-256 is
+`4990bb2e2465a3bd2bb1297c802f2bd8104e34d8966c07697a9aec1aa8630b4b`;
+the preceding 28-method device evidence belongs to the installed `881c…` test
+APK above. On the newly installed `4990…` test APK, absent opt-in produced four
+intentional assumption skips in 0.044 seconds; these are not native passes.
+Explicit `formaNative=true` passed all four methods with zero skips in 42.775
+seconds. Fresh logs are `audio-opt-in-absent-device.txt` and
+`audio-opt-in-native-device.txt`. CI rerun `36591188813` remains pending.
+
 Parent-owned provenance/reports are retained under `vendor/pr-readiness/pr8` and
 `vendor/pr-readiness/pr8-native-provenance.json` outside source commits.
 
-Pending root-owned qualification: corrected actual Share/editor/service flow and
-bitmap redraw regression; ordinary native/Compose
-regressions; Compose large-text,
-TalkBack, keyboard, lifecycle/Share/Save flows; API 26/27 and another vendor when
+Primary-device logs are `bitmap-share-service-device.txt` and
+`bitmap-ordinary-native-device.txt`; installed test identity is recorded in
+`bitmap-installed-test-sha256.txt`. The latest product-only release artifact is
+in `release-exclusion-bitmap/app/build/outputs/apk/release/` under the local SDD
+ledger, with corresponding native, manifest and R8 mapping exclusion proofs.
+
+Broader qualification followups: manual Compose large-text, TalkBack and keyboard;
+additional lifecycle/revoked-URI/low-resource coverage; API 26/27 and another vendor when
 available; actual 16 KiB page-size execution. Root alone owns ADB and retains run
 reports/artifact hashes. The phone pass above is limited to the stated device,
 revision, artifacts and cases.

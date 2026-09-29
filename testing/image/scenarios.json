@@ -535,7 +535,7 @@
       "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
     }
   ],
-  "qualification": "143 host checks and latest3310a26 release artifact gates verified; native/Android direct26 includingWebP passedac41edf; correctedUI/service retry pending root",
+  "qualification": "143 host checks and latest3310a26 release artifact gates verified; native/Android direct26 includingWebP passedac41edf; actualShareService1 plus ordinarynativeCompose27 passed3310a26 on primarydevice",
   "qualificationEvidence": {
     "productionRevision": "ac41edf4d22ba521643d4725321b08bf88801458",
     "directAllRunId": "c84b78a2-f1dc-4b5f-a8b7-01ed874399bc",
@@ -543,10 +543,27 @@
     "directAllSelected": 26,
     "device": "OnePlus LE2125 / API36 / arm64 / 4096-byte pages",
     "webpExtension": "verified-lossless-and-lossy-alpha",
-    "remaining": "ordinary native/UI regressions, manual accessibility/large text, API26/27/other vendor and actual16KiB runtime",
+    "remaining": "manual accessibility/large text/keyboard, additional lifecycle and low-resource coverage, API26/27/other vendor and actual16KiB runtime",
     "latestUiRevision": "3310a2686896a67b198d3bd9d0bd7ff4260b875c",
-    "latestUiStatus": "pending-device-retry",
+    "latestUiStatus": "verified-primary-device-service-and-ordinary-suite",
     "hostTests": 143,
-    "releaseSha256": "0f16ae3c61ed9060450a7f2aa27d7a737cb99823aedb291ccefb5be834b4cb65"
+    "releaseSha256": "0f16ae3c61ed9060450a7f2aa27d7a737cb99823aedb291ccefb5be834b4cb65",
+    "actualShareServicePassed": 1,
+    "ordinaryNativeComposePassed": 27,
+    "physicalMethodsOutsideDirectRunner": 28,
+    "shareServiceLog": "vendor/pr-readiness/pr8/bitmap-share-service-device.txt",
+    "ordinaryNativeComposeLog": "vendor/pr-readiness/pr8/bitmap-ordinary-native-device.txt",
+    "installedAppSha256": "0a831af90192b71137c9d26c554c54a327376d981115b4db41d3d20efd3d653e",
+    "installedTestSha256": "881c9d0dc76a86fc771b2121a4c72c2bfe1d8eacdf58fcf49e85eb6c1d008d2a",
+    "nativeOptinTestRevision": "eb9abf71178d782bdea4f335b25e15ddd042f53d",
+    "nativeOptinTestSha256": "4990bb2e2465a3bd2bb1297c802f2bd8104e34d8966c07697a9aec1aa8630b4b",
+    "nativeOptinQualification": "verified-absent-flag4 intentionalassumption-skips; explicitformaNative4passed/noskips; CI-rerun36591188813pending",
+    "priorNoNativeCi": "d4c0b79 failed4 inheritedaudio-native methods missingopt-in; test-onlyguard correction eb9abf7",
+    "nativeOptinAbsentSkips": 4,
+    "nativeOptinExplicitPassed": 4,
+    "nativeOptinAbsentLog": "vendor/pr-readiness/pr8/audio-opt-in-absent-device.txt",
+    "nativeOptinExplicitLog": "vendor/pr-readiness/pr8/audio-opt-in-native-device.txt",
+    "ciRun": "36591188813",
+    "ciStatus": "pending"
   }
 }
