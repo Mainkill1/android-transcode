@@ -84,9 +84,9 @@ object EditPipeline {
         }
     }
 
-    fun videoFilters(source: Source, trim: Trim, settings: Settings): List<String> {
+    fun videoFilters(source: Source, trim: Trim, settings: Settings, forceTrim: Boolean = false): List<String> {
         val e = settings.effects
-        if (e.isNeutral) return emptyList()
+        if (e.isNeutral && !forceTrim) return emptyList()
         val total = duration(source, trim, e)
         return buildList {
             add("trim=start=${seconds(trim.startMs)}:end=${seconds(trim.endMs ?: source.durationMs)}")
@@ -111,9 +111,9 @@ object EditPipeline {
         }
     }
 
-    fun audioFilters(source: Source, trim: Trim, settings: Settings): List<String> {
+    fun audioFilters(source: Source, trim: Trim, settings: Settings, forceTrim: Boolean = false): List<String> {
         val e = settings.effects
-        if (e.isNeutral) return emptyList()
+        if (e.isNeutral && !forceTrim) return emptyList()
         val total = duration(source, trim, e)
         return buildList {
             add("atrim=start=${seconds(trim.startMs)}:end=${seconds(trim.endMs ?: source.durationMs)}")

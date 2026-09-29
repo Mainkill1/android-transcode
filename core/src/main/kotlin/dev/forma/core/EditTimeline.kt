@@ -34,6 +34,9 @@ class EditTimeline(clips: List<TimelineClip> = emptyList()) {
         durationMs = total
     }
 
+    override fun equals(other: Any?): Boolean = other is EditTimeline && clips == other.clips
+    override fun hashCode(): Int = clips.hashCode()
+
     fun apply(command: TimelineCommand): EditTimeline {
         val next = clips.toMutableList()
         fun index(id: String) = next.indexOfFirst { it.id == id }.also { require(it >= 0) { "Unknown clip: $id" } }

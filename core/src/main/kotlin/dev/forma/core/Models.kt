@@ -59,9 +59,11 @@ data class Editor(
     val advanced: Boolean = false,
     val custom: Boolean = false,
     val goal: Goal = Goal.SHARE,
-    val quality: Quality = Quality.BALANCED
+    val quality: Quality = Quality.BALANCED,
+    val targetBytes: Long? = 10_000_000
 )
-data class JobSpec(val id: String, val source: Source, val trim: Trim, val settings: Settings)
+data class JobSpec(val id: String, val source: Source, val trim: Trim, val settings: Settings,
+    val sequence: SequenceSpec? = null, val targetBytes: Long? = null)
 enum class JobState { QUEUED, PREPARING, RUNNING, VERIFYING, COMPLETED, FAILED, CANCELLED, INTERRUPTED }
 data class QueueEntry(val spec: JobSpec, val state: JobState = JobState.QUEUED, val message: String = "")
 data class Capabilities(
@@ -72,7 +74,7 @@ data class Capabilities(
     val filters: Set<String> = emptySet(),
     val build: String = "Not loaded"
 )
-data class Progress(val processedMs: Long, val speed: Double? = null) {
+data class Progress(val processedMs: Long, val speed: Double? = null, val attempt: Int = 1, val attempts: Int = 1) {
     fun fraction(durationMs: Long): Float? = if (durationMs <= 0) null else
         (processedMs.toDouble() / durationMs).coerceIn(0.0, 0.99).toFloat()
 }

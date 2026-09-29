@@ -15,5 +15,15 @@ interface FfmpegBridge {
         }
         return Planner.arguments(source, trim, settings, input, output)
     }
+    /** Qualify each original input through the existing route before constructing the common graph. */
+    suspend fun prepareSequence(sequence: SequenceSpec, settings: Settings, inputs: List<String>, output: String): List<String> {
+        val problems = SequencePlanner.validate(sequence, settings, capabilities())
+        require(problems.isEmpty()) { problems.joinToString("\n") }
+        require(inputs.size == sequence.timeline.clips.size) { "Source count does not match the movie." }
+        sequence.timeline.clips.forEachIndexed { index, clip ->
+            prepare(clip.source, clip.trim, SequencePlanner.clipSettings(clip, settings, sequence.canvas), inputs[index], output)
+        }
+        return SequencePlanner.arguments(sequence, settings, inputs, output)
+    }
     suspend fun execute(arguments: List<String>, onProgress: (Progress) -> Unit): NativeResult
 }

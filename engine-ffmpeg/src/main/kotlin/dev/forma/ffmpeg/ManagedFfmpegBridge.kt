@@ -23,6 +23,10 @@ class ManagedFfmpegBridge(
         withContext(Dispatchers.IO) {
             native.withLock { WorkPolicy.withThreadBudget(delegate.prepare(source, trim, settings, input, output), processors) }
         }
+    override suspend fun prepareSequence(sequence: SequenceSpec, settings: Settings, inputs: List<String>, output: String): List<String> =
+        withContext(Dispatchers.IO) {
+            native.withLock { WorkPolicy.withSequenceThreadBudget(delegate.prepareSequence(sequence, settings, inputs, output), processors) }
+        }
     override suspend fun execute(arguments: List<String>, onProgress: (Progress) -> Unit): NativeResult = withContext(Dispatchers.IO) {
         // The delegate awaits native cancellation completion before this lock can be released.
         native.withLock { delegate.execute(arguments, onProgress) }

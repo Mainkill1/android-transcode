@@ -74,18 +74,7 @@ object Planner {
             addAll(listOf("-hide_banner", "-loglevel", "warning", "-nostdin", "-n", "-i", input))
             if (settings.effects.isNeutral && trim.startMs > 0) addAll(listOf("-ss", seconds(trim.startMs)))
             addAll(listOf("-t", seconds(outputDuration(source, trim, settings))))
-            if (settings.container == Container.M4A) add("-vn") else {
-                addAll(listOf("-map", "0:v:0", "-c:v", settings.video.ffmpeg))
-                if (settings.rateControl == RateControl.QUALITY) {
-                    addAll(listOf("-crf", settings.crf.toString()))
-                    if (settings.video == VideoEncoder.VP9) addAll(listOf("-b:v", "0"))
-                } else addAll(listOf("-b:v", "${settings.videoKbps}k"))
-                when (settings.video) {
-                    VideoEncoder.X264, VideoEncoder.X265 -> addAll(listOf("-preset", "medium"))
-                    VideoEncoder.VP9 -> addAll(listOf("-deadline", "good", "-cpu-used", "4"))
-                    VideoEncoder.AV1 -> addAll(listOf("-preset", "8"))
-                    else -> Unit
-                }
+            if (settings.container != Container.M4A) {
                 val filters = buildList {
                     if (settings.deinterlace) add("yadif")
                     if (settings.denoise) add("hqdn3d")
@@ -93,22 +82,46 @@ object Planner {
                     val h = if (settings.maxHeight == 0) "ih" else "min(ih,${settings.maxHeight})"
                     add("scale=-2:'trunc($h/2)*2'")
                 }
-                addAll(listOf("-vf", filters.joinToString(","), "-pix_fmt", "yuv420p"))
-                if (settings.fps > 0) addAll(listOf("-r", settings.fps.toString(), "-fps_mode", "cfr"))
-                else addAll(listOf("-fps_mode", "passthrough"))
+                addAll(listOf("-vf", filters.joinToString(",")))
             }
-            if (source.audioTracks == 0 || settings.audio == AudioEncoder.NONE) add("-an") else {
-                addAll(listOf("-map", "0:a:${settings.audioTrack}", "-c:a", settings.audio.ffmpeg))
-                if (settings.audio != AudioEncoder.FLAC) addAll(listOf("-b:a", "${settings.audioKbps}k"))
-                if (settings.stereo) addAll(listOf("-ac", "2"))
-                val audioFilters = EditPipeline.audioFilters(source, trim, settings)
-                if (audioFilters.isNotEmpty()) addAll(listOf("-af", audioFilters.joinToString(",")))
+            val audio = source.audioTracks > 0 && settings.audio != AudioEncoder.NONE
+            if (audio) {
+                val filters = EditPipeline.audioFilters(source, trim, settings)
+                if (filters.isNotEmpty()) addAll(listOf("-af", filters.joinToString(",")))
             }
-            addAll(listOf("-sn", "-dn", "-map_chapters", "-1", "-map_metadata", if (settings.keepMetadata) "0" else "-1"))
-            if (settings.container in setOf(Container.MP4, Container.M4A)) addAll(listOf("-movflags", "+faststart"))
-            addAll(listOf("-f", settings.container.muxer, output))
+            addAll(outputArguments(settings, if (settings.container == Container.M4A) null else "0:v:0", if (audio) "0:a:${settings.audioTrack}" else null))
+            add(output)
         }
     }
+
+    /** Encoding/container options are shared by single-source and graph exports. */
+    fun outputArguments(settings: Settings, videoMap: String?, audioMap: String?): List<String> = buildList {
+        if (videoMap == null) add("-vn") else {
+            addAll(listOf("-map", videoMap, "-c:v", settings.video.ffmpeg))
+            if (settings.rateControl == RateControl.QUALITY) {
+                addAll(listOf("-crf", settings.crf.toString()))
+                if (settings.video == VideoEncoder.VP9) addAll(listOf("-b:v", "0"))
+            } else addAll(listOf("-b:v", "${settings.videoKbps}k"))
+            when (settings.video) {
+                VideoEncoder.X264, VideoEncoder.X265 -> addAll(listOf("-preset", "medium"))
+                VideoEncoder.VP9 -> addAll(listOf("-deadline", "good", "-cpu-used", "4"))
+                VideoEncoder.AV1 -> addAll(listOf("-preset", "8"))
+                else -> Unit
+            }
+            addAll(listOf("-pix_fmt", "yuv420p"))
+            if (settings.fps > 0) addAll(listOf("-r", settings.fps.toString(), "-fps_mode", "cfr"))
+            else addAll(listOf("-fps_mode", "passthrough"))
+        }
+        if (audioMap == null) add("-an") else {
+            addAll(listOf("-map", audioMap, "-c:a", settings.audio.ffmpeg))
+            if (settings.audio != AudioEncoder.FLAC) addAll(listOf("-b:a", "${settings.audioKbps}k"))
+            if (settings.stereo) addAll(listOf("-ac", "2"))
+        }
+        addAll(listOf("-sn", "-dn", "-map_chapters", "-1", "-map_metadata", if (settings.keepMetadata) "0" else "-1"))
+        if (settings.container in setOf(Container.MP4, Container.M4A)) addAll(listOf("-movflags", "+faststart"))
+        addAll(listOf("-f", settings.container.muxer))
+    }
+
 }
 
 object QueueRules {
