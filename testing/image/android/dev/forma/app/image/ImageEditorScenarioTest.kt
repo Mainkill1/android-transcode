@@ -63,7 +63,12 @@ class ImageEditorScenarioTest {
         var (input,info)=if(id=="alpha_blur_edges")ImageFixtures.transparentEdges(dir)else ImageFixtures.png(context,dir,if(id=="geometry_crop_turn_resize")1200 else 101,if(id=="geometry_crop_turn_resize")800 else 77,alpha=id!="adjustments_known_pixels")
         var source=ImageFixtures.source(context,input,info)
         if(id=="full_device_roundtrip"){
-            val imported=graph.files.inspect(android.net.Uri.parse(source.uri),persistPermission=false)
+            val authority=InstrumentationRegistry.getInstrumentation().context.packageName+".writable-image-export"
+            val provider=android.net.Uri.parse("content://$authority")
+            context.contentResolver.call(provider,"reset",null,null)
+            context.contentResolver.call(provider,"seed",null,android.os.Bundle().apply{putByteArray("png",input.readBytes())})
+            val incoming=android.net.Uri.parse("content://$authority/original.png")
+            val imported=graph.files.inspect(incoming,persistPermission=false)
             info=imported.imageInfo ?:error("URI import did not route to image inspection")
             source=ImageSource(imported.uri,imported.name,info.hash,info.bytes,imported.imageOriginalUri)
         }
@@ -278,11 +283,21 @@ class ImageEditorScenarioTest {
             if(id=="solid_redaction" || id=="full_device_roundtrip")assertEquals(Color.BLACK,decoded.getPixel(70,50))
             if(id=="full_device_roundtrip") {
                 assertTrue(output.length()<10_000_000)
-                val saved=File(dir,"saved-copy.png");assertFalse(saved.exists())
+                val saved=File(dir,"saved-copy.png");assertFalse(saved.exists());assertTrue(saved.createNewFile())
                 val destination=androidx.core.content.FileProvider.getUriForFile(context,"${context.packageName}.files",saved)
                 source.originalUri?.let{original->
-                    try{graph.files.export(tagged,android.net.Uri.parse(original));fail("Original URI must be guarded")}catch(_:IllegalArgumentException){}
-                    assertEquals(source.hash,ImageProbe.hash(input))
+                    val base=android.net.Uri.parse(original).buildUpon().path("").build()
+                    for(name in listOf("original.png","alias.png","unreadable.png")) {
+                        val guarded=base.buildUpon().appendPath(name).build()
+                        try{graph.files.export(tagged,guarded);fail("Nonempty/unreadable original or alias must be guarded")}catch(_:IllegalArgumentException){}
+                    }
+                    assertEquals(0,context.contentResolver.call(base,"writes",null,null)!!.getInt("writes"))
+                    val originalBytes=context.contentResolver.openInputStream(android.net.Uri.parse(original))!!.use{it.readBytes()}
+                    assertArrayEquals(input.readBytes(),originalBytes)
+                    val empty=base.buildUpon().appendPath("empty.png").build()
+                    graph.files.export(tagged,empty)
+                    assertEquals(1,context.contentResolver.call(base,"writes",null,null)!!.getInt("writes"))
+                    assertArrayEquals(output.readBytes(),context.contentResolver.openInputStream(empty)!!.use{it.readBytes()})
                 }
                 graph.files.export(tagged,destination)
                 assertEquals(ImageProbe.hash(output),ImageProbe.hash(saved));assertEquals("image/png",context.contentResolver.getType(destination))

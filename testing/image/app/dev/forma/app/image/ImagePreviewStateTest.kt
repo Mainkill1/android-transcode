@@ -15,6 +15,18 @@ class ImagePreviewStateTest {
         val next=old.updating(2,"new")
         assertEquals(region,next.region);assertTrue(next.actualPixels);assertEquals("full.png",next.path);assertEquals("Updating",next.status)
     }
+    @Test fun fitProxyShrinksToItsSharedCacheBudgetWithoutChangingActualPixels() {
+        val full=ImageSize(2000,2000)
+        val scale=ImagePreviewBudget.previewScale(full,false,true)
+        assertTrue(scale<.8);assertTrue(scale>0)
+        val size=ImageSize(kotlin.math.floor(full.width*scale+.5).toInt(),kotlin.math.floor(full.height*scale+.5).toInt())
+        ImagePreviewBudget.requireFits(ImagePreviewBudget.renderReserve(size,true),0)
+        assertEquals(1.0,ImagePreviewBudget.previewScale(full,true,true),0.0)
+    }
+    @Test fun metadataRewriteAndCandidateAreReservedTogether() {
+        assertTrue(ImagePreviewBudget.renderReserve(ImageSize(2000,2500),false)>32L*1024*1024)
+        try{ImagePreviewBudget.requireFits(ImagePreviewBudget.renderReserve(ImageSize(2000,2500),false),0);fail()}catch(e:dev.forma.core.image.ImageFailure){assertEquals("RESOURCE_LIMIT",e.code)}
+    }
     @Test fun worstCasePngReservePreventsAnOversizedInflightCache() {
         val upper=ImagePreviewBudget.pngUpperBound(ImageSize(2000,2000))
         assertTrue(upper>16_000_000)

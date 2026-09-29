@@ -21,6 +21,17 @@ object ImagePreviewBudget {
         val raw=size.height.toLong()*(4L*size.width+1)
         return raw+raw/8+1024*1024
     }
+    fun previewScale(full:ImageSize,actualPixels:Boolean,markup:Boolean):Double {
+        if(actualPixels)return 1.0
+        var scale=minOf(1.0,1600.0/maxOf(full.width,full.height))
+        repeat(100){
+            val size=ImageSize(kotlin.math.floor(full.width*scale+.5).toInt().coerceAtLeast(1),kotlin.math.floor(full.height*scale+.5).toInt().coerceAtLeast(1))
+            if(renderReserve(size,markup)<=MAX_ENCODED_BYTES)return scale
+            scale*=.95
+        }
+        throw ImageFailure("RESOURCE_LIMIT","No bounded preview size is available.")
+    }
+    fun renderReserve(size:ImageSize,markup:Boolean)=pngUpperBound(size)*(if(markup)3 else 2)+size.width.toLong()*size.height
     fun requireFits(candidate:Long,retained:Long){if(candidate<0 || retained<0 || candidate>MAX_ENCODED_BYTES-retained)throw ImageFailure("RESOURCE_LIMIT","Preview cache exceeds its shared 32 MiB budget. Use Fit or reduce output dimensions.")}
 }
 data class ImagePreviewState(val revision:Long=-1,val key:String="",val status:String="Original",val path:String?=null,val size:ImageSize?=null,val actualPixels:Boolean=false,val error:String?=null,val region:ImagePreviewRegion?=null,val geometry:ImageGeometryResult?=null) {
@@ -34,12 +45,11 @@ class ImagePreviewRenderer(private val files:MediaFiles,private val bridge:Ffmpe
         val directory=File(root,spec.id).apply {mkdirs()}
         try {
             val base=ImageGeometry.resolve(request.info,document,ImageAttempt(0,ImageFormat.PNG,90))
-            val longEdge=maxOf(base.outputSize.width,base.outputSize.height)
-            val scale=if(request.actualPixels)1.0 else minOf(1.0,1600.0/longEdge)
+            val scale=ImagePreviewBudget.previewScale(base.outputSize,request.actualPixels,document.annotations.isNotEmpty())
             var attempt=ImageAttempt(0,ImageFormat.PNG,90,scale,rendererIdentity=if(request.actualPixels)"forma-image-actual-v1" else "forma-image-proxy-v1")
             val geometry=ImageGeometry.resolve(request.info,document,attempt)
             if(directory.usableSpace<request.info.bytes+geometry.outputSize.width.toLong()*geometry.outputSize.height*12+64L*1024*1024)throw ImageFailure("RESOURCE_LIMIT","Not enough private storage for the preview.")
-            val reserve=ImagePreviewBudget.pngUpperBound(geometry.outputSize)*(if(document.annotations.isEmpty())1 else 2)+geometry.outputSize.width.toLong()*geometry.outputSize.height
+            val reserve=ImagePreviewBudget.renderReserve(geometry.outputSize,document.annotations.isNotEmpty())
             ImagePreviewBudget.requireFits(reserve,request.retainedBytes)
             val budget=minOf(32L*1024*1024,(Runtime.getRuntime().maxMemory()*.25).toLong())
             val region=if(request.actualPixels){
@@ -85,9 +95,9 @@ class ImagePreviewController(private val scope:CoroutineScope,private val runs:R
             try {
                 var retained=mutable.value.path?.let{File(it).length()}?:0
                 val full=ImageGeometry.resolve(info,document,ImageAttempt(0,ImageFormat.PNG,90)).outputSize
-                val scale=if(actualPixels)1.0 else minOf(1.0,1600.0/maxOf(full.width,full.height))
+                val scale=ImagePreviewBudget.previewScale(full,actualPixels,document.annotations.isNotEmpty())
                 val size=ImageGeometry.resolve(info,document,ImageAttempt(0,ImageFormat.PNG,90,scale)).outputSize
-                val reserve=ImagePreviewBudget.pngUpperBound(size)*(if(document.annotations.isEmpty())1 else 2)+size.width.toLong()*size.height
+                val reserve=ImagePreviewBudget.renderReserve(size,document.annotations.isNotEmpty())
                 if(retained+reserve>ImagePreviewBudget.MAX_ENCODED_BYTES && token==serial){
                     val prior=mutable.value.path
                     mutable.value=mutable.value.copy(path=null,size=null,region=null,actualPixels=false,geometry=null)

@@ -287,7 +287,7 @@ all device gates have passed.
 | EXP-04 | `ImageFitPolicy / ImageTranscoder` | strict finalized bytes; <=7 distinct attempts, always from original |
 | EXP-05 | `ImageGeometry / ImageVerifier` | exact geometry and graph-derived alpha hash; resize fit only on explicit consent |
 | EXP-06 | `ImagePlanner / ImageExportPanel` | explicit opaque JPEG flatten color; same visual preview graph |
-| EXP-08 | `ImageTranscoder / MediaFiles` | decode before atomic publication, copy Save/share and no overwrite |
+| EXP-08 | `ImageTranscoder / MediaFiles` | decode before atomic publication; original/private URI guard and new observably empty Save destination only |
 | META-01 | `ImageMetadata` | strip PNG/JPEG/WebP ancillary data; retain own technical sRGB/orientation only |
 | META-04 | `ImageProbe / ImageEffects` | 8-bit SDR sRGB; label assumptions; ICC/CMYK/HDR/uncalibrated blocked |
 | BAT-05 | `TranscodeService / ProgressView` | shared Stop owner and named image stages without duration/ETA |
@@ -320,7 +320,8 @@ preserved as unsupported/corrupt rather than assigned fabricated intent.
 PNG gAMA/cHRM tags must match standard sRGB values (45455 and the standard sRGB
 chromaticities); explicit non-sRGB values and ICC profiles remain blocked. Spatial
 operations use float premultiplied RGB, then quantize once for the encoder.
-Preview reserves worst-case PNG/intermediate storage before rendering; when an old
+Preview reserves worst-case PNG, metadata rewrite and alpha/markup scratch
+storage before rendering; Fit scales its proxy to that budget; when an old
 preview cannot share the budget, it returns to labeled Original while updating.
 Actual-pixel preview can be unavailable for large outputs; reduce output size or
 use Fit. Its cached full rendered graph and displayed region are both bounded.
