@@ -208,7 +208,7 @@ process death, or a codec call that never returns.
 
 ## Qualification checkpoint
 
-Final review qualification (2026-09-29) uses the pinned source-built FFmpeg n9.0.1 bundle. **41 JVM tests**, native app/test builds and lint pass. Fourteen real desktop stream-completeness cases pass, including rejection of decodable truncated video hidden behind full-length audio, shortened audio, shifted streams and wrong CFR counts. WAV/FLAC inputs lacking declared start clocks use measured packet/frame timestamps; unknown clocks remain unknown.
+Final review qualification (2026-09-29) uses the pinned source-built FFmpeg n9.0.1 bundle. **44 JVM tests**, native app/test builds and lint pass. Fourteen real desktop stream-completeness cases pass, including rejection of decodable truncated video hidden behind full-length audio, shortened audio, shifted streams and wrong CFR counts. WAV/FLAC inputs lacking declared start clocks use measured packet/frame timestamps; unknown clocks remain unknown.
 
 On the attached **OnePlus 9 Pro LE2125**, API 36, arm64, 4096-byte pages:
 
@@ -220,7 +220,7 @@ On the attached **OnePlus 9 Pro LE2125**, API 36, arm64, 4096-byte pages:
 
 The minified native release built with `testing/acceleration` physically absent and `accelerationTests=false`. DEX excludes qualification classes, runner and opt-in arguments. Debug/release native payload, 16 KB ELF and APK ZIP alignment checks pass; the attached phone has 4 KB pages.
 
-Final artifact SHA-256:
+Earlier physical checkpoint artifact SHA-256 (before the Save-guard follow-up):
 
 ```text
 debug    acd55fd2b5ea90a9ed780f1c4af420552a4aa9fd19a9f39e604bbe5305be91d1
@@ -292,3 +292,42 @@ Service tests refuse nonempty or active queues, generate their own video/WAV sou
   https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/mediacodecenc.c
 - Android manufacturer performance hints:
   https://developer.android.com/reference/android/media/MediaCodecInfo.VideoCapabilities
+
+## Save-copy follow-up and final release gate
+
+Save now reads the destination's empty state before opening it for write or entering
+failed-copy deletion. Original and alias documents with existing bytes, the source URI,
+and unreadable destinations are rejected. A genuinely empty new document is accepted.
+This also protects incoming originals after private shared imports change their URI.
+Host guard regressions and an instrumentation-only disposable provider exercise these
+boundaries. Current JVM reports contain 44 passing tests; the earlier 15-test physical
+report `b710ebff-f1c4-42d6-84e9-6ec52bc15d0c` and its APK identities above remain
+revision-specific evidence, separate from the Save-guard qualification.
+
+The final minified unsigned native release built with `testing/acceleration` physically
+quarantined and `-PaccelerationTests=false`; that directory was restored afterward.
+Native payload and 16 KiB ELF/APK alignment checks pass. DEX/manifest inspection found
+no test runner, `ExportDestinationDeviceTest`, `WritableExportTestProvider`, runtime
+qualification/scenario classes or opt-in arguments. Debug app/test APK hashes stayed
+unchanged during the release-only gate. Evidence is under the workspace
+`vendor/pr-readiness/pr6-final-save-release/{build.log,native-report.json,dex-isolation.json,release.sha256,debug-pair-unchanged.log}`.
+
+Final minified unsigned release SHA-256:
+
+```text
+ed8892da731b3f5324e6edd0ec04bf48ced38029bcc2648b9b503b1cc652ac6f
+```
+
+The matching final Save-guard pair passed a fresh **16-test physical suite with no skips**,
+including Save original/alias protection, empty-document output, inventory, runtime and
+production byte-cap/service checks. Native qualification run UUID:
+`7801f81c-563a-4a7b-b403-032304eb8e6b`. The capped output remained **76,894 bytes <
+250,000**, and independent strict decode confirmed **150 frames at 640×360/30** plus
+48 kHz stereo AAC. This is separate evidence from the earlier 15-test report above.
+
+Matching final Save-guard APK identities (workspace `vendor/pr-readiness/pr6/save-guard-apk-sha256.txt`):
+
+```text
+debug  0544f0c85bc84530ce06512fbcaf527b0895f37f3f2d801998cde58a85318b81
+test   6852826a93c6308e51fa0131395990f59268e5294bec8cf107722d5e1e461f21
+```

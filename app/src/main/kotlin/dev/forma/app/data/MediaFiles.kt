@@ -88,6 +88,12 @@ class MediaFiles(private val context: Context) {
         val source = output(spec)
         require(source.isFile && source.length() > 0) { "The completed output is no longer available." }
         val total = source.length()
+        // Shared/private source URIs and aliases cannot prove that a destination is new.
+        val firstByte=try { resolver.openInputStream(destination)?.use { it.read() } }
+            catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { null }
+        requireEmptyExportDestination(spec.source.uri,destination.toString(),firstByte)
+        currentCoroutineContext().ensureActive()
         try {
             resolver.openOutputStream(destination, "w")?.use { out -> source.inputStream().use { input ->
                 val buffer = ByteArray(64 * 1024)
