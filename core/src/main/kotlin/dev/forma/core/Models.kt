@@ -1,5 +1,7 @@
 package dev.forma.core
 
+import dev.forma.core.audio.AudioEdit
+
 enum class Container(val extension: String, val muxer: String, val mime: String) {
     MP4("mp4", "mp4", "video/mp4"), MKV("mkv", "matroska", "video/x-matroska"),
     WEBM("webm", "webm", "video/webm"), M4A("m4a", "ipod", "audio/mp4")
@@ -34,7 +36,8 @@ data class Settings(
     val stereo: Boolean = true,
     val denoise: Boolean = false,
     val deinterlace: Boolean = false,
-    val keepMetadata: Boolean = false
+    val keepMetadata: Boolean = false,
+    val audioEdit: AudioEdit = AudioEdit()
 )
 
 /** URI identity is never converted into an arbitrary filesystem path. */

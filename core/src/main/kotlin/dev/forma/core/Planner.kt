@@ -1,6 +1,8 @@
 package dev.forma.core
 
 import java.util.Locale
+import dev.forma.core.audio.AudioEffectRegistry
+import dev.forma.core.audio.SourceAudioFacts
 
 /** The only place where UI intent becomes FFmpeg arguments. No shell is involved. */
 object Planner {
@@ -44,6 +46,10 @@ object Planner {
         if (settings.container == Container.MP4 && settings.audio !in setOf(AudioEncoder.AAC, AudioEncoder.NONE))
             add("This MP4 profile supports AAC audio or no audio.")
         if (settings.container == Container.M4A && settings.audio != AudioEncoder.AAC) add("This M4A profile needs AAC.")
+        val audioDuration = duration(source, trim).coerceAtLeast(0)
+        val audioFacts = SourceAudioFacts(streamIndex = settings.audioTrack,
+            durationUs = if (audioDuration <= Long.MAX_VALUE / 1000) audioDuration * 1000 else 0)
+        addAll(AudioEffectRegistry.validate(settings.audioEdit, audioFacts, caps).map { it.message })
         if (caps != null) {
             if (!caps.available) add(caps.reason)
             else {

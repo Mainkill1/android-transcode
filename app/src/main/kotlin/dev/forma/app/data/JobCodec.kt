@@ -1,13 +1,14 @@
 package dev.forma.app.data
 
 import dev.forma.core.*
+import dev.forma.core.audio.AudioEdit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
 /** Versioned queue wire format. Unknown/corrupt data is surfaced, never silently erased. */
 object JobCodec {
-    fun encode(entries: List<QueueEntry>): String = JSONObject().put("schema", 1)
+    fun encode(entries: List<QueueEntry>): String = JSONObject().put("schema", 2)
         .put("jobs", JSONArray(entries.map { entry ->
             val j = entry.spec
             val s = j.settings
@@ -21,12 +22,14 @@ object JobCodec {
                     .put("rateControl", s.rateControl.name).put("crf", s.crf).put("videoKbps", s.videoKbps)
                     .put("maxHeight", s.maxHeight).put("fps", s.fps).put("audio", s.audio.name)
                     .put("audioKbps", s.audioKbps).put("audioTrack", s.audioTrack).put("stereo", s.stereo)
-                    .put("denoise", s.denoise).put("deinterlace", s.deinterlace).put("keepMetadata", s.keepMetadata))
+                    .put("denoise", s.denoise).put("deinterlace", s.deinterlace).put("keepMetadata", s.keepMetadata)
+                    .put("audioEdit", AudioEditCodec.encode(s.audioEdit)))
         })).toString()
 
     fun decode(text: String): List<QueueEntry> {
         val root = JSONObject(text)
-        require(root.getInt("schema") == 1) { "Unsupported queue schema. The original file has been preserved." }
+        val schema = root.getInt("schema")
+        require(schema in 1..2) { "Unsupported queue schema. The original file has been preserved." }
         val jobs = root.getJSONArray("jobs")
         return (0 until jobs.length()).map { i ->
             val j = jobs.getJSONObject(i)
@@ -43,7 +46,8 @@ object JobCodec {
                     RateControl.valueOf(s.getString("rateControl")), s.getInt("crf"), s.getInt("videoKbps"),
                     s.getInt("maxHeight"), s.getInt("fps"), AudioEncoder.valueOf(s.getString("audio")),
                     s.getInt("audioKbps"), s.getInt("audioTrack"), s.getBoolean("stereo"), s.getBoolean("denoise"),
-                    s.getBoolean("deinterlace"), s.getBoolean("keepMetadata"))),
+                    s.getBoolean("deinterlace"), s.getBoolean("keepMetadata"),
+                    if (schema == 1) AudioEdit() else AudioEditCodec.decode(s.getJSONObject("audioEdit")))),
                 JobState.valueOf(j.getString("state")), j.getString("message"))
         }.also { require(it.map { j -> j.spec.id }.distinct().size == it.size) { "Duplicate job identifiers." } }
     }
