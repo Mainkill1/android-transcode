@@ -12,14 +12,15 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-data class ImagePreviewRequest(val info:ImageInfo,val actualPixels:Boolean=false,val revision:Long,val owner:String="preview")
-data class ImagePreviewResult(val path:String,val revision:Long,val key:String,val size:ImageSize,val actualPixels:Boolean)
-data class ImagePreviewState(val revision:Long=-1,val key:String="",val status:String="Original",val path:String?=null,val size:ImageSize?=null,val actualPixels:Boolean=false,val error:String?=null) {
+data class ImagePreviewRegion(val left:Int,val top:Int,val width:Int,val height:Int)
+data class ImagePreviewRequest(val info:ImageInfo,val actualPixels:Boolean=false,val revision:Long,val owner:String="preview",val centerX:Int?=null,val centerY:Int?=null)
+data class ImagePreviewResult(val path:String,val revision:Long,val key:String,val size:ImageSize,val actualPixels:Boolean,val region:ImagePreviewRegion?=null)
+data class ImagePreviewState(val revision:Long=-1,val key:String="",val status:String="Original",val path:String?=null,val size:ImageSize?=null,val actualPixels:Boolean=false,val error:String?=null,val region:ImagePreviewRegion?=null) {
     fun accept(revision:Long,key:String,path:String,actualPixels:Boolean)=if(this.revision!=revision || this.key!=key)this else copy(status=if(actualPixels)"Actual pixels" else "Preview",path=path,actualPixels=actualPixels,error=null)
 }
 class ImagePreviewRenderer(private val files:MediaFiles,private val bridge:FfmpegBridge,private val markup:ImageMarkupRenderer,private val root:File) {
     suspend fun render(document:ImageEditDocument,request:ImagePreviewRequest):ImagePreviewResult=withContext(Dispatchers.IO) {
-        val key="${document.source.hash}:${document.revision}:${document.hashCode()}:forma-image-rgb-v1:${request.actualPixels}"
+        val key="${document.source.hash}:${document.revision}:${document.hashCode()}:forma-image-rgb-v1:${request.actualPixels}:${request.centerX}:${request.centerY}"
         val spec=ImageJobSpec(UUID.randomUUID().toString(),document,request.info)
         val directory=File(root,spec.id).apply {mkdirs()}
         try {
@@ -29,7 +30,12 @@ class ImagePreviewRenderer(private val files:MediaFiles,private val bridge:Ffmpe
             var attempt=ImageAttempt(0,ImageFormat.PNG,90,scale,rendererIdentity=if(request.actualPixels)"forma-image-actual-v1" else "forma-image-proxy-v1")
             val geometry=ImageGeometry.resolve(request.info,document,attempt)
             val budget=minOf(32L*1024*1024,(Runtime.getRuntime().maxMemory()*.25).toLong())
-            if(geometry.outputSize.width.toLong()*geometry.outputSize.height*4>budget)throw ImageFailure("RESOURCE_LIMIT","Actual-pixel view exceeds the 32 MiB preview budget. Reduce the output size before inspecting at 100%.")
+            val region=if(request.actualPixels){
+                val rw=minOf(1024,geometry.outputSize.width);val rh=minOf(1024,geometry.outputSize.height)
+                ImagePreviewRegion(((request.centerX?:geometry.outputSize.width/2)-rw/2).coerceIn(0,geometry.outputSize.width-rw),((request.centerY?:geometry.outputSize.height/2)-rh/2).coerceIn(0,geometry.outputSize.height-rh),rw,rh)
+            }else null
+            val displayedPixels=region?.let{it.width.toLong()*it.height}?:geometry.outputSize.width.toLong()*geometry.outputSize.height
+            if(displayedPixels*4>budget)throw ImageFailure("RESOURCE_LIMIT","Preview exceeds its decoded bitmap budget.")
             ImageValidation.requireMemory(request.info,geometry.outputSize,(Runtime.getRuntime().maxMemory()*.65).toLong(),document.annotations.isNotEmpty())
             val input=files.stage(spec);val actual=bridge.inspectImage(input.path)
             val plane=if(document.annotations.isNotEmpty())markup.render(document,geometry,directory)else null
@@ -42,7 +48,7 @@ class ImagePreviewRenderer(private val files:MediaFiles,private val bridge:Ffmpe
             ImageMetadata.finalize(output,ImageFormat.PNG)
             ImageVerifier(bridge).verify(output.path,ImagePlanner.plan(actual,spec,attempt,bridge.capabilities()))
             plane?.let{File(it.path).delete()};currentCoroutineContext().ensureActive()
-            ImagePreviewResult(output.path,document.revision,key,geometry.outputSize,request.actualPixels)
+            ImagePreviewResult(output.path,document.revision,key,geometry.outputSize,request.actualPixels,region)
         }catch(e:Throwable){directory.deleteRecursively();throw e}
         finally {files.workDir(spec).deleteRecursively()}
     }
@@ -54,17 +60,17 @@ class ImagePreviewController(private val scope:CoroutineScope,private val runs:R
     val state=mutable.asStateFlow()
     private var current:Job?=null
     private var serial=0L
-    fun request(document:ImageEditDocument,info:ImageInfo,actualPixels:Boolean=false) {
+    fun request(document:ImageEditDocument,info:ImageInfo,actualPixels:Boolean=false,centerX:Int?=null,centerY:Int?=null) {
         val old=current;old?.cancel();val token=++serial
-        val key="${document.source.hash}:${document.revision}:${document.hashCode()}:forma-image-rgb-v1:$actualPixels"
+        val key="${document.source.hash}:${document.revision}:${document.hashCode()}:forma-image-rgb-v1:$actualPixels:$centerX:$centerY"
         mutable.value=ImagePreviewState(document.revision,key,"Updating",path=mutable.value.path,size=mutable.value.size)
         current=scope.launch {
             old?.join();delay(150)
             if(runs.state.value.mode!=RunMode.IDLE){if(token==serial)mutable.value=mutable.value.copy(status="Updating after conversion");return@launch}
             try {
-                val rendered=renderer.render(document,ImagePreviewRequest(info,actualPixels,document.revision))
+                val rendered=renderer.render(document,ImagePreviewRequest(info,actualPixels,document.revision,centerX=centerX,centerY=centerY))
                 if(token==serial){val previous=mutable.value.path
-                    mutable.value=mutable.value.accept(rendered.revision,rendered.key,rendered.path,actualPixels).copy(size=rendered.size)
+                    mutable.value=mutable.value.accept(rendered.revision,rendered.key,rendered.path,actualPixels).copy(size=rendered.size,region=rendered.region)
                     if(previous!=null && previous!=rendered.path)File(previous).parentFile?.deleteRecursively()
                 }else File(rendered.path).parentFile?.deleteRecursively()
             }catch(c:CancellationException){throw c}catch(e:Exception){if(token==serial)mutable.value=mutable.value.copy(status="Unavailable",error=e.message)}

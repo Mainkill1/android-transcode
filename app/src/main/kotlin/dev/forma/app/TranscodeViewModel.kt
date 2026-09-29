@@ -54,7 +54,7 @@ sealed interface UiAction {
     data object DiscardImageDraft : UiAction
     data class ChangeImage(val document: ImageEditDocument, val commit: Boolean = true) : UiAction
     data class ImageTool(val tool: String) : UiAction
-    data class RenderImage(val actualPixels: Boolean = false) : UiAction
+    data class RenderImage(val actualPixels: Boolean = false, val centerX: Int? = null, val centerY: Int? = null) : UiAction
     data object ToggleAudioEditor : UiAction
     data object RenderAudioPreview : UiAction
     data object CancelAudioPreview : UiAction
@@ -156,7 +156,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             UiAction.DiscardImageDraft -> saveImageAndClose(true)
             is UiAction.ChangeImage -> changeImage(action.document,action.commit)
             is UiAction.ImageTool -> mutable.update { it.copy(imageEditor=it.imageEditor.copy(tool=action.tool)) }
-            is UiAction.RenderImage -> renderImage(action.actualPixels)
+            is UiAction.RenderImage -> renderImage(action.actualPixels,action.centerX,action.centerY)
             UiAction.ToggleAudioEditor -> mutable.update { it.copy(audioEditor=it.audioEditor.copy(open=!it.audioEditor.open)) }
             UiAction.RenderAudioPreview -> renderAudioPreview()
             UiAction.CancelAudioPreview -> { graph.previews.invalidate();mutable.update { it.copy(audioEditor=it.audioEditor.copy(preview=it.audioEditor.preview.copy(identity="",status="Not rendered"))) } }
@@ -255,10 +255,10 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             mutable.update{it.copy(imageEditor=it.imageEditor.copy(open=false,dirty=false))}
         }
     }
-    private fun renderImage(actual: Boolean) {
+    private fun renderImage(actual: Boolean,centerX:Int?=null,centerY:Int?=null) {
         val ui=mutable.value;val d=ui.imageDocument ?: return;val info=ui.selected?.source?.imageInfo ?: return
         if(!ui.capabilities.available)return
-        graph.imagePreviews.request(d,info,actual)
+        graph.imagePreviews.request(d,info,actual,centerX,centerY)
     }
     private suspend fun initializeImage(source: Source) {
         val info=source.imageInfo ?: return

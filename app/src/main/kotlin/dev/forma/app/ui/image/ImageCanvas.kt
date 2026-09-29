@@ -2,6 +2,8 @@
 package dev.forma.app.ui.image
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
+import android.graphics.Rect
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
@@ -29,7 +31,13 @@ import kotlin.math.*
     var zoom by remember {mutableFloatStateOf(1f)};var pan by remember {mutableStateOf(Offset.Zero)}
     var background by remember {mutableStateOf("Checkerboard")};var custom by remember {mutableStateOf(Rgba(200,200,200))};var grid by remember {mutableStateOf(false)}
     val source by produceState<Bitmap?>(null,d.source.uri){value=withContext(Dispatchers.IO){runCatching{ImageDisplayAdapter.original(context,d.source.uri,info).bitmap}.getOrNull()}}
-    val edited by produceState<Bitmap?>(null,preview.path){value=preview.path?.let{withContext(Dispatchers.IO){BitmapFactory.decodeFile(it)}}}
+    val edited by produceState<Bitmap?>(null,preview.path,preview.region){value=preview.path?.let{withContext(Dispatchers.IO){
+        val r=preview.region
+        if(r==null)BitmapFactory.decodeFile(it)else {
+            val decoder=BitmapRegionDecoder.newInstance(it,false)
+            try {decoder.decodeRegion(Rect(r.left,r.top,r.left+r.width,r.top+r.height),BitmapFactory.Options().apply{inPreferredConfig=Bitmap.Config.ARGB_8888})}finally{decoder.recycle()}
+        }
+    }}}
     DisposableEffect(source){onDispose{source?.recycle()}}
     DisposableEffect(edited){onDispose{edited?.recycle()}}
     val bitmap=if(original || edited==null)source else edited
@@ -55,7 +63,7 @@ import kotlin.math.*
         Text(if(original || edited==null)"Original" else preview.status,Modifier.semantics{liveRegion=LiveRegionMode.Polite},style=MaterialTheme.typography.labelLarge)
         Canvas(Modifier.fillMaxWidth().height(300.dp).testTag("image-canvas").semantics{contentDescription="Image canvas. Pinch to zoom and drag to pan. Crop corners also have exact numeric fields."}
             .pointerInput(tool,preview.actualPixels){
-                if(tool=="Crop")detectDragGestures(onDragStart={point->
+                if(tool=="Crop" && !preview.actualPixels)detectDragGestures(onDragStart={point->
                     val p=sourceAt(point);val g=currentGeometry
                     if(p!=null && g!=null){val cx=p.x/g.orientedSize.width;val cy=p.y/g.orientedSize.height;val c=currentDocument.crop
                         val corners=listOf(c.left to c.top,c.right to c.top,c.right to c.bottom,c.left to c.bottom)
@@ -81,7 +89,7 @@ import kotlin.math.*
                 drawImage(bitmap.asImageBitmap(),dstOffset=IntOffset(start.x.toInt(),start.y.toInt()),dstSize=IntSize((bitmap.width*s).toInt().coerceAtLeast(1),(bitmap.height*s).toInt().coerceAtLeast(1)))
                 if(split && source!=null && !source!!.isRecycled){clipRect(right=size.width/2){drawImage(source!!.asImageBitmap(),dstOffset=IntOffset(start.x.toInt(),start.y.toInt()),dstSize=IntSize((bitmap.width*s).toInt().coerceAtLeast(1),(bitmap.height*s).toInt().coerceAtLeast(1)))};drawLine(Color.White,Offset(size.width/2,0f),Offset(size.width/2,size.height),2f)}
                 if(grid)for(i in 1..2){drawLine(Color.White.copy(alpha=.6f),Offset(start.x+bitmap.width*s*i/3,start.y),Offset(start.x+bitmap.width*s*i/3,start.y+bitmap.height*s),1f);drawLine(Color.White.copy(alpha=.6f),Offset(start.x,start.y+bitmap.height*s*i/3),Offset(start.x+bitmap.width*s,start.y+bitmap.height*s*i/3),1f)}
-                if(tool=="Crop" && geometry!=null){drawRect(Color(0xff55bbee),start,androidx.compose.ui.geometry.Size(bitmap.width*s,bitmap.height*s),style=Stroke(2f));for(x in listOf(0f,bitmap.width*s))for(y in listOf(0f,bitmap.height*s))drawCircle(Color(0xff55bbee),10.dp.toPx(),start+Offset(x,y))}
+                if(tool=="Crop" && geometry!=null && !preview.actualPixels){drawRect(Color(0xff55bbee),start,androidx.compose.ui.geometry.Size(bitmap.width*s,bitmap.height*s),style=Stroke(2f));for(x in listOf(0f,bitmap.width*s))for(y in listOf(0f,bitmap.height*s))drawCircle(Color(0xff55bbee),10.dp.toPx(),start+Offset(x,y))}
             }
         }
         FlowRow{
@@ -90,6 +98,15 @@ import kotlin.math.*
             TextButton(onClick={zoom=(zoom/1.25f).coerceAtLeast(.1f)}){Text("−")};TextButton(onClick={zoom=(zoom*1.25f).coerceAtMost(16f)}){Text("+")}
             TextButton(onClick={original=!original},modifier=Modifier.pointerInput(Unit){detectTapGestures(onPress={original=true;tryAwaitRelease();original=false})}){Text("Hold Original")}
             TextButton(onClick={split=!split}){Text(if(split)"Edited only" else "Split")}
+        }
+        preview.region?.let{r->
+            Text("Actual output pixels · ${r.left}, ${r.top} · ${r.width} × ${r.height}",style=MaterialTheme.typography.bodySmall)
+            FlowRow {
+                TextButton(onClick={action(UiAction.RenderImage(true,r.left-r.width/2,r.top+r.height/2))}){Text("Inspect left")}
+                TextButton(onClick={action(UiAction.RenderImage(true,r.left+r.width*3/2,r.top+r.height/2))}){Text("Inspect right")}
+                TextButton(onClick={action(UiAction.RenderImage(true,r.left+r.width/2,r.top-r.height/2))}){Text("Inspect up")}
+                TextButton(onClick={action(UiAction.RenderImage(true,r.left+r.width/2,r.top+r.height*3/2))}){Text("Inspect down")}
+            }
         }
         if(split)Text("Split · Original left / edited Preview right",style=MaterialTheme.typography.bodySmall)
         NumberField("Zoom multiplier",zoom.toDouble(),.1,16.0){zoom=it.toFloat()}

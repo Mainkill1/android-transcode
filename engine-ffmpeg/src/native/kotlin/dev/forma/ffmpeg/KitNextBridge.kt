@@ -6,6 +6,7 @@ import com.arthenica.ffmpegkit.FFmpegSession
 import com.arthenica.ffmpegkit.FFprobeKit
 import com.arthenica.ffmpegkit.ReturnCode
 import dev.forma.core.*
+import dev.forma.core.image.*
 import dev.forma.core.audio.SourceAudioFacts
 import dev.forma.core.audio.AudioGraphPlanner
 import java.io.File
@@ -103,6 +104,9 @@ internal class KitNextBridge : FfmpegBridge {
             require(decision.backend == EncodeBackend.MEDIACODEC) { decision.reason }
             MediaCodecCommand.bind(arguments, request, decision)
         }
+
+    override suspend fun prepare(spec: ImageJobSpec, actual: ImageInfo, attempt: ImageAttempt, input: String, output: String): List<String> =
+        withContext(Dispatchers.IO) { ImagePlanner.plan(actual, spec, attempt, capabilities()).arguments(input, output) }
 
     override suspend fun execute(arguments: List<String>, onProgress: (Progress) -> Unit): NativeResult = withContext(Dispatchers.IO) {
         val done = CompletableDeferred<FFmpegSession>()

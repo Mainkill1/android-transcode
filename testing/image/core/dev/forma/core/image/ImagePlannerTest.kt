@@ -13,4 +13,13 @@ class ImagePlannerTest {
     }
     @Test fun missingNativeEncoderBlocks() { try { ImagePlanner.plan(info,job,ImageAttempt(0,ImageFormat.PNG,90),caps.copy(encoders=emptySet()));fail() }catch(e:ImageFailure) { assertEquals("CAPABILITY_UNAVAILABLE",e.code) } }
     @Test fun jpegRequiresFlattenConsent() { try { ImagePlanner.plan(info,job,ImageAttempt(0,ImageFormat.JPEG,90),caps);fail() }catch(e:ImageFailure) { assertEquals("ALPHA_WOULD_BE_LOST",e.code) } }
+    @Test fun transparentPaddingNeedsExplicitJpegFlatten() {
+        val opaque=info.copy(alpha=ImageAlpha.OPAQUE)
+        val padded=ImageJobSpec("pad",job.document.copy(output=ImageOutputPolicy(format=ImageFormat.JPEG,canvasWidth=200,canvasHeight=200)),opaque)
+        try {ImagePlanner.plan(opaque,padded,ImageAttempt(0,ImageFormat.JPEG,90),caps);fail()}catch(e:ImageFailure){assertEquals("ALPHA_WOULD_BE_LOST",e.code)}
+    }
+    @Test fun opaqueWebpHasNoInventedPaddingAlpha() {
+        val opaque=info.copy(alpha=ImageAlpha.OPAQUE)
+        assertEquals(ImageAlpha.OPAQUE,ImagePlanner.plan(opaque,job,ImageAttempt(0,ImageFormat.WEBP,80),caps).expectedAlpha)
+    }
 }
