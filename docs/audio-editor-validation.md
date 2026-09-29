@@ -1,6 +1,6 @@
 # First usable audio editor: implementation and validation
 
-PR3 now contains the first usable native single-clip editor, rather than only its original roadmap. The tested product code is commit `8dfab26`; merging the original PR3 documentation head introduced only README links. The remaining B/C roadmap is not implemented.
+PR3 contains the first usable native single-clip editor. The current reviewed product head is `41c30b5`; its host/build and matching phone checks are recorded below. Earlier downloaded-media/UI results belong to `8dfab26` and remain historical evidence. The remaining B/C roadmap is not implemented.
 
 ## Using the editor
 
@@ -15,13 +15,28 @@ Expand output controls for M4A/AAC, WAV/PCM16 or float PCM, FLAC, channel routin
 ## Correctness and persistence
 
 - One typed immutable audio graph is compiled in `core` and used by export, analysis and rendered preview. Processing uses sample-index trim and explicit rate anchors, rational speed and nearest-frame rounding; channel routing precedes normalization.
-- Queue schema 2 reads schema 1 with neutral audio defaults. Unknown effects and malformed present parameters remain opaque; active unsupported data blocks export with a reason instead of silently disappearing. Bypass/removal is explicit.
+- Queue schema 2 reads schema 1 with neutral audio defaults. Current saved snapshots require exact integer/boolean/text types, all writer fields (including explicitly nullable trim/output fields), and complete known effect parameters and EQ bands. Missing or unknown queue fields fail without rewriting the original file. Sparse external recipes keep their separate defaulting behavior. Future effects and unknown effect fields remain opaque; active unsupported data blocks export until explicit bypass/removal.
 - Edited video audio is padded to the selected video duration. Creative processing with a nonzero linked audio timestamp offset is rejected until that synchronization path is qualified.
 - Peak measurement remains valid for short clips whose integrated loudness is not measurable. Silent/nonfinite loudness is a typed failure. Preserve-dynamics loudness rejects unattainable targets; zero measured loudness range uses constant measured gain to avoid FFmpeg's dynamic fallback.
-- Outputs are probed, checked for duration/rate/channels (and exact PCM/lossless frame count when available), fully decoded and measured after normalization before publication. Loudness tolerance is 0.5 LU; true-peak ceiling tolerance is 0.1 dB. A capped artifact must be strictly smaller than the requested bytes. Cap exhaustion fails with a lower-bitrate/larger-limit action; this slice does not implement automatic fit retries.
-- Cancellation and verification failures do not publish a partial output or mark it Completed. Existing native session serialization and run ownership remain in force.
+- Outputs undergo strict full decode, independent retained-stream start/end checks and decoded video frame counting before publication. Explicit CFR jobs require the expected count, allowing floor/ceiling only for fractional frame windows; a container duration alone cannot establish completeness. Clockless WAV inputs use observed packet timestamps rather than an assumed zero origin. The audio DSP verifier also checks rate/channels and exact PCM/lossless sample count where available, then measures normalization. Loudness tolerance is 0.5 LU; true-peak ceiling tolerance is 0.1 dB. A capped artifact must be strictly smaller than the requested bytes. Cap exhaustion fails with a lower-bitrate/larger-limit action; this slice does not implement automatic fit retries.
+- Publication renames only a verified new artifact and waits for durable Completed state. A failed or cancelled completion callback rolls back that new file; Stop after durable completion retains it. Native cancellation joins before working-file cleanup.
+- Save copy accepts only a destination that can be opened for reading and observed to be empty, before opening it for writing or deleting it on failure. Existing originals, aliases and destinations whose emptiness cannot be verified are rejected, including after Share has copied the input into private storage.
 
-## Observed evidence, 2026-09-29
+## Current reviewed checkpoint, 2026-09-29
+
+At `41c30b5`, **89 JVM tests passed**: core 36, engine 20, app 33. Native-enabled debug app/test assembly and lint passed, including compilation against the pinned native API. Fourteen desktop media checks cover truncated retained tracks, wrong CFR counts, offsets, trims, Matroska and real WAV-to-M4A/FLAC exports; source hashes remain unchanged. Queue, saved-node intent, publication and Save policy regressions passed. Both debug APKs passed native payload and 16 KB ELF/ZIP alignment checks. These host and packaging checks do not establish phone runtime qualification.
+
+The parent also built the unsigned minified release with `testing/` physically absent and `audioTests=false`. Native payload/alignment and structural DEX exclusion checks passed: no test runner, audio/Share/Save fixtures or test commands remain. This release was statically checked, not installed.
+
+```text
+current debug APK  da335dc6321cd766a9b61cc62f2c546ec797407e2f61fe5ba81628bb067a5f29
+current test APK   d2eba074a2084f4a3c666c3af8fc93b69d8f2aee2d920b76dc62e11f477b368f
+unsigned release   6baee2f97f71c5d0b142e4cb1d9ce3002a815c44bf264555230ea7e2bfde670c
+```
+
+The matching `.lab.audio` app/test pair passed **25 physical-phone tests**, with `formaNative=true`, zero failures and no assumption skips. This includes native DSP/analysis/preview/jobs, real Share-to-foreground-worker execution, imported-original/alias/unreadable Save rejection and successful new-empty Save, Compose/touch checks and native smoke. Target: OnePlus 9 Pro LE2125, reported API 36, arm64, 4096-byte pages. The parent log is `source/vendor/pr-readiness/pr3-final-native-instrumentation.txt`; this run does not repeat the historical downloaded-media/UI measurement below.
+
+## Historical phone checkpoint: `8dfab26`, 2026-09-29
 
 Target: OnePlus 9 Pro **LE2125**, reported API **36**, arm64, **4096-byte** pages. Native build: FFmpegKitNext **9.0.0**, FFmpeg **n9.0.1**, original source/licensing pin unchanged. Artifact checks are separate from runtime qualification.
 
@@ -39,7 +54,7 @@ Target: OnePlus 9 Pro **LE2125**, reported API **36**, arm64, **4096-byte** page
 | Release isolation | Release built with `testing/` physically absent and `audioTests=false`; release dex excludes test runner, audio device classes, Share fixture provider and test commands |
 | Native packaging | Debug/release native payload and 16 KB ELF/ZIP alignment checks passed; 16 KB runtime remains untested |
 
-Artifact SHA-256:
+Historical artifact SHA-256:
 
 ```text
 debug APK      1af8f3e31fc13b9b769efd58a3e9527871e90bbac53cb83da7e3e3c360404cfc
@@ -60,18 +75,21 @@ Supply your Android SDK/JDK 17 and source-built native Maven repositories as des
 ./tools/check-core.sh
 ./tools/check-ux.sh
 ./tools/check-android-readiness.sh
-./gradlew -PffmpegEnabled=true -PffmpegRepo="$NATIVE_REPO" \
+./gradlew -PformaLab=true -PffmpegEnabled=true -PffmpegRepo="$NATIVE_REPO" \
   -PgraphicsPathRepo="$GRAPHICS_REPO" \
   :core:test :engine-ffmpeg:testDebugUnitTest :app:testDebugUnitTest \
   :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
 python3 -m unittest discover -s testing/host -v
-python3 testing/audio_device.py all --serial "$SERIAL"
+adb -s "$SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s "$SERIAL" install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb -s "$SERIAL" shell am instrument -w -r -e formaNative true \
+  dev.forma.transcode.lab.audio.test/androidx.test.runner.AndroidJUnitRunner
 python3 tools/verify_android_native.py app/build/outputs/apk/debug/app-debug.apk
 ./gradlew -PaudioTests=false -PffmpegEnabled=true \
   -PffmpegRepo="$NATIVE_REPO" -PgraphicsPathRepo="$GRAPHICS_REPO" :app:assembleRelease
 ```
 
-The host harness implements `capabilities`, `dsp`, `analysis`, `preview`, `jobs`, `ui` and `all`. It installs the matching APK pair, removes stale native reports, runs one instrumentation session at a time and rejects failures/crashes even if ADB exits zero. Each generated report includes run ID, repo/diff identity, APK hashes, device/API/ABI/page size, scenario time and scenario-specific native facts. Fixed test scenarios generate their own inputs in the debug sandbox and clean up. There is no raw project JSON command endpoint, staged-path protocol, exported receiver, root requirement or production server. Memory telemetry/model hashes are not reported; no optional model is bundled.
+The optional lab build uses `dev.forma.transcode.lab.audio` and its matching `.test` package; derive report paths and instrumentation targets from that package. The normal release ID is unchanged. For normal-ID builds, `python3 testing/audio_device.py all --serial "$SERIAL"` runs the host harness (`capabilities`, `dsp`, `analysis`, `preview`, `jobs`, `ui` and `all`); that script currently uses the normal package ID. It installs the matching APK pair, removes stale native reports, runs one instrumentation session at a time and rejects failures/crashes even if ADB exits zero. Each generated report includes run ID, repo/diff identity, APK hashes, device/API/ABI/page size, scenario time and scenario-specific native facts. Fixed test scenarios generate their own inputs in the debug sandbox and clean up. There is no raw project JSON command endpoint, staged-path protocol, exported receiver, root requirement or production server. Memory telemetry/model hashes are not reported; no optional model is bundled.
 
 ## Remaining qualification and coordination
 
@@ -81,4 +99,4 @@ Stage B/C cleanup, AI, multitrack, automation, full waveform/loop/zoom, EQ prese
 
 ## Review-readiness CI correction
 
-The original no-native emulator workflow ran four native-only audio cases without opt-in and failed for the missing encoder. Those cases now require `-e formaNative true`, matching the existing native smoke contract. Without that argument the four cases were observed as assumption skips; with it the entire matching native app/test APK pair passed **24 physical-phone tests** with no failures or skips. Native availability checks remain inside each explicit test, so a requested native run cannot pass by skipping a missing encoder. This changes instrumentation setup only, not audio processing.
+The original no-native emulator workflow ran four native-only audio cases without opt-in and failed for the missing encoder. Those cases now require `-e formaNative true`, matching the existing native smoke contract. Without that argument the four cases were observed as assumption skips; with it the historical matching native app/test APK pair passed **24 physical-phone tests** with no failures or skips. That result does not qualify `41c30b5`. Native availability checks remain inside each explicit test, so a requested native run cannot pass by skipping a missing encoder. This changes instrumentation setup only, not audio processing.
