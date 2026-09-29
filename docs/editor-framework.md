@@ -6,17 +6,17 @@
 
 Read [device/ADB testing](../testing/README.md) for build commands, recipes, reports and test removal. The [implementation plan](superpowers/plans/2026-09-29-editor-framework.md) records the component boundaries and remaining gates.
 
-## What this draft implements
+## Implemented native slice
 
 | Area | Implementation | Evidence boundary |
 | --- | --- | --- |
-| Typed clip edits | Crop; right-angle rotation; horizontal/vertical mirror; 25–400% speed; brightness, contrast, saturation, gamma; blur/sharpen; video fades; volume; audio fades; single-pass normalization | Compiler and real desktop exports checked; Android export still requires qualification |
-| Native integration | Existing service/coordinator stages original inputs, invokes shared `FfmpegRenderSession`, prepares every retry, probes/decodes and publishes atomically with Completed | Android lab app and instrumentation compile; actual phone results must identify the installed APK |
+| Typed clip edits | Crop; right-angle rotation; horizontal/vertical mirror; 25–400% speed; brightness, contrast, saturation, gamma; blur/sharpen; video fades; volume; audio fades; single-pass normalization | Host and physical native fixture exports passed; limits below |
+| Native integration | Existing service/coordinator stages original inputs, invokes shared `FfmpegRenderSession`, prepares every retry, probes/decodes and publishes atomically with Completed | Physical foreground service and renderer passed with installed hashes below |
 | Per-source settings | `SourceEdit.effects`, independent queued snapshots, presets do not erase edits | Core assertions checked |
 | Persistence | Queue schema 3 saves every ordered clip/settings/trim, canvas, transition and byte cap; schemas 1/2 remain compatible manual single-file jobs | JVM restart/invalid-data regressions run |
-| Native controls | Collapsed Edit selected clip section under advanced controls; crop dialog, touch controls and explicit reset | Source implementation; Compose/device interaction still requires testing |
-| Ordered movies | Native Movie inspector; append, move, remove, duplicate, split, bracket/exact trim, effects, canvas/fit/FPS, dissolve, undo/redo, rendered preview and export | Core/JVM and real desktop sessions checked; physical UI/A/V qualification remains required |
-| Removable tests | Android/JVM sources under `testing/`, Gradle references only, `-PformaTests=false` | Product-only debug build checked; signed release qualification remains separate |
+| Native controls | Collapsed Edit selected clip section under advanced controls; crop dialog, touch controls and explicit reset | Native Movie controls and touch/action tests passed; human TalkBack remains unclaimed |
+| Ordered movies | Native Movie inspector; append, move, remove, duplicate, split, bracket/exact trim, effects, canvas/fit/FPS, dissolve, undo/redo, rendered preview and export | Host and physical movie exports passed; broad A/V quality remains unclaimed |
+| Removable tests | Android/JVM sources under `testing/`, Gradle references only, `-PformaTests=false` | Product-only minified native release built with test tree removed; release is unsigned |
 | ADB automation | Separate lab app/test APK; capabilities, clip smoke, movie-smoke and recipe exports; movie preparation/attempt/frame evidence plus cancellation and cap-failure assertions | Host report contracts checked; physical runs are separately recorded |
 
 **Preview:** Open original opens the source. Render preview queues an independent movie render at up to 480 pixels; Open rendered preview becomes available after verification, and later edits label that preview stale. This is a whole-movie rendered preview, not live playback or waveform scrubbing. **Current acceleration limitation:** edited video explicitly requires a software encoder; normal unedited hardware behavior remains unchanged. Crops on display-matrix/rotation-tagged inputs are held until display-coordinate mapping is qualified.
@@ -71,8 +71,26 @@ Unknown edits, unavailable filters/native code, incompatible formats and unquali
 
 ## Verification and remaining gates
 
-The expanded integration plan is [movie integration](superpowers/plans/2026-09-29-movie-integration.md). Host qualification uses committed production-session fixtures, not a second renderer: `python3 testing/run_host.py --exports` runs 39 existing core assertions, 30 editor/history assertions, 27 sequence/budget assertions, 12 project assertions, host CLI report contracts, eleven existing clip exports and seven movie exports. Movie checks independently decode frame counts, leading silence, silent segments, ordered pictures, dissolve pixels and a delayed-video background gap. App JVM tests cover schema migration/restart, original-input retries, cap equality/exhaustion, failed decode, accepted-callback/rename failures, cancellation and durable publication rollback. Android lab application and instrumentation compilation are separate evidence from these desktop runs.
+The [movie integration plan](superpowers/plans/2026-09-29-movie-integration.md) adds production staging, rendering, verification, strict byte budgets and native controls. Real desktop oracles check audio silence, ordered pictures, dissolve pixels and delayed-video gaps. App JVM tests cover migration, original-input retries, cap equality/exhaustion, decode/rename/completion failure and cancellation. Host, packaging and physical execution are recorded separately below.
 
-The first pass reproduced persistence loss, mixed-silent M4A rejection and cancellation finalization failures before their fixes. Physical phone qualification must run `movie-smoke` against the exact built APK and confirm source hashes, frame counts, timing, cap, cancellation and exported artifacts. Run MovieControlsTest plus compact/wide/TalkBack visual interaction checks; listen to transitions and review A/V synchronization. Preview cache/storage behavior is currently the ordinary private queue-output lifecycle, not a bounded interactive waveform cache. Draft movie editing survives Activity recreation; only queued snapshots are durable across process restart. Existing URL/still-image/multitrack milestones remain separate.
+## Physical qualification checkpoint (2026-09-29)
 
-Do not equate host, API compilation, APK packaging or capability listings with actual Android signal execution. Parent-owned physical results and APK identities must be recorded before readiness.
+The attached OnePlus 9 Pro LE2125, API 36, arm64, 4 KB pages ran the actual pinned source-built FFmpeg through the production renderer. Matching lab APK identities are recorded below.
+
+- **47 JVM tests**, native lab/test assembly and lint passed. Desktop verification passed **22 exports**, including WebM/MKV and clockless WAV; those are desktop results.
+- **13 physical exports passed**: seven movies (cut, dissolve, speed, mixed-silent audio-only, strict byte cap, rendered preview and delayed video), five clip-effect cases and a downloaded WAV trimmed to 3.5-second M4A. All thirteen pulled files passed an independent strict full decode. Movie decoded frames were exactly 120/105/90/120/120/120 for their selected durations; delayed video retained a black opening gap then its red picture.
+- Native movies reread unchanged originals and passed queue round-trip, cancellation, impossible-cap rejection and failed durable-completion rollback checks. Per-stream verification rejects full-length audio hiding truncated video; source-rate video must supply positive decoded-frame evidence. Missing WAV clocks use observed packet/frame timestamps.
+- **Four instrumentation tests passed with no skips**: two MovieControls cases, real foreground MovieService completion and byte-exact preservation of incomplete saved intent. Sparse external recipes stay supported; saved trim/effect snapshots are strict.
+- The product-only minified release built with the entire testing directory removed and `formaTests=false`. Release DEX excludes lab classes, runner and command arguments. Lab/release native payload and 16 KB ELF/APK ZIP alignment pass; this is not testing on a 16 KB phone.
+
+Fresh native run IDs: movie `405d9dc943714da38cad5efe3fb0d12e`, clip `1084745b80174e8787d86dc2a3a9f401`, downloaded WAV `0a1c586f674a4a539f313b38a437843c`.
+
+Artifact SHA-256:
+
+```text
+lab      dcf8cd9666941f43cd2d45097bec1c25bbbf2536eb2f87778be78e03ca2e5572
+test     02305a99e6228076dc54ff1b09e6e265af9d12c8fec0b5b87d4293ddfe680d25
+release  0e36c884ebeda0e266636eacbd1831ed7ba2b5fc4d7e7b5657e27c104ee1180a
+```
+
+Human listening, TalkBack exploration, larger VFR/rotation fixtures and sustained thermal/quality qualification remain unclaimed. Draft movie edits survive Activity recreation; durable process-restart persistence applies to queued snapshots. Still images, multitrack editing and draft-project persistence remain documented later scope. Integrating the other editor/settings PRs requires reconciling their queue envelopes.

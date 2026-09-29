@@ -100,9 +100,9 @@ Exit codes: **0** verified command pass; **1** failure; **2** timeout or invalid
 
 Success removes only that run's private device directory unless `--keep-device-files` is supplied. Failure/timeout retains it for investigation. A host timeout may expire before native cleanup finishes: do not start another instrumentation session or remove its files until the lab has stopped. There is no automatic force-stop, queue wipe or cross-host locking. For ordinary Compose tests, omit `formaCommand`; the command-only test then skips intentionally while the existing UI tests run.
 
-## Qualification still required before merge
+## Current qualification and review limits
 
-Build/lint normal debug, lab and their test APKs; run JVM persistence tests; inspect a release dependency/APK report with `formaTests=false`; verify the actual native bundle; run capabilities/smoke/custom exports on an Android device; inspect crop/color/fades and listen for A/V sync; exercise timeout/cancellation and source preservation. Also verify the touchscreen controls and queued edits across app restarts. Keep desktop evidence distinct from those results.
+Native host/device/release results and installed APK hashes are recorded in [the editor checkpoint](../docs/editor-framework.md#physical-qualification-checkpoint-2026-09-29). Human listening/TalkBack, wider source/rotation/VFR coverage and sustained thermal testing remain separate qualification work. Keep generated-fixture, downloaded-source, desktop and physical results distinct.
 
 ## Native movie qualification
 
