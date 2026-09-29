@@ -122,7 +122,7 @@ class TranscodeService : Service() {
                                 RunMode.STOPPING -> "Stopping safely…"
                                 else -> "Converting ${spec.source.name}"
                             }
-                            notify(status, WorkPolicy.fraction(progress.processedMs, Planner.duration(spec.source, spec.trim)))
+                            notify(status, WorkPolicy.fraction(progress.processedMs, Planner.outputDuration(spec.source, spec.trim, spec.settings)))
                         }
                     })
                     completed++

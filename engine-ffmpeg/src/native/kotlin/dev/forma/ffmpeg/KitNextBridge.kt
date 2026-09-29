@@ -54,6 +54,25 @@ internal class KitNextBridge : FfmpegBridge {
     override suspend fun prepare(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<String> =
         withContext(Dispatchers.IO) {
             val arguments = Planner.arguments(source, trim, settings, input, output)
+            if (settings.effects.crop != null) {
+                // Source dimensions are coded pixels; FFmpeg autorotates before user filters.
+                // Reject unqualified metadata transforms rather than crop the wrong rectangle.
+                val streams = probeJson(input).getJSONArray("streams")
+                val video = (0 until streams.length()).map { streams.getJSONObject(it) }
+                    .first { it.optString("codec_type") == "video" }
+                val rotation = video.optJSONObject("tags")?.optString("rotate").orEmpty()
+                require(rotation.isEmpty() || rotation.toDoubleOrNull()?.let { it.isFinite() && kotlin.math.abs(it % 360) < 0.001 } == true) {
+                    "Cropping a rotation-tagged source needs display-coordinate mapping; reset crop for this source."
+                }
+                video.optJSONArray("side_data_list")?.let { data ->
+                    for (i in 0 until data.length()) {
+                        val entry = data.getJSONObject(i)
+                        require(!entry.has("displaymatrix") && !entry.has("rotation")) {
+                            "Cropping a display-matrix source is not qualified yet; reset crop for this source."
+                        }
+                    }
+                }
+            }
             if (!settings.video.hardware || settings.container == Container.M4A) return@withContext arguments
             require(settings.fps > 0) { "Choose an explicit output frame rate for device encoding; source-rate/VFR needs separate qualification." }
             val root = probeJson(input)

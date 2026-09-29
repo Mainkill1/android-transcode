@@ -206,7 +206,7 @@ import kotlinx.coroutines.launch
             Quality.entries.forEach { q -> FilterChip(modifier = Modifier.formaTouchTarget(), selected = editor.quality == q && !editor.custom,
                 onClick = { action(UiAction.Preset(editor.goal, q)) }, label = { Text(q.label) }) }
         }
-        if (editor.custom) Text("Choosing a result or quality replaces custom encoder settings, not your trims.", style = MaterialTheme.typography.bodySmall)
+        if (editor.custom) Text("Choosing a result or quality replaces custom encoder settings, not your trims or clip edits.", style = MaterialTheme.typography.bodySmall)
     }
 }
 @Composable private fun QueueCard(entry: QueueEntry, action: (UiAction) -> Unit) {
@@ -214,7 +214,7 @@ import kotlinx.coroutines.launch
     OutlinedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(entry.spec.source.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(stateLabel(entry.state), style = MaterialTheme.typography.labelLarge)
-        Text("${entry.spec.settings.container.name} · ${mediaTime(Planner.duration(entry.spec.source, entry.spec.trim))}", style = MaterialTheme.typography.bodySmall)
+        Text("${entry.spec.settings.container.name} · ${mediaTime(Planner.outputDuration(entry.spec.source, entry.spec.trim, entry.spec.settings))}", style = MaterialTheme.typography.bodySmall)
         if (entry.state == JobState.FAILED || entry.state == JobState.INTERRUPTED) {
             Text("This job needs attention. Other queued files are kept.", style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Show details") }
@@ -235,7 +235,7 @@ import kotlinx.coroutines.launch
     } }
 }
 @Composable fun ProgressView(entry: QueueEntry, live: LiveProgress?) {
-    val fraction = if (live?.id == entry.spec.id) WorkPolicy.fraction(live.progress.processedMs, Planner.duration(entry.spec.source, entry.spec.trim)) else null
+    val fraction = if (live?.id == entry.spec.id) WorkPolicy.fraction(live.progress.processedMs, Planner.outputDuration(entry.spec.source, entry.spec.trim, entry.spec.settings)) else null
     Column(Modifier.testTag("live-progress")) {
         if (fraction == null) LinearProgressIndicator(Modifier.fillMaxWidth())
         else LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())

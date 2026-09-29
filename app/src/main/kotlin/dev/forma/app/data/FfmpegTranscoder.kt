@@ -32,7 +32,7 @@ class FfmpegTranscoder(private val files: MediaFiles, private val bridge: Ffmpeg
             val expectedVideo = if (spec.settings.container == Container.M4A) 0 else 1
             val expectedAudio = if (actual.audioTracks > 0 && spec.settings.audio != AudioEncoder.NONE) 1 else 0
             check(output.videoTracks == expectedVideo && output.audioTracks == expectedAudio) { "The output track layout does not match the plan." }
-            val duration = Planner.duration(actual, spec.trim)
+            val duration = Planner.outputDuration(actual, spec.trim, spec.settings)
             check(output.durationMs > 0 && abs(output.durationMs - duration) <= maxOf(1000L, duration / 20)) { "The output duration does not match the selected range." }
             if (expectedVideo > 0) {
                 check(output.width > 0 && output.height > 0 && output.width % 2 == 0 && output.height % 2 == 0) { "The output dimensions are invalid." }

@@ -3,6 +3,12 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+// Test sources/dependencies are removable without editing production Kotlin.
+val formaTests = providers.gradleProperty("formaTests").orNull != "false"
+val selectedTestBuild = providers.gradleProperty("formaTestBuildType").orElse("debug").get()
+require(selectedTestBuild == "debug" || (formaTests && selectedTestBuild == "lab")) {
+    "formaTestBuildType must be debug, or lab with formaTests enabled."
+}
 android {
     namespace = "dev.forma.app"
     compileSdk = 36
@@ -15,7 +21,16 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
+    testBuildType = selectedTestBuild
+    sourceSets["test"].java.setSrcDirs(if (formaTests) listOf(rootProject.file("testing/app/unit")) else emptyList<File>())
+    sourceSets["androidTest"].java.setSrcDirs(if (formaTests)
+        listOf(rootProject.file("testing/app/device"), rootProject.file("testing/shared")) else emptyList<File>())
     buildTypes {
+        if (formaTests) create("lab") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".lab"
+            matchingFallbacks += listOf("debug")
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -41,13 +56,16 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.preview)
     debugImplementation(libs.compose.tooling)
-    debugImplementation(libs.compose.test.manifest)
-    testImplementation(libs.junit)
-    testImplementation("org.json:json:20240303")
-    androidTestImplementation(platform(libs.compose.bom))
-    androidTestImplementation(libs.compose.test)
-    androidTestImplementation(libs.androidx.test)
-    androidTestImplementation(libs.androidx.runner)
+    if (formaTests) {
+        debugImplementation(libs.compose.test.manifest)
+        add("labImplementation", libs.compose.test.manifest)
+        testImplementation(libs.junit)
+        testImplementation("org.json:json:20240303")
+        androidTestImplementation(platform(libs.compose.bom))
+        androidTestImplementation(libs.compose.test)
+        androidTestImplementation(libs.androidx.test)
+        androidTestImplementation(libs.androidx.runner)
+    }
 }
 
 // UI-only debug builds remain useful, but cannot be promoted to a release by accident.

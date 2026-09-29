@@ -49,6 +49,7 @@ sealed interface UiAction {
     data class Select(val uri: String) : UiAction
     data class RemoveSource(val uri: String) : UiAction
     data class ChangeTrim(val uri: String, val trim: Trim) : UiAction
+    data class ChangeEffects(val uri: String, val effects: ClipEffects) : UiAction
     data class RemoveJob(val id: String) : UiAction
     data class Retry(val id: String) : UiAction
     data class OpenSource(val uri: String) : UiAction
@@ -75,10 +76,10 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             mutable.map(::key).distinctUntilChanged().collectLatest { input ->
                 mutable.update { it.copy(validating = true) }
                 val results = withContext(Dispatchers.Default) {
-                    val base = input.sources.flatMap { e -> ensureActive(); Planner.validate(e.source, e.trim, input.settings).map { "${e.source.name}: $it" } }.distinct()
+                    val base = input.sources.flatMap { e -> ensureActive(); Planner.validate(e.source, e.trim, e.snapshot(input.settings)).map { "${e.source.name}: $it" } }.distinct()
                     val native = if (input.caps.available) input.sources.flatMap { e ->
                         ensureActive()
-                        Planner.validate(e.source, e.trim, input.settings, input.caps).map { "${e.source.name}: $it" }
+                        Planner.validate(e.source, e.trim, e.snapshot(input.settings), input.caps).map { "${e.source.name}: $it" }
                     }.distinct() else emptyList()
                     base to native
                 }
@@ -113,6 +114,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             is UiAction.Select -> mutable.update { it.copy(selectedUri = action.uri) }
             is UiAction.RemoveSource -> edit { it.copy(validating = true, sources = it.sources.filterNot { e -> e.source.uri == action.uri }) }
             is UiAction.ChangeTrim -> edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(trim = action.trim) else e }) }
+            is UiAction.ChangeEffects -> edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(effects = action.effects) else e }) }
             UiAction.Queue -> enqueue(false)
             UiAction.Convert -> enqueue(true)
             UiAction.StartQueue -> runOperation { startQueue() }
@@ -182,10 +184,10 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         runOperation {
             require(draft.sources.isNotEmpty()) { "Choose media first." }
             val problems = withContext(Dispatchers.Default) { draft.sources.flatMap { e ->
-                Planner.validate(e.source, e.trim, draft.editor.settings, if (start) draft.capabilities else null).map { "${e.source.name}: $it" }
+                Planner.validate(e.source, e.trim, e.snapshot(draft.editor.settings), if (start) draft.capabilities else null).map { "${e.source.name}: $it" }
             } }
             require(problems.isEmpty()) { problems.joinToString("\n") }
-            graph.queue.add(draft.sources.map { JobSpec(UUID.randomUUID().toString(), it.source, it.trim, draft.editor.settings) })
+            graph.queue.add(draft.sources.map { JobSpec(UUID.randomUUID().toString(), it.source, it.trim, it.snapshot(draft.editor.settings)) })
             if (start) startQueue()
             else mutable.update { it.copy(message = "${draft.sources.size} job(s) added. You can keep editing; queued settings are independent.") }
         }

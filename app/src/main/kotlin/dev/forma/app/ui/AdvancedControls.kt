@@ -77,6 +77,7 @@ import kotlin.math.roundToLong
                 TextButton(onClick = { action(UiAction.ChangeTrim(edit.source.uri, Trim())) }) { Text("Use entire file") }
             }
         } }
+        ui.selected?.let { EditControls(it, s, action) }
         Section("Output details") {
             Toggle("Keep source metadata", s.keepMetadata) { update(s.copy(keepMetadata = it)) }
             Text("This native slice exports one selected audio track. Subtitles, attachments and chapters are not copied.", style = MaterialTheme.typography.bodySmall)

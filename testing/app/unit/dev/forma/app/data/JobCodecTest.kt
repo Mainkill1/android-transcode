@@ -11,6 +11,6 @@ class JobCodecTest {
         JobState.QUEUED, "Saved")
     @Test fun roundTripAllSettings() { assertEquals(listOf(entry), JobCodec.decode(JobCodec.encode(listOf(entry)))) }
     @Test fun nullableEndTime() { val e = entry.copy(spec = entry.spec.copy(trim = Trim())); assertEquals(listOf(e), JobCodec.decode(JobCodec.encode(listOf(e)))) }
-    @Test fun rejectsFutureSchema() { assertThrows(IllegalArgumentException::class.java) { JobCodec.decode("{\"schema\":2,\"jobs\":[]}") } }
+    @Test fun rejectsFutureSchema() { assertThrows(IllegalArgumentException::class.java) { JobCodec.decode("{\"schema\":999,\"jobs\":[]}") } }
     @Test fun rejectsDuplicateIds() { assertThrows(IllegalArgumentException::class.java) { JobCodec.decode(JobCodec.encode(listOf(entry, entry))) } }
 }
