@@ -1,6 +1,7 @@
 package dev.forma.testing
 
 import dev.forma.core.*
+import dev.forma.core.audio.SourceAudioFacts
 import dev.forma.ffmpeg.*
 import java.io.File
 import java.security.MessageDigest
@@ -19,12 +20,21 @@ private class DesktopMovieBridge : FfmpegBridge {
         FfmpegListing.muxers(command("ffmpeg","-hide_banner","-muxers")),
         FfmpegListing.filters(command("ffmpeg","-hide_banner","-filters")),command("ffmpeg","-version").lineSequence().first())
     override suspend fun probe(localPath: String): Source {
-        val facts=command("ffprobe","-v","error","-show_entries","format=duration:stream=codec_type,width,height","-of","compact=p=0",localPath).lineSequence().toList()
-        val videos=facts.filter { it.startsWith("codec_type=video") }
+        val facts=command("ffprobe","-v","error","-show_entries","format=duration:stream=index,codec_type,width,height,sample_rate,channels,channel_layout,sample_fmt,duration,start_time,codec_name","-of","compact=p=0",localPath).lineSequence().toList()
+        val videos=facts.filter { it.contains("codec_type=video") }
         val video=videos.firstOrNull()?.split('|')?.associate { it.substringBefore('=') to it.substringAfter('=') }.orEmpty()
+        val firstVideoStart=video["start_time"]?.toDoubleOrNull() ?: 0.0
+        val audio=facts.filter { it.contains("codec_type=audio") }.map { row ->
+            val fields=row.split('|').associate { it.substringBefore('=') to it.substringAfter('=') }
+            SourceAudioFacts(streamIndex=fields["index"]?.toIntOrNull() ?: 0,
+                sampleRateHz=fields["sample_rate"]?.toIntOrNull(),channels=fields["channels"]?.toIntOrNull(),
+                channelLayout=fields["channel_layout"],sampleFormat=fields["sample_fmt"],
+                durationUs=((fields["duration"]?.toDoubleOrNull() ?: 0.0)*1_000_000).toLong(),
+                codec=fields["codec_name"],timelineOffsetUs=fields["start_time"]?.toDoubleOrNull()?.let { ((it-firstVideoStart)*1_000_000).toLong() })
+        }
         val duration=facts.first { it.startsWith("duration=") }.substringAfter('=').toDouble()
         return Source(localPath,File(localPath).name,(duration*1000).toLong(),video["width"]?.toInt()?:0,video["height"]?.toInt()?:0,
-            videos.size,facts.count { it.startsWith("codec_type=audio") },bytes=File(localPath).length())
+            videos.size,audio.size,bytes=File(localPath).length(),audioStreams=audio)
     }
     override suspend fun inspectStreams(localPath: String, countFrames: Boolean): OutputFacts {
         val rows=command(*(listOf("ffprobe","-v","error") + (if(countFrames) listOf("-count_frames") else emptyList()) +
