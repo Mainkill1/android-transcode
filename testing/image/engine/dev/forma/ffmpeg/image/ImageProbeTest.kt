@@ -6,16 +6,25 @@ import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.util.zip.CRC32
 class ImageProbeTest {
-    private fun png(w:Int=101,h:Int=77,animated:Boolean=false,depth:Int=8):ByteArray {
+    private fun png(w:Int=101,h:Int=77,animated:Boolean=false,depth:Int=8,gamma:Int?=null,chroma:List<Int>?=null):ByteArray {
         val bytes=ByteArrayOutputStream();val out=DataOutputStream(bytes);out.write(byteArrayOf(-119,80,78,71,13,10,26,10))
         fun chunk(type:String,data:ByteArray) { out.writeInt(data.size);val t=type.toByteArray();out.write(t);out.write(data);val crc=CRC32();crc.update(t);crc.update(data);out.writeInt(crc.value.toInt()) }
         val header=ByteArrayOutputStream();DataOutputStream(header).apply { writeInt(w);writeInt(h);writeByte(depth);writeByte(6);write(byteArrayOf(0,0,0)) }
-        chunk("IHDR",header.toByteArray());if(animated)chunk("acTL",ByteArray(8));chunk("IDAT",byteArrayOf(1));chunk("IEND",byteArrayOf());return bytes.toByteArray()
+        chunk("IHDR",header.toByteArray());if(animated)chunk("acTL",ByteArray(8))
+        gamma?.let{val b=ByteArrayOutputStream();DataOutputStream(b).writeInt(it);chunk("gAMA",b.toByteArray())}
+        chroma?.let{val b=ByteArrayOutputStream();DataOutputStream(b).apply{it.forEach(::writeInt)};chunk("cHRM",b.toByteArray())}
+        chunk("IDAT",byteArrayOf(1));chunk("IEND",byteArrayOf());return bytes.toByteArray()
     }
     @Test fun contentHeaderWinsOverExtension() { val info=ImageProbe.inspectBytes(png());assertEquals(ImageFormat.PNG,info.format);assertEquals(101,info.width);assertEquals(ImageAlpha.PRESENT,info.alpha) }
     @Test fun animationAndPrecisionAreRejected() { for(bytes in listOf(png(animated=true),png(depth=16),"GIF89a".toByteArray())) { try { ImageProbe.inspectBytes(bytes);fail() }catch(e:ImageFailure){assertEquals("UNSUPPORTED_IMAGE",e.code)} } }
     @Test fun truncatedAndBadCrcAreRejected() { val bytes=png();for(b in listOf(bytes.copyOf(20),bytes.copyOf().also { it[20]=9 })) { try { ImageProbe.inspectBytes(b);fail() }catch(e:ImageFailure){assertEquals("DECODE_FAILED",e.code)} } }
     @Test fun pixelCeilingUsesLongArithmetic() { for(size in listOf(40_000_001 to 1,Int.MAX_VALUE to Int.MAX_VALUE)) { try { ImageProbe.inspectBytes(png(size.first,size.second));fail() }catch(e:ImageFailure){assertEquals("RESOURCE_LIMIT",e.code)} } }
+    @Test fun explicitNonSrgbGammaAndChromaticitiesAreBlocked() {
+        for(bytes in listOf(png(gamma=100000),png(chroma=List(8){10000}))) {
+            try{ImageProbe.inspectBytes(bytes);fail("Tagged non-sRGB cannot become assumed sRGB")}catch(e:ImageFailure){assertEquals("UNSUPPORTED_IMAGE",e.code)}
+        }
+        assertEquals(ImageProfile.ASSUMED_SRGB,ImageProbe.inspectBytes(png(gamma=45455,chroma=listOf(31270,32900,64000,33000,30000,60000,15000,6000))).profile)
+    }
     @Test fun nestedExifColorSpaceIsCheckedInsideItsSegment() {
         fun jpeg(colorSpace:Int,offset:Int=38):ByteArray {
             val bytes=ByteArrayOutputStream();val out=DataOutputStream(bytes)

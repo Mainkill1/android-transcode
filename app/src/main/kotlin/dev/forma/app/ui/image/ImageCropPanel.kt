@@ -36,15 +36,15 @@ import kotlin.math.*
     val p=d.output
     fun output(value:ImageOutputPolicy)=action(UiAction.ChangeImage(d.copy(output=value)))
     Text("Resize")
-    FlowRow{ResizeMode.entries.forEach{mode->FilterChip(onClick={output(p.copy(resizeMode=mode,allowResizeToFit=false))},selected=p.resizeMode==mode,label={Text(when(mode){ResizeMode.ORIGINAL->"Original";ResizeMode.PIXELS->"Pixels";ResizeMode.PERCENT->"Percent";ResizeMode.LONGEST_EDGE->"Long edge"})})}}
+    FlowRow{ResizeMode.entries.forEach{mode->FilterChip(modifier=Modifier.heightIn(min=52.dp),onClick={output(p.copy(resizeMode=mode,allowResizeToFit=false))},selected=p.resizeMode==mode,label={Text(when(mode){ResizeMode.ORIGINAL->"Original";ResizeMode.PIXELS->"Pixels";ResizeMode.PERCENT->"Percent";ResizeMode.LONGEST_EDGE->"Long edge"})})}}
     if(p.resizeMode==ResizeMode.PIXELS){NumberField("Width px",(p.width?:w).toDouble(),1.0,40000000.0,true){output(p.copy(width=it.toInt(),allowResizeToFit=false))};NumberField("Height px",(p.height?:h).toDouble(),1.0,40000000.0,true){output(ImageCropEditing.resizeHeight(p,it.toInt()))}}
     if(p.resizeMode==ResizeMode.PERCENT)NumberField("Percent",p.percent,.001,10000.0){output(p.copy(percent=it,allowResizeToFit=false))}
     if(p.resizeMode==ResizeMode.LONGEST_EDGE)NumberField("Longest edge px",p.longestEdge.toDouble(),1.0,40000000.0,true){output(p.copy(longestEdge=it.toInt(),allowResizeToFit=false))}
     Toggle("Aspect lock",p.aspectLock){output(p.copy(aspectLock=it))};Toggle("Allow upscale",p.allowUpscale){output(p.copy(allowUpscale=it))}
     Text("Canvas · padding never shrinks the image")
-    Toggle("Add padding",p.canvasWidth!=null){output(p.copy(canvasWidth=if(it)w else null,canvasHeight=if(it)h else null))}
-    if(p.canvasWidth!=null){NumberField("Canvas width px",p.canvasWidth!!.toDouble(),1.0,40000000.0,true){output(p.copy(canvasWidth=it.toInt()))};NumberField("Canvas height px",p.canvasHeight!!.toDouble(),1.0,40000000.0,true){output(p.copy(canvasHeight=it.toInt()))}
-        FlowRow{CanvasAnchor.entries.forEach{anchor->FilterChip(onClick={output(p.copy(anchor=anchor))},selected=p.anchor==anchor,label={Text(anchor.name.lowercase().replace('_',' '))})}}
+    Toggle("Add padding",p.canvasWidth!=null){output(ImageCropEditing.canvas(p,if(it)w else null,if(it)h else null))}
+    if(p.canvasWidth!=null){NumberField("Canvas width px",p.canvasWidth!!.toDouble(),1.0,40000000.0,true){output(ImageCropEditing.canvas(p,it.toInt(),p.canvasHeight))};NumberField("Canvas height px",p.canvasHeight!!.toDouble(),1.0,40000000.0,true){output(ImageCropEditing.canvas(p,p.canvasWidth,it.toInt()))}
+        FlowRow{CanvasAnchor.entries.forEach{anchor->FilterChip(modifier=Modifier.heightIn(min=52.dp),onClick={output(p.copy(anchor=anchor))},selected=p.anchor==anchor,label={Text(anchor.name.lowercase().replace('_',' '))})}}
         ColorField("Padding",p.padding){output(p.copy(padding=it))}}
     TextButton(onClick={output(ImageOutputPolicy(format=p.format,jpegQuality=p.jpegQuality,webpQuality=p.webpQuality,lossless=p.lossless,pngCompression=p.pngCompression,targetBytes=p.targetBytes,flatten=p.flatten))}){Text("Reset size")}
 }

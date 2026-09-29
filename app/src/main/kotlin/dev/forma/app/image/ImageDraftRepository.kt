@@ -20,6 +20,7 @@ sealed interface ImageDraftSaveResult {
     data object Conflict:ImageDraftSaveResult
     data object Preserved:ImageDraftSaveResult
 }
+data class ImageDraftReferences(val uris:Set<String>,val preserveImports:Boolean)
 class ImageDraftRepository(private val directory:File) {
     constructor(context:Context):this(File(context.filesDir,"image-drafts"))
     private val mutex=Mutex()
@@ -50,10 +51,13 @@ class ImageDraftRepository(private val directory:File) {
             ImageDraftSaveResult.Saved(document.revision)
         }finally{tmp.delete()}
     }}
-    suspend fun referencedUris(): Set<String> = withContext(Dispatchers.IO) { mutex.withLock {
-        directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull { f ->
-            runCatching { (read(f.nameWithoutExtension) as? ImageDraftLoadResult.Valid)?.document?.source?.uri }.getOrNull()
-        }.toSet()
+    suspend fun references():ImageDraftReferences = withContext(Dispatchers.IO) { mutex.withLock {
+        var preserve=false;val uris=mutableSetOf<String>()
+        directory.listFiles().orEmpty().forEach{f->
+            val loaded=if(f.extension=="json")runCatching{read(f.nameWithoutExtension)}.getOrNull() else null
+            if(loaded is ImageDraftLoadResult.Valid)uris+=loaded.document.source.uri else preserve=true
+        }
+        ImageDraftReferences(uris,preserve)
     } }
     suspend fun discard(sourceId:String)=withContext(Dispatchers.IO){mutex.withLock{file(sourceId).delete()}}
 }

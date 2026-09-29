@@ -1,7 +1,7 @@
 package dev.forma.core.image
 object ImageFitPolicy {
     fun fits(bytes:Long,target:Long?)=bytes>0 && (target==null || bytes<target)
-    fun candidates(spec:ImageJobSpec,info:ImageInfo,format:ImageFormat=spec.document.output.format):List<ImageAttempt> {
+    fun candidates(spec:ImageJobSpec,info:ImageInfo,format:ImageFormat=spec.resolvedFormat?:spec.document.output.format):List<ImageAttempt> {
         val p=spec.document.output
         val actual=if(format!=ImageFormat.AUTO)format else if(info.alpha==ImageAlpha.PRESENT)ImageFormat.PNG else ImageFormat.JPEG
         val quality=if(actual==ImageFormat.WEBP)p.webpQuality else p.jpegQuality

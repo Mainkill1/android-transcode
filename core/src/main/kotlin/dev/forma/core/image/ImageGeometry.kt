@@ -59,7 +59,7 @@ object ImageGeometry {
         nw=rounded(nw*attempt.scale);nh=rounded(nh*attempt.scale)
         attempt.sizeOverride?.let { nw=it.width;nh=it.height }
         if(nw!=w || nh!=h) {
-            filters+=listOf("format=gbrap","premultiply=inplace=1","scale=$nw:$nh:flags=lanczos","unpremultiply=inplace=1")
+            filters+=listOf("format=gbrapf32le","premultiply=inplace=1","scale=$nw:$nh:flags=lanczos","unpremultiply=inplace=1")
             matrix=matrix.then(ImageMatrix(nw.toDouble()/w,0.0,0.0,nh.toDouble()/h))
         }
         val ow=if(attempt.sizeOverride!=null)nw else p.canvasWidth?.let { rounded(it*attempt.scale) }?:nw

@@ -145,19 +145,21 @@ class MediaFiles(private val context: Context,private val imageBridge: dev.forma
         target
     }
 
-    private fun isImage(uri: Uri): Boolean = resolver.openInputStream(uri)?.use { input ->
-        val b=ByteArray(12);val n=input.read(b)
-        (n>=2 && b[0]==(-1).toByte() && b[1]==(-40).toByte()) || (n>=8 && b[0]==(-119).toByte() && b[1]==80.toByte()) || (n>=6 && String(b,0,3)=="GIF") || (n>=12 && String(b,0,4)=="RIFF" && String(b,8,4)=="WEBP")
-    } ?: false
+    private suspend fun isImage(uri:Uri):Boolean {
+        val task=currentCoroutineContext()
+        return resolver.openInputStream(uri)?.use{dev.forma.ffmpeg.image.ImageSniff.isImage(it){task.ensureActive()}}?:false
+    }
     private suspend fun importImage(uri: Uri): Source {
         val name=metadata(uri).first
         val staged=ImageInputAdapter(context).stage(uri.toString(), UUID.randomUUID().toString())
+        try {
         val caps=imageBridge?.capabilities()
         val info=if(imageBridge!=null && caps?.available==true && staged.info.format.decoder in caps.decoders){
             ImageValidation.requireMemory(staged.info,ImageSize(staged.info.width,staged.info.height),(Runtime.getRuntime().maxMemory()*.65).toLong(),false)
             imageBridge.inspectImage(staged.path)
         }else staged.info
-        return Source(staged.source.uri,name,0,info.width,info.height,bytes=info.bytes,imageInfo=info)
+        return Source(staged.source.uri,name,0,info.width,info.height,bytes=info.bytes,imageInfo=info,imageOriginalUri=uri.toString())
+        }catch(error:Throwable){File(staged.path).parentFile?.deleteRecursively();throw error}
     }
     suspend fun stage(spec: ImageJobSpec): File = withContext(Dispatchers.IO) {
         val target=File(workDir(spec), "source.image")
@@ -173,6 +175,7 @@ class MediaFiles(private val context: Context,private val imageBridge: dev.forma
     }
     suspend fun export(spec: JobSpec, destination: Uri, onBytes: (Long, Long) -> Unit = { _, _ -> }) = export(QueueJobSpec.Av(spec), destination, onBytes)
     suspend fun export(spec: QueueJobSpec, destination: Uri, onBytes: (Long, Long) -> Unit = { _, _ -> }) = withContext(Dispatchers.IO) {
+        if(spec is QueueJobSpec.Image)require(!spec.job.document.source.isOriginalDestination(destination.toString())){"The original cannot be the export destination."}
         require(destination.toString() != spec.source.uri) { "The original cannot be the export destination." }
         val source = output(spec)
         require(source.isFile && source.length() > 0) { "The completed output is no longer available." }

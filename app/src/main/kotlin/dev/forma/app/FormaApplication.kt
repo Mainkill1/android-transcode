@@ -35,7 +35,9 @@ class AppGraph(private val application: Application) {
                 files.cleanupWork()
                 java.io.File(application.cacheDir,"audio-preview").deleteRecursively()
                 java.io.File(application.cacheDir,"image-preview").deleteRecursively()
-                files.cleanupImports(queue.entries.value.map { it.spec.source.uri }.toSet() + imageDrafts.referencedUris())
+                val references=imageDrafts.references()
+                if(!references.preserveImports)files.cleanupImports(queue.entries.value.map { it.spec.source.uri }.toSet() + references.uris)
+                else queue.error.value="Some image drafts cannot be read. Their originals are retained for recovery."
                 initialized = true
             }
         }

@@ -233,7 +233,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         imageHistory[uri]=updated
         mutable.update { it.copy(imageDocuments=it.imageDocuments+(uri to next),imageEditor=it.imageEditor.copy(canUndo=updated.past.isNotEmpty(),canRedo=updated.future.isNotEmpty(),dirty=true)) }
         if(commit)autosaveImage(next)
-        renderImage(false)
+        if(commit || value.crop==current.crop)renderImage(false)
     }
     private fun restoreImageHistory(redo: Boolean) {
         val d=mutable.value.imageDocument ?: return;val h=imageHistory[d.source.uri] ?: return
@@ -273,7 +273,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     }
     private suspend fun initializeImage(source: Source) {
         val info=source.imageInfo ?: return
-        val identity=ImageSource(source.uri,source.name,info.hash,info.bytes)
+        val identity=ImageSource(source.uri,source.name,info.hash,info.bytes,source.imageOriginalUri)
         val restored=graph.imageDrafts.load(info.hash)
         val d=when(restored) {
             is ImageDraftLoadResult.Valid -> restored.document.copy(source=identity)
@@ -374,7 +374,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                     ImageValidation.requireValid(d)
                     val initial=ImageJobSpec(UUID.randomUUID().toString(),d,info)
                     val format=ImagePlanner.resolveFormat(info,initial,draft.capabilities)
-                    val job=ImageJobSpec(initial.id,d.copy(output=d.output.copy(format=format)),info)
+                    val job=ImageJobSpec(initial.id,d,info,format)
                     val first=ImageFitPolicy.candidates(job,info).first()
                     if(start)ImagePlanner.plan(info,job,first.copy(markupPath=if(d.annotations.isNotEmpty())"pending-private-markup" else null),draft.capabilities)
                     val geometry=ImageGeometry.resolve(info,d,first)

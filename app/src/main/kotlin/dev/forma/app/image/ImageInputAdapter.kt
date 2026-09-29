@@ -23,7 +23,7 @@ class ImageInputAdapter(private val context:Context) {
             }}?:throw ImageFailure("SOURCE_ACCESS","Image permission has expired. Share or choose it again.")
             val info=ImageProbe.inspect(original.path)
             val privateUri=FileProvider.getUriForFile(context,"${context.packageName}.files",original).toString()
-            StagedImage(original.path,ImageSource(privateUri,"Image",info.hash,info.bytes),info)
+            StagedImage(original.path,ImageSource(privateUri,"Image",info.hash,info.bytes,originalUri=sourceUri),info)
         }catch(c:CancellationException){directory.deleteRecursively();throw c}
         catch(e:SecurityException){directory.deleteRecursively();throw ImageFailure("SOURCE_ACCESS","Image permission has expired. Share or choose it again.")}
         catch(e:Exception){directory.deleteRecursively();if(e is ImageFailure)throw e;throw ImageFailure("SOURCE_ACCESS",e.message?:"Could not read the source image.")}

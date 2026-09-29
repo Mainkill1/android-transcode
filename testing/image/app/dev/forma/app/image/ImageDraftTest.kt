@@ -5,6 +5,15 @@ import org.junit.Test
 import kotlinx.coroutines.runBlocking
 import java.io.File
 class ImageDraftTest {
+    @Test fun unreadableDraftRetainsPrivateImportsForRecovery()=runBlocking {
+        val directory=File(System.getProperty("java.io.tmpdir"),"image-recovery-${java.util.UUID.randomUUID()}").apply{mkdirs()}
+        try {
+            File(directory,"${"a".repeat(64)}.json").writeText("corrupt")
+            assertTrue(ImageDraftRepository(directory).references().preserveImports)
+            File(directory,"${"a".repeat(64)}.json").writeText("{\"schema\":99}")
+            assertTrue(ImageDraftRepository(directory).references().preserveImports)
+        }finally{directory.deleteRecursively()}
+    }
     @Test fun corruptDataAndFutureSchemaArePreserved()=runBlocking {
         val directory=File(System.getProperty("java.io.tmpdir"),"image-draft-${java.util.UUID.randomUUID()}").apply {mkdirs()}
         try {

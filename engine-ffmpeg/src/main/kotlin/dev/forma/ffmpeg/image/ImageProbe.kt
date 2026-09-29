@@ -59,6 +59,12 @@ object ImageProbe {
                         "acTL","fcTL","fdAT"->unsupported("Animated PNG is Planned; select a still image.")
                         "iCCP"->unsupported("Embedded ICC conversion is not qualified; use an 8-bit sRGB copy.")
                         "sRGB"->{if(n!=1 || u(i+8)>3)malformed();profile=ImageProfile.SRGB}
+                        "gAMA"->{if(n!=4)malformed();if(be32(i+8)!=45455L)unsupported("Explicit non-sRGB PNG gamma is not qualified.")}
+                        "cHRM"->{
+                            if(n!=32)malformed()
+                            val srgb=listOf(31270L,32900L,64000L,33000L,30000L,60000L,15000L,6000L)
+                            if((0..7).map{be32(i+8+it*4)}!=srgb)unsupported("Explicit non-sRGB PNG chromaticities are not qualified.")
+                        }
                         "cICP"->unsupported("Wide gamut/HDR PNG is not qualified.")
                         "tRNS"->alpha=ImageAlpha.PRESENT
                         "eXIf"->{val (o,bad)=exif(i+8,n);orientation=o;if(bad)unsupported("Non-sRGB EXIF image.")}

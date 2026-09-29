@@ -15,7 +15,7 @@ object JobCodec {
             val tagged = entry.spec
             if (tagged is QueueJobSpec.Image) {
                 return@map JSONObject().put("kind", "image").put("id", tagged.id).put("state", entry.state.name).put("message", entry.message)
-                    .put("document", ImageDocumentCodec.encode(tagged.job.document)).put("info", tagged.job.info?.let(ImageDocumentCodec::encodeInfo) ?: JSONObject.NULL)
+                    .put("resolvedFormat",tagged.job.resolvedFormat?.name?:JSONObject.NULL).put("document", ImageDocumentCodec.encode(tagged.job.document)).put("info", tagged.job.info?.let(ImageDocumentCodec::encodeInfo) ?: JSONObject.NULL)
             }
             val j = (tagged as QueueJobSpec.Av).job
             val s = j.settings
@@ -49,15 +49,19 @@ object JobCodec {
         return (0 until jobs.length()).map { i ->
             val j = jobs.getJSONObject(i)
             if (schema == 3 && j.getString("kind") == "image") {
+                require(j.has("resolvedFormat")){"Missing saved resolved format; original queue preserved."}
+                require(j.has("info")){"Missing saved image facts; original queue preserved."}
                 val id = j.getString("id")
                 require(UUID.fromString(id).toString() == id)
                 return@map QueueEntry(QueueJobSpec.Image(ImageJobSpec(id, ImageDocumentCodec.decode(j.getJSONObject("document")),
-                    if (j.isNull("info")) null else ImageDocumentCodec.decodeInfo(j.getJSONObject("info")))), JobState.valueOf(j.getString("state")), j.getString("message"))
+                    if (j.isNull("info")) null else ImageDocumentCodec.decodeInfo(j.getJSONObject("info")),if(j.isNull("resolvedFormat"))null else ImageFormat.valueOf(j.getString("resolvedFormat")))), JobState.valueOf(j.getString("state")), j.getString("message"))
             }
             require(schema < 3 || j.getString("kind") == "av") { "Unsupported queue kind; original preserved." }
             val source = j.getJSONObject("source")
             val trim = j.getJSONObject("trim")
+            require(trim.has("endMs")){"Missing saved trim endpoint; original queue preserved."}
             val s = j.getJSONObject("settings")
+            if(schema>=2)validateSavedAudioNodeIntent(s.getJSONObject("audioEdit"))
             val id = j.getString("id")
             require(UUID.fromString(id).toString() == id) { "Invalid job identifier." }
             QueueEntry(JobSpec(id, Source(source.getString("uri"), source.getString("name"), source.getLong("durationMs"),

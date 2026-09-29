@@ -6,6 +6,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.unit.dp
 import dev.forma.app.UiAction
 import dev.forma.app.ui.FormaTextButton as TextButton
 import dev.forma.core.image.*
@@ -17,7 +18,7 @@ import java.util.UUID
     fun edit(o:ImageAnnotation)=update(d.annotations.map{if(it.id==o.id)o else it})
     Text("Add object · source-relative coordinates")
     FlowRow{AnnotationKind.entries.forEach{kind->TextButton(onClick={val o=ImageAnnotation(UUID.randomUUID().toString(),kind,text=if(kind==AnnotationKind.TEXT)"Text" else "");update(d.annotations+o);selected=o.id},enabled=d.annotations.size<128){Text(kind.name.lowercase().replaceFirstChar{it.uppercase()})}}}
-    FlowRow{d.annotations.forEachIndexed{i,o->FilterChip(onClick={selected=o.id},selected=selected==o.id,label={Text("${i+1} ${o.kind.name.lowercase()}")})}}
+    FlowRow{d.annotations.forEachIndexed{i,o->FilterChip(modifier=Modifier.heightIn(min=52.dp),onClick={selected=o.id},selected=selected==o.id,label={Text("${i+1} ${o.kind.name.lowercase()}")})}}
     val o=d.annotations.firstOrNull{it.id==selected}
     if(o!=null){
         Column(Modifier.onPreviewKeyEvent {event->
@@ -29,8 +30,8 @@ import java.util.UUID
             NumberField("Object right",o.right,0.0,1.0){if(o.kind in setOf(AnnotationKind.LINE,AnnotationKind.ARROW) || it>o.left)edit(o.copy(right=it))};NumberField("Object bottom",o.bottom,0.0,1.0){if(o.kind in setOf(AnnotationKind.LINE,AnnotationKind.ARROW) || it>o.top)edit(o.copy(bottom=it))}
             if(o.kind==AnnotationKind.TEXT){OutlinedTextField(o.text,{if(it.codePointCount(0,it.length)<=4096)edit(o.copy(text=it))},label={Text("Text")},modifier=Modifier.fillMaxWidth())
                 NumberField("Text size · source px",o.textSize,1.0,2048.0){edit(o.copy(textSize=it))}
-                FlowRow{TextAlignment.entries.forEach{a->FilterChip(onClick={edit(o.copy(alignment=a))},selected=o.alignment==a,label={Text(a.name.lowercase())})}}
-                FlowRow{listOf("sans-serif","serif","monospace").forEach{font->FilterChip(onClick={edit(o.copy(font=font))},selected=o.font==font,label={Text(font)})}}
+                FlowRow{TextAlignment.entries.forEach{a->FilterChip(modifier=Modifier.heightIn(min=52.dp),onClick={edit(o.copy(alignment=a))},selected=o.alignment==a,label={Text(a.name.lowercase())})}}
+                FlowRow{listOf("sans-serif","serif","monospace").forEach{font->FilterChip(modifier=Modifier.heightIn(min=52.dp),onClick={edit(o.copy(font=font))},selected=o.font==font,label={Text(font)})}}
             }
             if(o.kind!=AnnotationKind.REDACTION){NumberField("Stroke width · source px",o.strokeWidth,0.0,256.0){edit(o.copy(strokeWidth=it))};NumberField("Object opacity",o.opacity,0.0,1.0){edit(o.copy(opacity=it))}}
             ColorField(if(o.kind==AnnotationKind.REDACTION)"Redaction color (always opaque)" else "Color",o.color){color->edit(o.copy(color=if(o.kind==AnnotationKind.REDACTION)color.copy(alpha=255) else color));val value="%02X%02X%02X%02X".format(color.red,color.green,color.blue,color.alpha);recent=(listOf(value)+recent).distinct().take(8)}

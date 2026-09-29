@@ -50,7 +50,7 @@ object ImageValidation {
         if(info.format==ImageFormat.AUTO || info.frameCount!=1 || info.orientation !in 1..8 || info.bitDepth!=8 || info.profile !in setOf(ImageProfile.SRGB,ImageProfile.ASSUMED_SRGB) || info.gainMap || info.alpha==ImageAlpha.UNKNOWN)throw ImageFailure("UNSUPPORTED_IMAGE","Only inspected single-frame 8-bit SDR sRGB JPEG, PNG and WebP are supported.")
     }
     fun requireMemory(info: ImageInfo, output: ImageSize, budget: Long, markup: Boolean) {
-        val estimate=info.width.toLong()*info.height*12L + output.width.toLong()*output.height*(if(markup)24L else 16L)+8_388_608
+        val estimate=info.width.toLong()*info.height*12L + output.width.toLong()*output.height*(if(markup)56L else 48L)+maxOf(0,info.bytes)*2+8_388_608
         if(estimate>budget)throw ImageFailure("RESOURCE_LIMIT","Image needs approximately ${estimate/1_048_576} MiB; available processing budget is ${budget/1_048_576} MiB.")
     }
 }

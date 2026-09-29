@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "kind": "planned-image-test-manifest",
-  "implemented": false,
+  "kind": "image-test-manifest",
+  "implemented": true,
   "allSelectionRunOn": [
     "android",
     "native"
@@ -17,7 +17,9 @@
       "expectedOutcome": "success",
       "oracle": [
         "Identity PNG preserves decoded pixels."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "orientation_all_eight",
@@ -29,8 +31,10 @@
       ],
       "expectedOutcome": "success",
       "oracle": [
-        "All eight orientations match independently labeled corner fixtures exactly once."
-      ]
+        "Actual EXIF JPEG variants use independent known corner mapping through native export and both available platform display adapters; output orientation is 1."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "geometry_crop_turn_resize",
@@ -43,7 +47,9 @@
       "expectedOutcome": "success",
       "oracle": [
         "1200x800 crop 0.25,0.25,0.75,0.75 then clockwise quarter turn and longest edge 300 produces 200x300."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "geometry_odd_png",
@@ -55,7 +61,9 @@
       "expectedOutcome": "success",
       "oracle": [
         "101x77 identity PNG remains 101x77 with exact pixels."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "invalid_crop",
@@ -68,7 +76,9 @@
       "oracle": [
         "Out-of-bounds or empty crop is rejected before prepare."
       ],
-      "expectedError": "INVALID_DOCUMENT"
+      "expectedError": "INVALID_DOCUMENT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
     },
     {
       "id": "nonfinite_numeric",
@@ -83,7 +93,9 @@
       "oracle": [
         "NaN, infinity, wrong types and invalid gamma are rejected."
       ],
-      "expectedError": "INVALID_DOCUMENT"
+      "expectedError": "INVALID_DOCUMENT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
     },
     {
       "id": "alpha_geometry",
@@ -95,8 +107,10 @@
       ],
       "expectedOutcome": "success",
       "oracle": [
-        "Transparent and fractional-alpha pixels survive PNG geometry."
-      ]
+        "Identity decoded alpha preserved, then native sparse-alpha crop and opaque full-cover redaction export correctly with no remaining transparency; graph alpha hash detects codec alpha loss."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "alpha_blur_edges",
@@ -108,7 +122,9 @@
       "expectedOutcome": "success",
       "oracle": [
         "Declared premultiplied-edge oracle detects no added fringe."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "jpeg_alpha_block",
@@ -120,7 +136,9 @@
       "oracle": [
         "Without flatten consent no JPEG result is published."
       ],
-      "expectedError": "ALPHA_WOULD_BE_LOST"
+      "expectedError": "ALPHA_WOULD_BE_LOST",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "jpeg_flatten",
@@ -130,8 +148,10 @@
       ],
       "expectedOutcome": "success",
       "oracle": [
-        "Explicit solid background is baked into output and independently decoded."
-      ]
+        "Actual native JPEG flattened pixels plus production lossless proxy and actual-pixel previews agree with explicit white flatten consent."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "adjustments_neutral",
@@ -145,7 +165,9 @@
       "expectedOutcome": "success",
       "oracle": [
         "Neutral PNG pipeline omits correction and retains decoded pixels."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "adjustments_known_pixels",
@@ -159,7 +181,9 @@
       "expectedOutcome": "success",
       "oracle": [
         "Defined formula golden values differ by at most one 8-bit code value before lossy encoding."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "markup_unicode",
@@ -171,7 +195,9 @@
       "expectedOutcome": "success",
       "oracle": [
         "Multiline, RTL and combining text remain present with correct layout bounds."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "solid_redaction",
@@ -183,7 +209,9 @@
       "expectedOutcome": "success",
       "oracle": [
         "Opaque region covers target; export contains no source thumbnail, project or original attachment."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "source_corrupt",
@@ -193,9 +221,11 @@
       ],
       "expectedOutcome": "reject",
       "oracle": [
-        "Truncated image never produces a published result."
+        "Valid PNG header/CRC and invalid DEFLATE payload reach actual native decode rejection; post-stage import owns no orphan directory."
       ],
-      "expectedError": "DECODE_FAILED"
+      "expectedError": "DECODE_FAILED",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "source_animation",
@@ -207,7 +237,9 @@
       "oracle": [
         "GIF, APNG, animated WebP and multipage input are not silently flattened."
       ],
-      "expectedError": "UNSUPPORTED_IMAGE"
+      "expectedError": "UNSUPPORTED_IMAGE",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "source_too_large",
@@ -220,7 +252,9 @@
       "oracle": [
         "40,000,001 pixels and overflow dimensions fail before allocation."
       ],
-      "expectedError": "RESOURCE_LIMIT"
+      "expectedError": "RESOURCE_LIMIT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
     },
     {
       "id": "source_unsupported_color",
@@ -233,7 +267,9 @@
       "oracle": [
         "Unqualified high-precision, non-sRGB or gain-map input is not silently converted."
       ],
-      "expectedError": "UNSUPPORTED_IMAGE"
+      "expectedError": "UNSUPPORTED_IMAGE",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "source_uri_revoked",
@@ -247,7 +283,9 @@
       "oracle": [
         "Revoked unstaged URI yields actionable failure and preserves draft."
       ],
-      "expectedError": "SOURCE_ACCESS"
+      "expectedError": "SOURCE_ACCESS",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "export_format_mismatch",
@@ -259,7 +297,9 @@
       "oracle": [
         "Wrong actual format or geometry fails verification despite native exit zero."
       ],
-      "expectedError": "OUTPUT_INVALID"
+      "expectedError": "OUTPUT_INVALID",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "export_cap_under",
@@ -270,7 +310,9 @@
       "expectedOutcome": "success",
       "oracle": [
         "Finalized 9999999-byte output fits a 10000000-byte cap."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
     },
     {
       "id": "export_cap_equal",
@@ -282,7 +324,9 @@
       "oracle": [
         "Finalized 10000000-byte output does not fit an equal cap when no attempts remain."
       ],
-      "expectedError": "CANNOT_FIT"
+      "expectedError": "CANNOT_FIT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
     },
     {
       "id": "export_cap_retries",
@@ -293,8 +337,10 @@
       ],
       "expectedOutcome": "success",
       "oracle": [
-        "Injected valid oversize candidate retries from original with all edits and fresh prepare; attempts are bounded."
-      ]
+        "Measured native JPEG quality-90 candidate exceeds a cap between measured 90/81 candidates; fresh prepare retries from original with <=7 attempts and strict finalized bytes."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "export_cap_exhausted",
@@ -307,7 +353,9 @@
       "oracle": [
         "Exhaustion under fixed alpha/geometry/format constraints publishes nothing."
       ],
-      "expectedError": "CANNOT_FIT"
+      "expectedError": "CANNOT_FIT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "cancel_prepare",
@@ -320,7 +368,9 @@
       "oracle": [
         "Cancellation during preparation never publishes or leaks ownership."
       ],
-      "expectedError": "CANCELLED"
+      "expectedError": "CANCELLED",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "cancel_encode",
@@ -333,7 +383,9 @@
       "oracle": [
         "Native teardown completes before cleanup and worker release."
       ],
-      "expectedError": "CANCELLED"
+      "expectedError": "CANCELLED",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "cancel_verify",
@@ -346,7 +398,9 @@
       "oracle": [
         "Cancellation before commit does not publish an unverified result."
       ],
-      "expectedError": "CANCELLED"
+      "expectedError": "CANCELLED",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "preview_stale",
@@ -358,7 +412,9 @@
       "expectedOutcome": "success",
       "oracle": [
         "Old revision finishing last cannot overwrite the current preview; Original is labeled."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "queue_snapshot",
@@ -370,7 +426,9 @@
       "expectedOutcome": "success",
       "oracle": [
         "Changing editor/lists/defaults after enqueue leaves stored image job unchanged."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
     },
     {
       "id": "queue_schema_migration",
@@ -382,7 +440,9 @@
       "expectedOutcome": "success",
       "oracle": [
         "Known legacy AV payloads and new tagged image payloads retain semantics."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
     },
     {
       "id": "draft_corrupt",
@@ -394,7 +454,9 @@
       "oracle": [
         "Malformed or unsupported persisted data is retained for recovery, not overwritten."
       ],
-      "expectedError": "DRAFT_CORRUPT"
+      "expectedError": "DRAFT_CORRUPT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "release_no_tests",
@@ -405,7 +467,9 @@
       "expectedOutcome": "success",
       "oracle": [
         "Product-only build works with testing/image absent; shipped test classes/assets/entry points are absent."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "artifact-verified"
     },
     {
       "id": "native_missing",
@@ -417,7 +481,9 @@
       "oracle": [
         "No-native image export reports unavailable; an explicitly requested native suite does not skip to PASS."
       ],
-      "expectedError": "CAPABILITY_UNAVAILABLE"
+      "expectedError": "CAPABILITY_UNAVAILABLE",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "publication_collision",
@@ -429,7 +495,9 @@
       "oracle": [
         "Existing result and original remain unchanged."
       ],
-      "expectedError": "OUTPUT_EXISTS"
+      "expectedError": "OUTPUT_EXISTS",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     },
     {
       "id": "memory_budget",
@@ -442,7 +510,9 @@
       "oracle": [
         "Peak native/Java buffer budget rejects work below the pixel ceiling when memory is insufficient."
       ],
-      "expectedError": "RESOURCE_LIMIT"
+      "expectedError": "RESOURCE_LIMIT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
     },
     {
       "id": "full_device_roundtrip",
@@ -458,7 +528,10 @@
       "expectedOutcome": "success",
       "oracle": [
         "Real imported still is edited, queued, encoded, fully decoded, size-verified and saved as a new copy."
-      ]
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
     }
-  ]
+  ],
+  "qualification": "host and artifact gates verified; physical/native and Android gates pending root"
 }

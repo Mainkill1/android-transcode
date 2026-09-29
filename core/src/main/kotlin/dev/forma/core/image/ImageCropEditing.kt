@@ -26,5 +26,14 @@ object ImageCropEditing {
         }
         return NormalizedCrop(if(left)px else ax,if(top)py else ay,if(left)ax else px,if(top)ay else py)
     }
+    fun canvas(p:ImageOutputPolicy,width:Int?,height:Int?)=p.copy(canvasWidth=width,canvasHeight=height,allowResizeToFit=false)
     fun resizeHeight(p:ImageOutputPolicy,height:Int)=p.copy(width=if(p.aspectLock)null else p.width,height=height,allowResizeToFit=false)
+}
+
+/** Coordinates retain the geometry of the displayed frame for an entire corner gesture. */
+class ImageCropGesture(val geometry:ImageGeometryResult,private val crop:NormalizedCrop,private val corner:Int,private val ratio:Double?,private val original:Boolean=false) {
+    fun drag(displayedPoint:ImagePoint):NormalizedCrop {
+        val source=if(original)displayedPoint else geometry.outputToSource.map(displayedPoint)
+        return ImageCropEditing.drag(crop,corner,ImagePoint(source.x/geometry.orientedSize.width,source.y/geometry.orientedSize.height),geometry.orientedSize,ratio)
+    }
 }

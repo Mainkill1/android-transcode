@@ -1,7 +1,9 @@
 # Native image editor design
 
-**Status:** proposed implementation contract. No image-editor production code or
-Android test runner is added by this design draft.
+**Status:** implementation contract retained. Production code and isolated runner
+are present; host/build evidence and pending device gates are tracked in the
+[47-requirement catalog matrix](../../image-editor.md). No phone qualification is
+implied by this status.
 
 **Intent:** add useful basic image editing to Forma's existing select → inspect →
 edit → convert workflow, while retaining a broader capable-editor roadmap.

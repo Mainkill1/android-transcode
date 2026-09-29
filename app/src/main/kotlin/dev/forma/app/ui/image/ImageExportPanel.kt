@@ -3,6 +3,8 @@ package dev.forma.app.ui.image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import dev.forma.app.UiAction
 import dev.forma.core.Capabilities
 import dev.forma.core.image.*
@@ -10,9 +12,9 @@ import dev.forma.core.image.*
     val p=d.output
     fun change(v:ImageOutputPolicy)=action(UiAction.ChangeImage(d.copy(output=v)))
     Text("Format")
-    FlowRow{ImageFormat.entries.forEach{format->FilterChip(onClick={change(p.copy(format=format))},selected=p.format==format,label={Text(format.name)},enabled=format==ImageFormat.AUTO || format.encoder in caps.encoders)}}
+    FlowRow{ImageFormat.entries.forEach{format->FilterChip(modifier=Modifier.heightIn(min=52.dp),onClick={change(p.copy(format=format))},selected=p.format==format,label={Text(format.name)},enabled=format==ImageFormat.AUTO || ImagePlanner.routeAvailable(format,caps))}}
     val requested=ImageJobSpec("preview",d,info);val format=ImagePlanner.resolveFormat(info,requested,caps)
-    Text("${format.name} · ${if(format.encoder in caps.encoders)"Available" else "Unavailable in this build"}",style=MaterialTheme.typography.bodySmall)
+    Text("${format.name} · ${if(ImagePlanner.routeAvailable(format,caps))"Available" else "Unavailable in this build"}",style=MaterialTheme.typography.bodySmall)
     when(format){
         ImageFormat.JPEG->NumberField("JPEG quality",p.jpegQuality.toDouble(),1.0,100.0,true){change(p.copy(jpegQuality=it.toInt()))}
         ImageFormat.WEBP->{Toggle("Lossless WebP",p.lossless){change(p.copy(lossless=it))};if(!p.lossless)NumberField("WebP quality",p.webpQuality.toDouble(),1.0,100.0,true){change(p.copy(webpQuality=it.toInt()))}}

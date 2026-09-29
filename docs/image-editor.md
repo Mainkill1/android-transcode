@@ -1,12 +1,15 @@
 # Image editor: feature catalog and delivery scope
 
-**Status: design and implementation handoff, not implemented image editing.**
-This draft adds no production Kotlin, native library, dependency or working device
-runner. Every feature below is **Planned**; a phase is not a support claim.
+**Status: A implementation is present; device qualification and independent review are pending.**
+The branch adds native image contracts, Compose tools, private staging, versioned
+image drafts and tagged queue jobs, verified FFmpeg export, and an isolated direct
+instrumentation runner. Host/build evidence is recorded below. A passing build is
+not proof of physical output, accessibility or vendor compatibility.
 
-Reviewed Android baseline: `89ceb3b362872f193a54feacc99225c80e77f176`.
-The native planner currently requires duration and video/audio settings. Studio's
-JPEG/PNG/WebP conversion is a reference, not native image-editor coverage.
+All 47 A requirements have production consumers. The 83 B/C requirements remain
+**Planned** backlog and appear only in the collapsed roadmap. Missing codecs or
+filters are **Unavailable** for that build; unqualified input color/animation is
+**Blocked for this image** with an actionable reason.
 
 ## Read in order
 
@@ -229,8 +232,104 @@ queue snapshots and the existing 10 MB upload goal intact.
 
 Coordinate with editor #2, audio #3, settings #4 and acceleration #5/#6. Their
 branches are separate and changing: re-read their current implementations before
-resolving overlapping models, queue schemas or Gradle source sets. This draft is
-based on main and does not merge or modify those PRs.
+resolving overlapping models, queue schemas or Gradle source sets. This branch deliberately merges the reviewed audio/Share foundation at `3082e1c`.
+It uses tagged queue schema 3 and reads main schema 1 plus that foundation’s audio
+schema 2. Other open branches also use schema 3 with different meanings: they are
+not interchangeable. Unknown tags/shapes fail without overwriting saved data.
+The eventual integration must unify these envelopes explicitly; this branch does
+not merge the other drafts.
+
+## A implementation and qualification evidence
+
+Every row below is **Implemented, pending device qualification**. Host unit tests
+cover the pure contracts and persisted data; assembled instrumentation includes
+native known-answer oracles. The rows identify real consumers, not a claim that
+all device gates have passed.
+
+| ID | Production consumer | Behavior/evidence |
+| --- | --- | --- |
+| SRC-01 | `ImageInputAdapter / MediaFiles` | byte sniff, private granted-URI copy, full native decode |
+| SRC-02 | `MainActivity / ImageInputAdapter` | image Share MIME and private staging; per-source drafts survive |
+| SRC-06 | `ImageEditorPanel / ImageProbe` | dimensions, bytes, actual format, alpha, EXIF, precision and sRGB assumption |
+| SRC-07 | `ImageGeometry / ImageDisplayAdapter` | all 8 matrices; explicit noautorotate; both platform display routes |
+| SRC-08 | `ImageProbe` | APNG/WebP animation, GIF, MPO/multiple JPEG rejected before one-frame encode |
+| SRC-09 | `ImageProbe / ImageValidation` | CRC/range checks, 64 MiB encoded and 40 Mpx ceiling; memory preflight |
+| GEO-01 | `ImageCropPanel / ImageCanvas` | inverse-mapped handles, exact upright pixel fields and reset |
+| GEO-02 | `ImageCropEditing / ImageCropPanel` | all named/custom ratios; persistent lock and bounded handle movement |
+| GEO-03 | `ImageGeometry / ImageCropPanel` | clockwise/counterclockwise quarter turns |
+| GEO-04 | `ImageGeometry / ImageCropPanel` | independent H/V transforms in defined order |
+| GEO-06 | `ImageGeometry / ImageCropEditing` | pixel/percent/long edge; half-up rounding; height/width authority; no upscale default |
+| GEO-08 | `ImageGeometry / ImageCropPanel` | exact canvas, all nine anchors and RGBA padding |
+| COL-01 | `ImageEffects / ImageAdjustPanel` | bounded encoded-sRGB brightness and neutral bypass |
+| COL-02 | `ImageEffects / ImageAdjustPanel` | defined midpoint contrast, numeric entry/reset |
+| COL-03 | `ImageEffects / ImageAdjustPanel` | defined luminance saturation, zero grayscale, alpha separate |
+| COL-04 | `ImageEffects / ImageAdjustPanel` | defined gamma transfer, numeric entry/reset |
+| FX-01 | `ImageEffects / ImageAdjustPanel` | float RGB Gaussian unsharp amount/radius with premultiplied edge policy |
+| FX-02 | `ImageEffects / ImageAdjustPanel` | bounded Gaussian sigma in output pixels and proxy scaling |
+| ANN-01 | `ImageMarkupRenderer / ImageMarkupPanel` | system-font StaticLayout, Unicode, wrapping and alignment |
+| ANN-02 | `ImageMarkupRenderer / ImageMarkupPanel` | editable line/arrow endpoints and output-resolution strokes |
+| ANN-03 | `ImageMarkupRenderer / ImageMarkupPanel` | rectangle/ellipse bounds, stroke/fill and opacity |
+| ANN-05 | `ImageMarkupRenderer / ImageMetadata` | last opaque output-space replacement; no source/project metadata |
+| ANN-09 | `ImageMarkupPanel` | select/move/resize/order/duplicate/delete and keyboard arrows |
+| ANN-10 | `ImageMarkupPanel / ColorField` | numeric RGBA and recent colors; separate preview background |
+| UX-01 | `ImageCanvas / ImagePreviewRenderer` | pinch/pan/buttons/numeric zoom; bounded actual-pixel regions |
+| UX-02 | `ImageCanvas` | Original label/hold and labeled proxy split; split disabled for an actual-pixel region |
+| UX-03 | `ImageHistory / TranscodeViewModel` | 100 commands / 8 MiB; one slider/drag commit per gesture |
+| UX-04 | `ImageEditDocument / ImageJobSpec` | immutable versioned edits; original hash checked before/after every candidate |
+| UX-05 | `ImageDraftRepository / JobCodec` | atomic off-main saves, revision fences, corrupt/future data preserved |
+| UX-06 | `ImageEditorPanel / tool panels` | tool/section/all reset and explicit dirty-close choices |
+| UX-07 | `ImageCanvas` | checker/light/dark/custom and thirds are display-only |
+| UX-09 | `ImageEditorPanel / FormaScreen` | phone panel, wide left rail + 320 dp inspector, 52 dp actions and keyboard labels |
+| UX-10 | `ImagePreviewController` | shared 32 MiB cache reserve, 150 ms debounce, superseded cancellation/join, immutable revision/key fence |
+| EXP-01 | `ImagePlanner / ImageVerifier` | qualified encoder/demuxer/muxer/pixel-format/filter routes; full decode |
+| EXP-02 | `ImageExportPanel / ImagePlanner` | JPEG qscale mapping, WebP quality, PNG compression effort |
+| EXP-03 | `ImagePlanner` | PNG RGBA and lossless WebP BGRA; no implied untouched pixels |
+| EXP-04 | `ImageFitPolicy / ImageTranscoder` | strict finalized bytes; <=7 distinct attempts, always from original |
+| EXP-05 | `ImageGeometry / ImageVerifier` | exact geometry and graph-derived alpha hash; resize fit only on explicit consent |
+| EXP-06 | `ImagePlanner / ImageExportPanel` | explicit opaque JPEG flatten color; same visual preview graph |
+| EXP-08 | `ImageTranscoder / MediaFiles` | decode before atomic publication, copy Save/share and no overwrite |
+| META-01 | `ImageMetadata` | strip PNG/JPEG/WebP ancillary data; retain own technical sRGB/orientation only |
+| META-04 | `ImageProbe / ImageEffects` | 8-bit SDR sRGB; label assumptions; ICC/CMYK/HDR/uncalibrated blocked |
+| BAT-05 | `TranscodeService / ProgressView` | shared Stop owner and named image stages without duration/ETA |
+| BAT-06 | `ImageValidation / RunCoordinator` | bounded memory/disk, one native owner, cancellation cleanup |
+| BAT-08 | `testing/image/android` | separate instrumentation APK, opt-in named direct runner and fresh reports |
+| BAT-09 | `ImageExportDiagnostics / ImageEditorPanel` | requested/effective route, quality/dimensions/bytes/attempts and native identity |
+| BAT-10 | `Gradle imageTests switch` | test-only sources; absent testing/image product-only release build |
+
+The source-built image bundle requires upstream `--enable-lib-android-zlib` and
+`--enable-lib-libwebp` with the repository’s unchanged source/licensing pins.
+Video/audio payload availability alone does not qualify image decoding. The
+previous payload failed a real PNG decode and is not counted as a pass. The first
+image-capable device run at `9d48f5f` passed 20/26; EXIF fixture ICC, transparent
+blur edges, markup thread budgeting and active verification cancellation failed.
+The current fixes require a new matching-APK run; the prior report remains failure.
+
+Host gates: core, engine and app JVM suites; matching lab APK assembly and debug lint;
+39 CLI core checks and 14 Android/native-build contract tests. A product-only
+release archive builds with `testing/image` physically absent and
+`-PimageTests=false`; release DEX/assets contain no image scenario, fixture,
+report or test UI classes, and native ELF/APK payload checks pass. These checks do
+not establish actual device processing.
+
+Saved records require explicit nullable intent keys. Frozen image queue jobs keep
+requested Auto separate from their resolved codec; main schema 1 and audio schema
+2 migrate without changing bounded trim or recognized audio parameters. Earlier
+unreleased image snapshots lacking original URI/resolved format fields are
+preserved as unsupported/corrupt rather than assigned fabricated intent.
+
+PNG gAMA/cHRM tags must match standard sRGB values (45455 and the standard sRGB
+chromaticities); explicit non-sRGB values and ICC profiles remain blocked. Spatial
+operations use float premultiplied RGB, then quantize once for the encoder.
+Preview reserves worst-case PNG/intermediate storage before rendering; when an old
+preview cannot share the budget, it returns to labeled Original while updating.
+Actual-pixel preview can be unavailable for large outputs; reduce output size or
+use Fit. Its cached full rendered graph and displayed region are both bounded.
+
+Pending root-owned qualification: matching native LAB APK installation; direct
+26-case `all` report and decoded pixel/alpha/metadata checks; Compose large-text,
+TalkBack, keyboard, lifecycle/Share/Save flows; API 26/27 and another vendor when
+available; actual 16 KiB page-size execution. Root alone owns ADB and retains run
+reports/artifact hashes. No phone pass is asserted by this document.
 
 ## Primary references
 

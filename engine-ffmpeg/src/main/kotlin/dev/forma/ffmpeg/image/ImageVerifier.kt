@@ -54,15 +54,20 @@ object ImageMetadata {
 }
 class ImageVerifier(private val bridge:FfmpegBridge) {
     companion object {
+        fun requireAlpha(actual:ImageAlphaFacts,reference:ImageAlphaFacts) {
+            if(actual!=reference)throw ImageFailure("OUTPUT_INVALID","Encoded alpha differs from the prepared edited alpha plane.")
+        }
         fun requireFacts(actual:ImageInfo,format:ImageFormat,size:ImageSize,alpha:ImageAlpha) {
             if(actual.format!=format || actual.width!=size.width || actual.height!=size.height || actual.frameCount!=1 || actual.bitDepth!=8 || actual.orientation!=1 || actual.gainMap || (alpha==ImageAlpha.PRESENT && actual.alpha!=ImageAlpha.PRESENT))throw ImageFailure("OUTPUT_INVALID","Encoded image format, dimensions, alpha or orientation do not match the prepared plan.")
         }
     }
-    suspend fun verify(path:String,plan:ImagePlan):VerifiedImage=withContext(Dispatchers.IO) {
+    suspend fun verify(path:String,plan:ImagePlan,referenceAlpha:ImageAlphaFacts?=null):VerifiedImage=withContext(Dispatchers.IO) {
         currentCoroutineContext().ensureActive();val file=File(path)
         if(!file.isFile || file.length()<=0)throw ImageFailure("OUTPUT_INVALID","Encoder produced no image.")
         val actual=try{bridge.inspectImage(path)}catch(c:CancellationException){throw c}catch(e:Exception){throw ImageFailure("OUTPUT_INVALID",e.message?:"Output decode failed.")}
-        requireFacts(actual,plan.attempt.format,plan.geometry.outputSize,plan.expectedAlpha)
+        val alpha=referenceAlpha?.let{if(it.minimum==255)ImageAlpha.OPAQUE else ImageAlpha.PRESENT}?:plan.expectedAlpha
+        requireFacts(actual,plan.attempt.format,plan.geometry.outputSize,alpha)
+        if(referenceAlpha!=null)requireAlpha(ImageAlphaProbe.decoded(bridge,path,plan.geometry.outputSize),referenceAlpha)
         ImageMetadata.requireClean(file,plan.attempt.format)
         currentCoroutineContext().ensureActive();VerifiedImage(actual,file.length(),path)
     }

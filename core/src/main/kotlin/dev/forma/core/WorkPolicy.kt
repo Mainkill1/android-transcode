@@ -11,12 +11,19 @@ object WorkPolicy {
     /** Input options precede -i; output options precede the output URL. No shell. */
     fun withThreadBudget(arguments: List<String>, processors: Int): List<String> {
         require(arguments.count { it == "-i" } == 1 && arguments.size >= 4)
+        return budget(arguments,processors)
+    }
+    /** Image markup adds one private input; both decoder pools stay bounded. */
+    fun withImageThreadBudget(arguments:List<String>,processors:Int):List<String> {
+        require(arguments.count{it=="-i"} in 1..2 && arguments.size>=4)
+        return budget(arguments,processors)
+    }
+    private fun budget(arguments:List<String>,processors:Int):List<String> {
         require(arguments.none { it.substringBefore(':') in setOf("-threads", "-filter_threads", "-filter_complex_threads") })
         val threads = encodeThreads(processors).toString()
-        val input = arguments.indexOf("-i")
         val outputThreads = if ("-c:v" in arguments) listOf("-threads:v", threads) else emptyList()
         return listOf("-filter_threads", "2", "-filter_complex_threads", "2") +
-            arguments.take(input) + listOf("-threads:v", threads) +
-            arguments.subList(input, arguments.lastIndex) + outputThreads + arguments.last()
+            arguments.dropLast(1).flatMap { if(it=="-i")listOf("-threads:v",threads,it) else listOf(it) } +
+            outputThreads + arguments.last()
     }
 }

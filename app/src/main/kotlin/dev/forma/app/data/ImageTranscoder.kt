@@ -23,7 +23,7 @@ class ImageTranscoder(private val files:MediaFiles,private val bridge:FfmpegBrid
             val actual=bridge.inspectImage(input.path)
             val format=ImagePlanner.resolveFormat(actual,spec,caps)
             // Resolve Auto once in this queued snapshot; retries never switch codec.
-            val outputSpec=QueueJobSpec.Image(ImageJobSpec(spec.id,spec.document.copy(output=spec.document.output.copy(format=format)),actual))
+            val outputSpec=QueueJobSpec.Image(ImageJobSpec(spec.id,spec.document,actual,format))
             val output=files.output(outputSpec);if(output.exists())throw ImageFailure("OUTPUT_EXISTS","An output already exists. Retry as a new job.")
             val candidates=ImageFitPolicy.candidates(spec,actual,format)
             for(candidate in candidates){
@@ -39,6 +39,7 @@ class ImageTranscoder(private val files:MediaFiles,private val bridge:FfmpegBrid
                 val plan=ImagePlanner.plan(actual,spec,attempt,caps)
                 val temp=File(directory,"candidate.${format.extension}")
                 temp.delete();val arguments=bridge.prepare(spec,actual,attempt,input.path,temp.path)
+                val referenceAlpha=if(format!=ImageFormat.JPEG)ImageAlphaProbe.reference(bridge,plan,arguments,directory) else null
                 if(candidate.index==0)onState(JobState.RUNNING)
                 onProgress(ImageStageProgress(ImageStage.ENCODING,candidate.index+1))
                 val result=bridge.execute(arguments){}
@@ -47,7 +48,7 @@ class ImageTranscoder(private val files:MediaFiles,private val bridge:FfmpegBrid
                 ImageMetadata.finalize(temp,format)
                 if(candidate.index==0)onState(JobState.VERIFYING)
                 onProgress(ImageStageProgress(ImageStage.VERIFYING,candidate.index+1))
-                val verified=ImageVerifier(bridge).verify(temp.path,plan)
+                val verified=ImageVerifier(bridge).verify(temp.path,plan,referenceAlpha)
                 if(ImageProbe.hash(input)!=spec.document.source.hash)throw ImageFailure("SOURCE_CHANGED","Original changed during export.")
                 plane?.let { File(it.path).delete() }
                 if(!ImageFitPolicy.fits(verified.bytes,spec.document.output.targetBytes)){temp.delete();continue}
@@ -57,12 +58,8 @@ class ImageTranscoder(private val files:MediaFiles,private val bridge:FfmpegBrid
                 val diagnostics=ImageExportDiagnostics(spec.document.output.format,format,requestedSize,geometry.outputSize,requestedQuality,
                     if(requestedQuality==null)null else candidate.quality,candidate.index+1,verified.bytes,verified.info.alpha,caps.build)
                 onProgress(ImageStageProgress(ImageStage.PUBLISHING,candidate.index+1,diagnostics=diagnostics))
-                withContext(NonCancellable){
-                    if(output.exists())throw ImageFailure("OUTPUT_EXISTS","The destination already exists.")
-                    if(!temp.renameTo(output))throw ImageFailure("OUTPUT_INVALID","Could not publish the verified image.")
-                    published=output
-                    onState(JobState.COMPLETED)
-                }
+                publishVerifiedImage(temp,output){onState(JobState.COMPLETED)}
+                published=output
                 return@withContext
             }
             throw ImageFailure("CANNOT_FIT","Cannot fit these constraints. Increase the limit or explicitly allow quality/resize changes.")

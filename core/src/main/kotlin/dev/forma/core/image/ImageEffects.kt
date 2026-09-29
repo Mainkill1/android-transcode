@@ -1,7 +1,7 @@
 package dev.forma.core.image
 import java.util.Locale
 import kotlin.math.*
-data class ImageEffectGraph(val filters:List<String>,val requiredFilters:Set<String>,val alphaPolicy:String="straight RGB correction; premultiplied spatial operations")
+data class ImageEffectGraph(val filters:List<String>,val requiredFilters:Set<String>,val alphaPolicy:String="straight RGB correction; float premultiplied spatial operations",val sharpenAmount:Double=0.0,val sharpenSigma:Double=0.0)
 object ImageEffects {
     private fun n(v:Double)=String.format(Locale.ROOT,"%.12f",v)
     fun pixel(c:Rgba,a:ImageAdjustments):Rgba {
@@ -20,11 +20,13 @@ object ImageEffects {
             filters+="colorchannelmixer=rr=${n(r+s)}:rg=${n(g)}:rb=${n(b)}:gr=${n(r)}:gg=${n(g+s)}:gb=${n(b)}:br=${n(r)}:bg=${n(g)}:bb=${n(b+s)}"
         }
         if(a.blurSigma>0 || a.sharpenAmount>0){
+            filters+="format=gbrapf32le"
             filters+="premultiply=inplace=1"
             if(a.blurSigma>0)filters+="gblur=sigma=${n(a.blurSigma*proxyScale)}:planes=15"
-            if(a.sharpenAmount>0){val k=2*a.sharpenRadius+1;filters+="unsharp=luma_msize_x=$k:luma_msize_y=$k:luma_amount=${n(a.sharpenAmount)}:chroma_msize_x=$k:chroma_msize_y=$k:chroma_amount=${n(a.sharpenAmount)}:alpha_msize_x=$k:alpha_msize_y=$k:alpha_amount=${n(a.sharpenAmount)}"}
-            filters+="unpremultiply=inplace=1"
+            if(a.sharpenAmount==0.0)filters+="unpremultiply=inplace=1"
         }
-        return ImageEffectGraph(filters,filters.map { it.substringBefore('=') }.toSet())
+        val needed=filters.map { it.substringBefore('=') }.toMutableSet()
+        if(a.sharpenAmount>0)needed+=setOf("split","gblur","blend","unpremultiply")
+        return ImageEffectGraph(filters,needed,sharpenAmount=a.sharpenAmount,sharpenSigma=a.sharpenRadius*proxyScale)
     }
 }

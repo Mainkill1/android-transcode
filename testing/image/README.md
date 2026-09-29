@@ -1,11 +1,10 @@
 # Image editor testing: isolated sources and direct ADB
 
-**Planning-only in this draft.** `scenarios.json` declares acceptance cases; it is
-not an implemented or passing test suite. `ImageEditorScenarioTest`, the proposed
-Gradle `imageTests` switch and the image ADB arguments must be implemented by
-[task 10](../../docs/superpowers/plans/2026-09-29-image-editor.md).
-Do not paste the future image command into today's app and call its transport exit
-a native test pass. No Python device controller is proposed.
+**Implemented runner; physical/native qualification is pending root-owned runs.**
+`scenarios.json` declares 36 acceptance cases. Direct `all` selects exactly 26
+native/Android cases; eight host cases, one release artifact gate and one explicit no-native case run separately.
+The runner is opt-in: ordinary no-argument test discovery skips it, while any
+explicit unknown/native request fails strictly. No-native is never a fallback.
 
 ## Isolation and source layout
 
@@ -14,12 +13,12 @@ Tests call those classes rather than implement another editor or encoder.
 
 ```text
 testing/image/
-  README.md                     # this contract, present in this draft
-  scenarios.json                # planned case declarations, present in this draft
-  core/dev/forma/core/image/     # future JVM model/planner/fit tests
-  engine/dev/forma/ffmpeg/image/ # future probe/prepare verification tests
-  app/dev/forma/app/image/       # future JVM persistence/queue tests
-  android/dev/forma/app/image/   # future instrumentation, fixtures and reports
+  README.md                     # test contract
+  scenarios.json                # implemented acceptance declarations
+  core/dev/forma/core/image/     # JVM model/planner/fit tests
+  engine/dev/forma/ffmpeg/image/ # probe/prepare verification tests
+  app/dev/forma/app/image/       # JVM persistence/queue tests
+  android/dev/forma/app/image/   # instrumentation, fixtures and reports
 ```
 
 Add these directories only to Gradle **test/androidTest** source sets. Test-only
@@ -40,15 +39,17 @@ Expected geometry/pixels must come from an independent known-answer oracle, not
 from calling the production planner twice. Full decode and native artifacts are
 required for pixel tests. Header inspection alone cannot prove correct pixels.
 
-## Build and install after implementation
+## Build and install
 
 Use the repository's source-built FFmpeg bundle and its existing native verifier.
-Do not replace it with an API-only AAR. These commands assume the task-10 source
-wiring and instrumentation class now exist and `$NATIVE_REPO` is the verified
-local Maven bundle described in `docs/ffmpeg.md`.
+Do not replace it with an API-only AAR. Use the separately built image-capable Maven bundle described in `docs/ffmpeg.md`,
+including Android zlib and libwebp. In this workspace source `vendor/tooling/env.sh`
+and set `NATIVE_REPO="$FORMA_ROOT/local-native-image"`; retain the graphics-path
+repository flag. The lab suffix isolates user data from other queue schemas.
 
 ```bash
-./gradlew -PffmpegEnabled=true -PffmpegRepo="$NATIVE_REPO" -PimageTests=true \
+./gradlew -PformaLab=true -PffmpegEnabled=true -PffmpegRepo="$NATIVE_REPO" -PimageTests=true \
+  -PgraphicsPathRepo="$FORMA_ROOT/vendor/graphics-path/maven" \
   :core:test :engine-ffmpeg:testDebugUnitTest :app:testDebugUnitTest \
   :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
 adb -s "$SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
@@ -57,13 +58,13 @@ adb -s "$SERIAL" shell pm list instrumentation
 ```
 
 Resolve actual application/test package names from the built APK/manifest.
-The baseline target is `dev.forma.transcode`, instrumentation package
-`dev.forma.transcode.test`; a later lab suffix requires updating both commands.
+The opt-in lab target is `dev.forma.transcode.lab`, instrumentation package
+`dev.forma.transcode.lab.test`; release keeps the normal application ID.
 Install matching revisions together and record hashes of the actual installed
 base APK and any splits. The host's `git rev-parse HEAD` is a declared revision,
 not proof of installed APK identity.
 
-## Direct ADB scenario interface to implement
+## Direct ADB scenario interface
 
 Arguments: `formaImageCase`, canonical UUID `formaImageRunId`, and
 `formaDeclaredRevision` (diagnostic only). `all` selects every manifest case whose
@@ -82,8 +83,8 @@ adb -s "$SERIAL" shell am instrument -w -r \
   -e formaImageCase all \
   -e formaImageRunId "$RUN_ID" \
   -e formaDeclaredRevision "$REVISION" \
-  dev.forma.transcode.test/androidx.test.runner.AndroidJUnitRunner
-adb -s "$SERIAL" exec-out run-as dev.forma.transcode \
+  dev.forma.transcode.lab.test/androidx.test.runner.AndroidJUnitRunner
+adb -s "$SERIAL" exec-out run-as dev.forma.transcode.lab \
   cat "files/image-tests/$RUN_ID/report.json" > "image-$RUN_ID.json"
 ```
 
@@ -96,11 +97,15 @@ adb -s $Serial shell am instrument -w -r `
   -e class dev.forma.app.image.ImageEditorScenarioTest `
   -e formaImageCase all -e formaImageRunId $runId `
   -e formaDeclaredRevision $revision `
-  dev.forma.transcode.test/androidx.test.runner.AndroidJUnitRunner
-adb -s $Serial exec-out run-as dev.forma.transcode cat "files/image-tests/$runId/report.json"
+  dev.forma.transcode.lab.test/androidx.test.runner.AndroidJUnitRunner
+adb -s $Serial exec-out run-as dev.forma.transcode.lab cat "files/image-tests/$runId/report.json"
 ```
 
-Start with `geometry_crop_turn_resize` for a focused native smoke case. Select
+Start with `geometry_crop_turn_resize` for a focused native smoke case, then
+`alpha_blur_edges`, `alpha_geometry`, `jpeg_flatten`, `markup_unicode`,
+`solid_redaction`, `cancel_verify`, `preview_stale` and `full_device_roundtrip`.
+The first image-native run at `9d48f5f` was FAIL 20/26; its report is evidence of
+failures, not qualification of the current fixes. Select
 `native_missing` explicitly on a no-native build to prove the Unavailable behavior.
 Requesting `all` on a no-native build must fail, not skip native cases and report
 success. A missing class or zero-test invocation is failure.
@@ -155,9 +160,9 @@ establish physical-phone speed or NPU execution.
 For lossy exports, define explicit codec/color tolerances and retain decoded
 comparisons; equal quality slider numbers do not establish equal quality. No
 speedup claim without repeated same-input/same-output-quality measurements and
-recorded thermal/memory conditions. This draft runs no benchmarks.
+recorded thermal/memory conditions. This branch runs no benchmarks.
 
-## Product-only removal proof after implementation
+## Product-only removal proof
 
 In a disposable checkout, move/remove `testing/image/`, then build:
 

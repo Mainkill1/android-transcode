@@ -25,23 +25,29 @@ import dev.forma.core.image.*
 import kotlinx.coroutines.*
 import kotlin.math.*
 
+private data class CropDrag(val gesture:ImageCropGesture,val origin:Offset,val unitsPerPixelX:Double,val unitsPerPixelY:Double)
+private data class DisplayedImage(val bitmap:Bitmap,val path:String,val geometry:ImageGeometryResult?)
+
 @Composable fun ImageCanvas(d:ImageEditDocument,info:ImageInfo,preview:ImagePreviewState,tool:String,action:(UiAction)->Unit) {
     val context=LocalContext.current
     var original by remember {mutableStateOf(false)};var split by remember {mutableStateOf(false)}
     var zoom by remember {mutableFloatStateOf(1f)};var pan by remember {mutableStateOf(Offset.Zero)}
     var background by remember {mutableStateOf("Checkerboard")};var custom by remember {mutableStateOf(Rgba(200,200,200))};var grid by remember {mutableStateOf(false)}
     val source by produceState<Bitmap?>(null,d.source.uri){value=withContext(Dispatchers.IO){runCatching{ImageDisplayAdapter.original(context,d.source.uri,info).bitmap}.getOrNull()}}
-    val edited by produceState<Bitmap?>(null,preview.path,preview.region){value=preview.path?.let{withContext(Dispatchers.IO){
+    val editedFrame by produceState<DisplayedImage?>(null,preview.path,preview.region,preview.geometry){value=preview.path?.let{withContext(Dispatchers.IO){
         val r=preview.region
-        if(r==null)BitmapFactory.decodeFile(it)else {
+        val decoded=if(r==null)BitmapFactory.decodeFile(it)else {
             val decoder=BitmapRegionDecoder.newInstance(it,false)
             try {decoder.decodeRegion(Rect(r.left,r.top,r.left+r.width,r.top+r.height),BitmapFactory.Options().apply{inPreferredConfig=Bitmap.Config.ARGB_8888})}finally{decoder.recycle()}
         }
+        decoded?.let{b->DisplayedImage(b,it,preview.geometry)}
     }}}
+    val edited=editedFrame?.bitmap
     DisposableEffect(source){onDispose{source?.recycle()}}
     DisposableEffect(edited){onDispose{edited?.recycle()}}
     val bitmap=if(original || edited==null)source else edited
-    val geometry=remember(d,info){runCatching{ImageGeometry.resolve(info,d,ImageAttempt(0,ImageFormat.PNG,90))}.getOrNull()}
+    val requestedGeometry=remember(d,info){runCatching{ImageGeometry.resolve(info,d,ImageAttempt(0,ImageFormat.PNG,90))}.getOrNull()}
+    val geometry=if(original || edited==null)requestedGeometry else editedFrame?.geometry ?:requestedGeometry
     val currentDocument by rememberUpdatedState(d)
     val currentGeometry by rememberUpdatedState(geometry)
     val currentBitmap by rememberUpdatedState(bitmap)
@@ -53,13 +59,6 @@ import kotlin.math.*
         if(dimensions.width==0)return 1f
         val fit=min(dimensions.width.toFloat()/b.width,dimensions.height.toFloat()/b.height)
         return if(currentActual && !currentOriginal)zoom else fit*zoom
-    }
-    fun sourceAt(screen:Offset):ImagePoint? {
-        val g=currentGeometry ?:return null;val b=currentBitmap ?:return null;val s=displayScale()
-        val px=(screen.x-(dimensions.width-b.width*s)/2-pan.x)/s
-        val py=(screen.y-(dimensions.height-b.height*s)/2-pan.y)/s
-        return if(currentOriginal)ImagePoint(px.toDouble()*g.orientedSize.width/b.width,py.toDouble()*g.orientedSize.height/b.height)
-        else g.outputToSource.map(ImagePoint((px*g.outputSize.width/b.width).toDouble(),(py*g.outputSize.height/b.height).toDouble()))
     }
     fun cropScreenCorners():List<Offset> {
         val g=currentGeometry ?:return emptyList();val b=currentBitmap ?:return emptyList();val c=currentDocument.crop;val scale=displayScale()
@@ -75,20 +74,27 @@ import kotlin.math.*
     val hitRadius=with(density){28.dp.toPx()}
     var dragCorner by remember {mutableStateOf<Int?>(null)}
     var dragBase by remember {mutableStateOf<NormalizedCrop?>(null)}
+    var dragMapping by remember {mutableStateOf<CropDrag?>(null)}
     Column(Modifier.fillMaxWidth()){
-        Text(if(original || edited==null)"Original" else preview.status,Modifier.semantics{liveRegion=LiveRegionMode.Polite},style=MaterialTheme.typography.labelLarge)
+        Text(if(original || edited==null)"Original" else if(dragCorner!=null || editedFrame?.path!=preview.path)"Updating" else preview.status,Modifier.semantics{liveRegion=LiveRegionMode.Polite},style=MaterialTheme.typography.labelLarge)
         Canvas(Modifier.fillMaxWidth().height(300.dp).testTag("image-canvas").semantics{contentDescription="Image canvas. Pinch to zoom and drag to pan. Crop corners also have exact numeric fields."}
             .pointerInput(tool,preview.actualPixels){
                 if(tool=="Crop" && !preview.actualPixels)detectDragGestures(onDragStart={point->
                     val corners=cropScreenCorners()
                     dragCorner=corners.indices.minByOrNull{(corners[it]-point).getDistanceSquared()}?.takeIf{(corners[it]-point).getDistance()<=hitRadius}
                     dragBase=if(dragCorner!=null)currentDocument.crop else null
-                },onDragEnd={if(dragCorner!=null)action(UiAction.ChangeImage(currentDocument,true));dragCorner=null;dragBase=null},onDragCancel={
-                    dragBase?.let{action(UiAction.ChangeImage(currentDocument.copy(crop=it),true))};dragCorner=null;dragBase=null
+                    val g=currentGeometry;val b=currentBitmap;val s=displayScale()
+                    dragMapping=if(dragCorner!=null && g!=null && b!=null){
+                        val units=if(currentOriginal)g.orientedSize else g.outputSize
+                        CropDrag(ImageCropGesture(g,currentDocument.crop,dragCorner!!,currentDocument.cropAspectRatio,currentOriginal),Offset((dimensions.width-b.width*s)/2+pan.x,(dimensions.height-b.height*s)/2+pan.y),units.width.toDouble()/(b.width*s),units.height.toDouble()/(b.height*s))
+                    }else null
+                },onDragEnd={if(dragCorner!=null)action(UiAction.ChangeImage(currentDocument,true));dragCorner=null;dragBase=null;dragMapping=null},onDragCancel={
+                    dragBase?.let{action(UiAction.ChangeImage(currentDocument.copy(crop=it),true))};dragCorner=null;dragBase=null;dragMapping=null
                 },onDrag={change,delta->
-                    val corner=dragCorner;val p=sourceAt(change.position);val g=currentGeometry
-                    if(corner!=null && p!=null && g!=null){
-                        val crop=ImageCropEditing.drag(dragBase ?:currentDocument.crop,corner,ImagePoint(p.x/g.orientedSize.width,p.y/g.orientedSize.height),g.orientedSize,currentDocument.cropAspectRatio)
+                    val mapping=dragMapping
+                    if(mapping!=null){
+                        val pixel=change.position-mapping.origin
+                        val crop=mapping.gesture.drag(ImagePoint(pixel.x*mapping.unitsPerPixelX,pixel.y*mapping.unitsPerPixelY))
                         action(UiAction.ChangeImage(currentDocument.copy(crop=crop),false));change.consume()
                     }else {pan+=delta;change.consume()}
                 })else detectTransformGestures{_,delta,factor,_->zoom=(zoom*factor).coerceIn(.1f,16f);pan+=delta}
@@ -113,7 +119,7 @@ import kotlin.math.*
             TextButton(onClick={zoom=1f;pan=Offset.Zero;action(UiAction.RenderImage(false))}){Text("Fit")}
             TextButton(onClick={zoom=1f;pan=Offset.Zero;action(UiAction.RenderImage(true))}){Text("100%")}
             TextButton(onClick={zoom=(zoom/1.25f).coerceAtLeast(.1f)}){Text("−")};TextButton(onClick={zoom=(zoom*1.25f).coerceAtMost(16f)}){Text("+")}
-            TextButton(onClick={original=!original},modifier=Modifier.pointerInput(Unit){detectTapGestures(onPress={original=true;tryAwaitRelease();original=false})}){Text("Hold Original")}
+            TextButton(onClick={original=!original}){Text("Original")};TextButton(onClick={},modifier=Modifier.pointerInput(Unit){detectTapGestures(onPress={original=true;tryAwaitRelease();original=false})}){Text("Hold Original")}
             TextButton(onClick={split=!split},enabled=!preview.actualPixels){Text(if(split)"Edited only" else "Split")}
         }
         preview.region?.let{r->
@@ -128,7 +134,7 @@ import kotlin.math.*
         if(split && !preview.actualPixels)Text("Split · Original left / edited Preview right",style=MaterialTheme.typography.bodySmall)
         NumberField("Zoom multiplier",zoom.toDouble(),.1,16.0){zoom=it.toFloat()}
         Toggle("Thirds grid",grid){grid=it}
-        FlowRow{listOf("Checkerboard","Light","Dark","Custom").forEach{value->FilterChip(onClick={background=value},selected=background==value,label={Text(value)})}}
+        FlowRow{listOf("Checkerboard","Light","Dark","Custom").forEach{value->FilterChip(modifier=Modifier.heightIn(min=52.dp),onClick={background=value},selected=background==value,label={Text(value)})}}
         if(background=="Custom")ColorField("Preview background",custom){custom=it}
         Text("Preview background is display-only. JPEG background is set in Export.",style=MaterialTheme.typography.bodySmall)
     }

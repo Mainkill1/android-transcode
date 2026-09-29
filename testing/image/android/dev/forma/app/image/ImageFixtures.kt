@@ -20,6 +20,23 @@ object ImageFixtures {
         val file=File(directory,"original.png");file.outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()
         return file to ImageProbe.inspect(file.path)
     }
+    fun sparseAlpha(directory:File):Pair<File,ImageInfo> {
+        directory.mkdirs();val b=Bitmap.createBitmap(2,2,Bitmap.Config.ARGB_8888)
+        b.eraseColor(Color.WHITE);b.setPixel(0,0,Color.TRANSPARENT)
+        val file=File(directory,"sparse.png");file.outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)};b.recycle()
+        return file to ImageProbe.inspect(file.path)
+    }
+    fun corruptDeflate(file:File) {
+        val bytes=file.readBytes();var at=8
+        fun u(i:Int)=bytes[i].toInt() and 255
+        while(at<bytes.size){val n=(u(at) shl 24)+(u(at+1) shl 16)+(u(at+2) shl 8)+u(at+3)
+            if(String(bytes,at+4,4,Charsets.US_ASCII)=="IDAT"){
+                check(n>0);bytes[at+8]=0
+                val crc=java.util.zip.CRC32();crc.update(bytes,at+4,n+4)
+                repeat(4){bytes[at+8+n+it]=(crc.value ushr (24-it*8)).toByte()};file.writeBytes(bytes);return
+            };at+=n+12
+        };error("No PNG image data")
+    }
     fun transparentEdges(directory:File):Pair<File,ImageInfo> {
         directory.mkdirs();val b=Bitmap.createBitmap(101,77,Bitmap.Config.ARGB_8888)
         for(y in 20..55)for(x in 30..70)b.setPixel(x,y,Color.RED)
@@ -37,7 +54,18 @@ object ImageFixtures {
             writeShort(0x8769);writeShort(4);writeInt(1);writeInt(38);writeInt(0)
             writeShort(1);writeShort(0xA001);writeShort(3);writeInt(1);writeShort(colorSpace);writeShort(0);writeInt(0)
         }
-        val bytes=original.toByteArray();val file=File(directory,"exif-$orientation-$colorSpace.jpg")
+        // Bitmap compression can add an ICC segment. These fixture pixels were generated
+        // in known sRGB; remove that segment before declaring the test's explicit EXIF.
+        val raw=original.toByteArray();val stripped=ByteArrayOutputStream();stripped.write(raw,0,2)
+        var at=2
+        fun u(i:Int)=raw[i].toInt() and 255
+        while(at<raw.size){val start=at;check(u(at)==255);while(u(at)==255)at++;val marker=u(at++)
+            if(marker==218 || marker==217){stripped.write(raw,start,raw.size-start);break}
+            val length=(u(at) shl 8)+u(at+1);check(length>=2 && at+length<=raw.size)
+            if(marker!=226)stripped.write(raw,start,at+length-start)
+            at+=length
+        }
+        val bytes=stripped.toByteArray();val file=File(directory,"exif-$orientation-$colorSpace.jpg")
         DataOutputStream(file.outputStream()).use{it.write(bytes,0,2);it.writeShort(0xffe1);it.writeShort(exif.size()+2);it.write(exif.toByteArray());it.write(bytes,2,bytes.size-2)}
         return file
     }

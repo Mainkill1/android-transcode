@@ -9,7 +9,9 @@ enum class ImageFormat(val extension: String, val mime: String, val encoder: Str
 }
 enum class ImageAlpha { OPAQUE, PRESENT, UNKNOWN }
 enum class ImageProfile { SRGB, ASSUMED_SRGB, UNSUPPORTED, UNKNOWN }
-data class ImageSource(val uri: String, val name: String, val hash: String, val bytes: Long)
+data class ImageSource(val uri: String, val name: String, val hash: String, val bytes: Long,val originalUri:String?=null) {
+    fun isOriginalDestination(destination:String)=destination==uri || destination==originalUri
+}
 data class ImageInfo(val width: Int, val height: Int, val format: ImageFormat,
     val orientation: Int = 1, val frameCount: Int? = 1, val bitDepth: Int = 8,
     val alpha: ImageAlpha = ImageAlpha.UNKNOWN, val profile: ImageProfile = ImageProfile.ASSUMED_SRGB,
@@ -40,12 +42,13 @@ data class ImageEditDocument(val schema: Int = 1, val source: ImageSource, val r
     val flipVertical: Boolean = false, val adjustments: ImageAdjustments = ImageAdjustments(),
     val annotations: List<ImageAnnotation> = emptyList(), val output: ImageOutputPolicy = ImageOutputPolicy(), val cropAspectRatio: Double? = null) {
     fun frozen() = copy(annotations=Collections.unmodifiableList(ArrayList(annotations)))
-    fun estimatedBytes(): Long = 1024L + source.uri.length*4L + source.name.length*4L + annotations.sumOf { 384L+it.text.length*4L }
+    fun estimatedBytes(): Long = 1024L + source.uri.length*4L + (source.originalUri?.length?:0)*4L + source.name.length*4L + annotations.sumOf { 384L+it.text.length*4L }
 }
-class ImageJobSpec(val id: String, document: ImageEditDocument, val info: ImageInfo? = null) {
+class ImageJobSpec(val id: String, document: ImageEditDocument, val info: ImageInfo? = null,val resolvedFormat:ImageFormat?=null) {
+    init {require(resolvedFormat!=ImageFormat.AUTO){"Resolved image format must be concrete."}}
     val document: ImageEditDocument = document.frozen()
-    fun copy(id: String = this.id) = ImageJobSpec(id,document,info)
-    override fun equals(other: Any?) = other is ImageJobSpec && id == other.id && document == other.document && info == other.info
+    fun copy(id: String = this.id) = ImageJobSpec(id,document,info,resolvedFormat)
+    override fun equals(other: Any?) = other is ImageJobSpec && id == other.id && document == other.document && info == other.info && resolvedFormat==other.resolvedFormat
     override fun hashCode() = 31*id.hashCode()+document.hashCode()
 }
 data class ImageSize(val width: Int, val height: Int)
@@ -83,10 +86,10 @@ sealed interface QueueJobSpec {
     data class Image(val job:ImageJobSpec):QueueJobSpec {
         override val id get()=job.id
         override val source get()=dev.forma.core.Source(job.document.source.uri,job.document.source.name,0,
-            job.info?.width?:0,job.info?.height?:0,bytes=job.document.source.bytes,imageInfo=job.info)
+            job.info?.width?:0,job.info?.height?:0,bytes=job.document.source.bytes,imageInfo=job.info,imageOriginalUri=job.document.source.originalUri)
         override val trim get()=dev.forma.core.Trim()
         override val settings get()=dev.forma.core.Settings()
-        val format get()=job.document.output.format.takeIf { it!=ImageFormat.AUTO }?:if(job.info?.alpha==ImageAlpha.PRESENT)ImageFormat.PNG else ImageFormat.JPEG
+        val format get()=job.resolvedFormat?:job.document.output.format.takeIf { it!=ImageFormat.AUTO }?:if(job.info?.alpha==ImageAlpha.PRESENT)ImageFormat.PNG else ImageFormat.JPEG
         override val mime get()=format.mime
         override val extension get()=format.extension
     }
