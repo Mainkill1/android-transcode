@@ -17,7 +17,7 @@ import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.*
 
-class MediaFiles(private val context: Context) {
+class MediaFiles(private val context: Context,private val imageBridge: dev.forma.ffmpeg.FfmpegBridge? = null) {
     private val resolver get() = context.contentResolver
     private val workRoot get() = File(context.filesDir, "work").apply { mkdirs() }
     private val outputRoot get() = File(context.filesDir, "outputs").apply { mkdirs() }
@@ -152,7 +152,12 @@ class MediaFiles(private val context: Context) {
     private suspend fun importImage(uri: Uri): Source {
         val name=metadata(uri).first
         val staged=ImageInputAdapter(context).stage(uri.toString(), UUID.randomUUID().toString())
-        return Source(staged.source.uri,name,0,staged.info.width,staged.info.height,bytes=staged.info.bytes,imageInfo=staged.info)
+        val caps=imageBridge?.capabilities()
+        val info=if(imageBridge!=null && caps?.available==true && staged.info.format.decoder in caps.decoders){
+            ImageValidation.requireMemory(staged.info,ImageSize(staged.info.width,staged.info.height),(Runtime.getRuntime().maxMemory()*.65).toLong(),false)
+            imageBridge.inspectImage(staged.path)
+        }else staged.info
+        return Source(staged.source.uri,name,0,info.width,info.height,bytes=info.bytes,imageInfo=info)
     }
     suspend fun stage(spec: ImageJobSpec): File = withContext(Dispatchers.IO) {
         val target=File(workDir(spec), "source.image")

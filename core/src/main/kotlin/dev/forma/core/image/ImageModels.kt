@@ -13,7 +13,7 @@ data class ImageSource(val uri: String, val name: String, val hash: String, val 
 data class ImageInfo(val width: Int, val height: Int, val format: ImageFormat,
     val orientation: Int = 1, val frameCount: Int? = 1, val bitDepth: Int = 8,
     val alpha: ImageAlpha = ImageAlpha.UNKNOWN, val profile: ImageProfile = ImageProfile.ASSUMED_SRGB,
-    val gainMap: Boolean = false, val hash: String = "", val bytes: Long = -1, val orientationApplied: Boolean = false)
+    val gainMap: Boolean = false, val hash: String = "", val bytes: Long = -1, val orientationApplied: Boolean = false, val minimumAlpha: Int? = null)
 data class NormalizedCrop(val left: Double = 0.0, val top: Double = 0.0, val right: Double = 1.0, val bottom: Double = 1.0)
 data class ImageAdjustments(val brightness: Double = 0.0, val contrast: Double = 1.0, val saturation: Double = 1.0,
     val gamma: Double = 1.0, val blurSigma: Double = 0.0, val sharpenRadius: Int = 1, val sharpenAmount: Double = 0.0)

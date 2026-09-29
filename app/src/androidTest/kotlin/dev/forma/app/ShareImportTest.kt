@@ -98,7 +98,7 @@ class ShareImportTest {
             }
             withVm(scenario) { vm ->
                 val source = vm.state.value.sources.single().source
-                assertEquals("dev.forma.transcode.files", Uri.parse(source.uri).authority)
+                assertEquals(InstrumentationRegistry.getInstrumentation().targetContext.packageName + ".files", Uri.parse(source.uri).authority)
                 assertEquals(32044L, source.bytes)
                 assertEquals(1000L, source.durationMs)
                 assertEquals(Container.M4A, vm.state.value.editor.settings.container)

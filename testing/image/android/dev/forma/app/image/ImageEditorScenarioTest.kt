@@ -49,7 +49,7 @@ class ImageEditorScenarioTest {
     private suspend fun runCase(context:Context,id:String,runId:String,caps:Capabilities,bridge:FfmpegBridge):JSONObject {
         val graph=(context.applicationContext as FormaApplication).graph
         val dir=File(context.filesDir,"imports/image-$runId-$id")
-        val (input,info)=ImageFixtures.png(context,dir,if(id=="geometry_crop_turn_resize")1200 else 101,if(id=="geometry_crop_turn_resize")800 else 77,alpha=id !in listOf("jpeg_flatten","adjustments_known_pixels"))
+        val (input,info)=ImageFixtures.png(context,dir,if(id=="geometry_crop_turn_resize")1200 else 101,if(id=="geometry_crop_turn_resize")800 else 77,alpha=id!="adjustments_known_pixels")
         val source=ImageFixtures.source(context,input,info)
         var d=ImageEditDocument(source=source,output=ImageOutputPolicy(format=ImageFormat.PNG,targetBytes=null))
         if(id=="native_missing"){assertFalse(caps.available);expect("CAPABILITY_UNAVAILABLE"){graph.imageTranscoder.run(ImageJobSpec(UUID.randomUUID().toString(),d,info),{}, {})};return JSONObject().put("expectedError","CAPABILITY_UNAVAILABLE")}
@@ -127,6 +127,7 @@ class ImageEditorScenarioTest {
             assertEquals(expected.width,decoded.width);assertEquals(expected.height,decoded.height)
             if(id in listOf("geometry_identity","geometry_odd_png","adjustments_neutral","alpha_geometry")){val before=BitmapFactory.decodeFile(input.path);for(y in 0 until before.height)for(x in 0 until before.width)assertEquals("Pixel $x,$y",before.getPixel(x,y),decoded.getPixel(x,y));before.recycle()}
             if(id=="adjustments_known_pixels"){val c=decoded.getPixel(5,5);assertTrue(kotlin.math.abs(Color.red(c)-54)<=1);assertEquals(Color.red(c),Color.green(c));assertEquals(Color.red(c),Color.blue(c))}
+            if(id=="jpeg_flatten") {val pixel=decoded.getPixel(5,5);assertTrue(Color.red(pixel)>=247);assertTrue(kotlin.math.abs(Color.green(pixel)-127)<=8);assertTrue(kotlin.math.abs(Color.blue(pixel)-127)<=8)}
             if(id=="solid_redaction" || id=="full_device_roundtrip")assertEquals(Color.BLACK,decoded.getPixel(70,50))
             ImageMetadata.requireClean(output,d.output.format)
             assertEquals(source.hash,ImageProbe.hash(input))

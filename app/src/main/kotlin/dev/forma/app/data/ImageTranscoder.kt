@@ -16,7 +16,11 @@ class ImageTranscoder(private val files:MediaFiles,private val bridge:FfmpegBrid
         try {
             val caps=bridge.capabilities();if(!caps.available)throw ImageFailure("CAPABILITY_UNAVAILABLE",caps.reason)
             onProgress(ImageStageProgress(ImageStage.STAGING));val input=files.stage(spec)
-            onProgress(ImageStageProgress(ImageStage.INSPECTING));val actual=bridge.inspectImage(input.path)
+            onProgress(ImageStageProgress(ImageStage.INSPECTING))
+            val header=ImageProbe.inspect(input.path)
+            val preflight=ImageGeometry.resolve(header,spec.document,ImageAttempt(0,ImageFormat.PNG,90))
+            ImageValidation.requireMemory(header,preflight.outputSize,memoryBudget,spec.document.annotations.isNotEmpty())
+            val actual=bridge.inspectImage(input.path)
             val format=ImagePlanner.resolveFormat(actual,spec,caps)
             // Resolve Auto once in this queued snapshot; retries never switch codec.
             val outputSpec=QueueJobSpec.Image(ImageJobSpec(spec.id,spec.document.copy(output=spec.document.output.copy(format=format)),actual))

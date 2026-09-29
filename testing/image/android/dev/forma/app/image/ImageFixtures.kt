@@ -8,7 +8,7 @@ import java.io.File
 import java.util.Random
 object ImageFixtures {
     fun png(context:Context,directory:File,w:Int=101,h:Int=77,alpha:Boolean=true,noise:Boolean=false):Pair<File,ImageInfo> {
-        directory.mkdirs();val bitmap=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);val random=Random(813)
+        directory.mkdirs();val bitmap=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888).apply{setHasAlpha(alpha)};val random=Random(813)
         for(y in 0 until h)for(x in 0 until w)bitmap.setPixel(x,y,if(noise)Color.argb(if(alpha)random.nextInt(256) else 255,random.nextInt(256),random.nextInt(256),random.nextInt(256)) else when {
             x<w/2 && y<h/2->Color.argb(if(alpha)128 else 255,255,0,0)
             x>=w/2 && y<h/2->Color.GREEN

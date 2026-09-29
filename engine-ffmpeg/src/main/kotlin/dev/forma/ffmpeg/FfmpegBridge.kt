@@ -29,7 +29,20 @@ interface FfmpegBridge {
         val decodedFacts=probe(localPath)
         if(decodedFacts.videoTracks!=1 || decodedFacts.audioTracks!=0 || decodedFacts.width!=facts.width || decodedFacts.height!=facts.height || decodedFacts.hdr)
             throw ImageFailure("DECODE_FAILED", "Native decoded image facts disagree with the inspected still-image header.")
-        return facts
+        if(facts.alpha==ImageAlpha.PRESENT) {
+            if("alphaextract" !in caps.filters || "rawvideo" !in caps.encoders || "gray" !in caps.pixelFormats)
+                throw ImageFailure("CAPABILITY_UNAVAILABLE", "Native alpha inspection needs alphaextract, rawvideo and gray pixel support.")
+            val alpha=java.io.File(java.io.File(localPath).parentFile,"alpha-${java.util.UUID.randomUUID()}.gray")
+            try {
+                val result=execute(listOf("-hide_banner","-nostdin","-v","error","-xerror","-n","-noautorotate","-i",localPath,
+                    "-map","0:v:0","-an","-sn","-dn","-vf","alphaextract","-frames:v","1","-c:v","rawvideo","-pix_fmt","gray","-f","rawvideo",alpha.path)) {}
+                if(result.exitCode!=0 || alpha.length()!=facts.width.toLong()*facts.height)throw ImageFailure("DECODE_FAILED","Native alpha plane did not match the source dimensions. ${result.diagnostics}")
+                var minimum=255
+                alpha.inputStream().use { input->val buffer=ByteArray(65536);while(true){val count=input.read(buffer);if(count<0)break;for(i in 0 until count)minimum=minOf(minimum,buffer[i].toInt() and 255)} }
+                return facts.copy(alpha=if(minimum==255)ImageAlpha.OPAQUE else ImageAlpha.PRESENT,minimumAlpha=minimum)
+            }finally {alpha.delete()}
+        }
+        return facts.copy(minimumAlpha=255)
     }
     suspend fun prepare(spec: ImageJobSpec, actual: ImageInfo, attempt: ImageAttempt, input: String, output: String): List<String> =
         ImagePlanner.plan(actual, spec, attempt, capabilities()).arguments(input, output)
