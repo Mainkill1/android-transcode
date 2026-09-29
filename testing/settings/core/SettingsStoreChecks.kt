@@ -40,13 +40,15 @@ object SettingsStoreChecks {
             check(runCatching { SettingsStore(storage).load() }.isFailure)
             check(storage.writes == 0)
         },
-        "store rejects stale writers and unwired selections" to {
+        "store rejects stale writers and planned selections" to {
             val storage = MemoryStorage()
             val store = SettingsStore(storage)
             val old = store.load()
             store.save(SettingsDraft(old).edit("ui.theme", SettingValue.Choice("dark")))
             check(runCatching { store.save(SettingsDraft(old).edit("ui.theme", SettingValue.Choice("light"))) }.isFailure)
-            check(runCatching { store.save(SettingsDraft(store.load()).edit("power.charging_only", SettingValue.Flag(true))) }.isFailure)
+            check(runCatching {
+                store.save(SettingsDraft(store.load()).edit("power.auto_continue", SettingValue.Flag(false)))
+            }.isFailure)
             check(storage.writes == 1)
         }
     )
