@@ -56,9 +56,13 @@ object ExportRetryChecks {
             }, verify = {})
             check(calls == 5); output.delete()
             calls = 0
+            val exhaustedEvents = mutableListOf<AttemptEvent>()
             val exhausted = runCatching { ExportRetry.run(attempts.dropLast(1), output,
-                execute = { _, _ -> calls++; NativeResult(1, "codec", FailureKind.CODEC_INITIALIZATION) }, verify = {}) }.exceptionOrNull()
+                execute = { _, _ -> calls++; NativeResult(1, "codec", FailureKind.CODEC_INITIALIZATION) },
+                verify = {}, onAttempt = exhaustedEvents::add) }.exceptionOrNull()
             check(exhausted != null && calls == 4 && !output.exists())
+            check(exhaustedEvents.last().status == AttemptStatus.FAILED)
+            check(exhaustedEvents.last().reason.startsWith("Codec routes exhausted:"))
             // Caller cancellation cannot turn into fallback or delete buffers before native completion.
             val started = CompletableDeferred<Unit>()
             val allowCleanup = CompletableDeferred<Unit>()

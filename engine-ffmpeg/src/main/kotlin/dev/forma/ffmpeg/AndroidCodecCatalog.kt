@@ -55,7 +55,7 @@ class AndroidCodecCatalog {
                 if (supported) performanceHint(vc, request) else null, rank)
         } catch (error: RuntimeException) {
             CodecCandidate(info.name, request.format, info.isEncoder, hardware(info), Support.UNKNOWN, null,
-                "Capability query failed: ${error.javaClass.simpleName}", request)
+                "Capability query failed: ${error.javaClass.simpleName}", request, platformRank = rank)
         }
     }
 

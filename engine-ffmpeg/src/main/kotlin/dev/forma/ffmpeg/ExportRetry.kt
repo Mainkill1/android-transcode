@@ -60,10 +60,15 @@ object ExportRetry {
                 if (error is CancellationException) throw error
                 val retryable = attempt.decision?.backend == EncodeBackend.MEDIACODEC &&
                     (error is CodecInitializationRejected || error is EncodedOutputRejected)
+                val canRetry = retryable && index < attempts.lastIndex
                 onAttempt(AttemptEvent(index + 1, attempts.size, attempt,
-                    if (retryable) AttemptStatus.REJECTED else AttemptStatus.FAILED,
-                    if (retryable) error.message.orEmpty() else "Non-codec failure: ${error.javaClass.simpleName}"))
-                if (!retryable || index == attempts.lastIndex) throw error
+                    if (canRetry) AttemptStatus.REJECTED else AttemptStatus.FAILED,
+                    when {
+                        canRetry -> error.message.orEmpty()
+                        retryable -> "Codec routes exhausted: ${error.message.orEmpty()}"
+                        else -> "Non-codec failure: ${error.javaClass.simpleName}"
+                    }))
+                if (!canRetry) throw error
             }
         }
         error("No verified export was produced.")

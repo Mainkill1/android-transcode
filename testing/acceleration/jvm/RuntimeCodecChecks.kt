@@ -19,6 +19,13 @@ object RuntimeCodecChecks {
         check(plan(AccelerationMode.HARDWARE_REQUIRED).all { it.backend == EncodeBackend.MEDIACODEC })
         check(plan(AccelerationMode.SOFTWARE_ONLY).single().backend == EncodeBackend.SOFTWARE)
         check(plan(candidates = listOf(candidate.copy(hardware = Support.UNKNOWN))).first().hardwareSupport == Support.UNKNOWN)
+        val platformFirst = candidate.copy(name = "z.platform-first", hardware = Support.UNKNOWN,
+            configuration = Support.UNKNOWN, platformRank = 0)
+        val platformSecond = candidate.copy(name = "a.platform-second", hardware = Support.UNKNOWN,
+            configuration = Support.UNKNOWN, platformRank = 1)
+        check(plan(candidates = listOf(platformSecond, platformFirst)).first().codecName == platformFirst.name) {
+            "Preserve Android's component order when capability queries do not provide stronger evidence"
+        }
         check(plan(candidates = listOf(candidate.copy(hardware = Support.NO))).single().backend == EncodeBackend.SOFTWARE)
         check(plan(candidates = listOf(candidate.copy(encoder = false))).single().backend == EncodeBackend.SOFTWARE)
         check(plan(candidates = listOf(candidate.copy(request = request.copy(width = 640)))).single().backend == EncodeBackend.SOFTWARE)
