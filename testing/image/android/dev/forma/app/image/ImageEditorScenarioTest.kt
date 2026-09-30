@@ -18,8 +18,8 @@ import java.io.File
 import java.util.UUID
 /** Direct instrumentation selection only; every output goes through the production image executor. */
 class ImageEditorScenarioTest {
-    private val nativeCases=listOf("geometry_identity","orientation_all_eight","geometry_crop_turn_resize","geometry_odd_png","alpha_geometry","alpha_blur_edges","jpeg_alpha_block","jpeg_flatten","adjustments_neutral","adjustments_known_pixels","markup_unicode","solid_redaction","source_corrupt","source_animation","source_unsupported_color","export_format_mismatch","export_cap_retries","export_cap_exhausted","cancel_prepare","cancel_encode","cancel_verify","publication_collision","full_device_roundtrip")
-    private val expectedErrors=mapOf("native_missing" to "CAPABILITY_UNAVAILABLE","jpeg_alpha_block" to "ALPHA_WOULD_BE_LOST","source_uri_revoked" to "SOURCE_ACCESS","source_corrupt" to "DECODE_FAILED","source_animation" to "UNSUPPORTED_IMAGE","source_unsupported_color" to "UNSUPPORTED_IMAGE","draft_corrupt" to "DRAFT_CORRUPT","export_format_mismatch" to "OUTPUT_INVALID","export_cap_exhausted" to "CANNOT_FIT","publication_collision" to "OUTPUT_EXISTS","cancel_prepare" to "CANCELLED","cancel_encode" to "CANCELLED","cancel_verify" to "CANCELLED")
+    private val nativeCases=listOf("geometry_identity","orientation_all_eight","geometry_crop_turn_resize","geometry_odd_png","alpha_geometry","alpha_blur_edges","jpeg_alpha_block","jpeg_flatten","adjustments_neutral","adjustments_known_pixels","markup_unicode","solid_redaction","source_corrupt","source_webp_canvas_mismatch","source_animation","source_unsupported_color","export_format_mismatch","export_cap_retries","export_cap_exhausted","cancel_prepare","cancel_encode","cancel_verify","publication_collision","full_device_roundtrip")
+    private val expectedErrors=mapOf("native_missing" to "CAPABILITY_UNAVAILABLE","jpeg_alpha_block" to "ALPHA_WOULD_BE_LOST","source_uri_revoked" to "SOURCE_ACCESS","source_corrupt" to "DECODE_FAILED","source_webp_canvas_mismatch" to "DECODE_FAILED","source_animation" to "UNSUPPORTED_IMAGE","source_unsupported_color" to "UNSUPPORTED_IMAGE","draft_corrupt" to "DRAFT_CORRUPT","export_format_mismatch" to "OUTPUT_INVALID","export_cap_exhausted" to "CANNOT_FIT","publication_collision" to "OUTPUT_EXISTS","cancel_prepare" to "CANCELLED","cancel_encode" to "CANCELLED","cancel_verify" to "CANCELLED")
     private val androidCases=listOf("source_uri_revoked","preview_stale","draft_corrupt")
     @Test fun selectedCases()=runBlocking {
         val instrument=InstrumentationRegistry.getInstrumentation();val context=instrument.targetContext
@@ -96,6 +96,28 @@ class ImageEditorScenarioTest {
             expect("DECODE_FAILED"){graph.files.inspect(android.net.Uri.parse(source.uri),persistPermission=false)}
             assertEquals(before,imports.listFiles()?.map{it.name}?.toSet()?:emptySet<String>())
             return JSONObject().put("expectedError","DECODE_FAILED").put("validHeaderActualNativeDecodeRejected",true).put("postStageImportCleaned",true)
+        }
+        if(id=="source_webp_canvas_mismatch"){
+            val malformed=ImageFixtures.conflictingWebpCanvas(dir)
+            val uri=ImageFixtures.source(context,malformed,info).uri
+            val importId=UUID.randomUUID().toString()
+            val imports=File(context.filesDir,"imports");val before=imports.listFiles()?.map{it.name}?.toSet()?:emptySet()
+            expect("DECODE_FAILED"){ImageInputAdapter(context).stage(uri,importId)}
+            assertEquals(before,imports.listFiles()?.map{it.name}?.toSet()?:emptySet<String>())
+            val badSource=ImageSource(uri,malformed.name,ImageProbe.hash(malformed),malformed.length())
+            val job=ImageJobSpec(UUID.randomUUID().toString(),d.copy(source=badSource),info)
+            var nativeCalls=0;var completed=false
+            val counting=object:FfmpegBridge by bridge {
+                override suspend fun execute(arguments:List<String>,onProgress:(Progress)->Unit):NativeResult {
+                    nativeCalls++;return bridge.execute(arguments,onProgress)
+                }
+            }
+            expect("DECODE_FAILED"){ImageTranscoder(graph.files,counting,graph.imageMarkup).run(job,{if(it==JobState.COMPLETED)completed=true},{})}
+            assertEquals(0,nativeCalls);assertFalse(completed)
+            assertFalse(graph.files.output(QueueJobSpec.Image(job)).exists())
+            assertFalse(File(context.filesDir,"work/${job.id}").exists())
+            return JSONObject().put("expectedError","DECODE_FAILED").put("canvas","1x1").put("payload","64x48")
+                .put("nativeExecuteCalls",nativeCalls).put("queuedSuccess",completed).put("publication",false).put("stagingCleaned",true)
         }
         if(id=="source_animation"){input.writeText("GIF89a");expect("UNSUPPORTED_IMAGE"){ImageInputAdapter(context).stage(source.uri,UUID.randomUUID().toString())};return JSONObject().put("expectedError","UNSUPPORTED_IMAGE")}
         if(id=="source_unsupported_color"){

@@ -93,20 +93,22 @@ object ImageProbe {
             }
             b.size>=12 && text(0,4)=="RIFF" && text(8,4)=="WEBP"->{
                 if(le32(4)+8!=b.size.toLong())malformed()
-                var i=12;var w=0;var h=0;var alpha=false;var frames=0;var orientation=1
+                var i=12;var canvas:ImageSize?=null;var payload:ImageSize?=null;var alpha=false;var alphaChunk=false;var exifChunk=false;var orientation=1
                 while(i<b.size){checkRange(i,8);val type=text(i,4);val length=le32(i+4);if(length>Int.MAX_VALUE)malformed();val n=length.toInt();checkRange(i+8,n)
+                    if(n and 1!=0)checkRange(i+8+n,1)
                     when(type){
-                        "VP8X"->{if(n!=10)malformed();val flags=u(i+8);if(flags and 2!=0)unsupported("Animated WebP is Planned.");alpha=flags and 16!=0;w=u(i+12)+u(i+13)*256+u(i+14)*65536+1;h=u(i+15)+u(i+16)*256+u(i+17)*65536+1}
+                        "VP8X"->{if(i!=12 || canvas!=null || payload!=null || n!=10)malformed();val flags=u(i+8);if(flags and 2!=0)unsupported("Animated WebP is Planned.");alpha=flags and 16!=0;canvas=ImageSize(u(i+12)+u(i+13)*256+u(i+14)*65536+1,u(i+15)+u(i+16)*256+u(i+17)*65536+1)}
                         "ANIM","ANMF"->unsupported("Animated WebP is Planned.")
                         "ICCP"->unsupported("ICC WebP conversion is not qualified.")
-                        "EXIF"->{val(o,bad)=exif(i+8,n);orientation=o;if(bad)unsupported("Non-sRGB WebP.")}
-                        "VP8 "->{frames++;if(n<10 || u(i+11)!=0x9d || u(i+12)!=1 || u(i+13)!=0x2a)malformed();if(w==0){w=(u(i+14)+u(i+15)*256) and 0x3fff;h=(u(i+16)+u(i+17)*256) and 0x3fff}}
-                        "VP8L"->{frames++;if(n<5 || u(i+8)!=47)malformed();val bits=le32(i+9);if(w==0){w=((bits and 0x3fff)+1).toInt();h=(((bits shr 14) and 0x3fff)+1).toInt()};alpha=alpha || bits and (1L shl 28)!=0L}
-                        "ALPH"->alpha=true
+                        "EXIF"->{if(exifChunk)malformed();exifChunk=true;val(o,bad)=exif(i+8,n);orientation=o;if(bad)unsupported("Non-sRGB WebP.")}
+                        "VP8 "->{if(payload!=null || (canvas==null && i!=12))malformed();if(n<10 || u(i+11)!=0x9d || u(i+12)!=1 || u(i+13)!=0x2a)malformed();payload=ImageSize((u(i+14)+u(i+15)*256) and 0x3fff,(u(i+16)+u(i+17)*256) and 0x3fff)}
+                        "VP8L"->{if(payload!=null || (canvas==null && i!=12) || alphaChunk)malformed();if(n<5 || u(i+8)!=47)malformed();val bits=le32(i+9);payload=ImageSize(((bits and 0x3fff)+1).toInt(),(((bits shr 14) and 0x3fff)+1).toInt());alpha=alpha || bits and (1L shl 28)!=0L}
+                        "ALPH"->{if(canvas==null || payload!=null || alphaChunk)malformed();alphaChunk=true;alpha=true}
                     };i+=8+n+(n and 1)
                 }
-                if(frames!=1 || w<=0 || h<=0)malformed()
-                ImageInfo(w,h,ImageFormat.WEBP,orientation,1,8,if(alpha)ImageAlpha.PRESENT else ImageAlpha.OPAQUE)
+                val dimensions=payload?:malformed()
+                if(dimensions.width<=0 || dimensions.height<=0 || (canvas!=null && canvas!=dimensions))malformed()
+                ImageInfo(dimensions.width,dimensions.height,ImageFormat.WEBP,orientation,1,8,if(alpha)ImageAlpha.PRESENT else ImageAlpha.OPAQUE)
             }
             else->unsupported("Choose a JPEG, PNG or single-frame WebP. Animation, RAW and multipage formats are Planned.")
         }
