@@ -131,8 +131,8 @@ class ShareImportTest {
             val original = Settings(container = Container.M4A, audioKbps = 96)
             withVm(scenario) { it.act(UiAction.ChangeSettings(original)); it.act(UiAction.ToggleAdvanced) }
             compose.onNodeWithTag("open-shelf").performClick()
-            compose.onNode(hasText("Queue ·", substring = true)).performClick()
-            compose.onNodeWithText("Your queue").assertExists()
+            compose.onNodeWithText("Queue (0)").performClick()
+            compose.onNodeWithTag("queue-list").assertExists()
             val request = share(Intent.ACTION_SEND_MULTIPLE)
                 .putParcelableArrayListExtra(Intent.EXTRA_STREAM, arrayListOf(one, two, two))
             assertTrue(runCatching { context.contentResolver.openInputStream(two)?.close() }.isFailure)
@@ -169,7 +169,7 @@ class ShareImportTest {
     @Test fun warmNotificationIntentOpensExistingQueue() {
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
             externalShare(scenario, Intent(context, MainActivity::class.java).putExtra("open_queue", true), 0) {
-                compose.waitUntil(10_000) { compose.onAllNodesWithText("Your queue").fetchSemanticsNodes().isNotEmpty() }
+                compose.waitUntil(10_000) { compose.onAllNodesWithTag("queue-list").fetchSemanticsNodes().isNotEmpty() }
             }
         }
     }

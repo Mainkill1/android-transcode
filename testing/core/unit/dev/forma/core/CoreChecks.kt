@@ -103,6 +103,13 @@ object CoreChecks {
         "queued job cannot jump to complete" to { fails { QueueRules.transition(QueueEntry(JobSpec("1", source, Trim(), defaults)), JobState.COMPLETED) } },
         "only verifying can complete" to { val e = QueueEntry(JobSpec("1", source, Trim(), defaults), JobState.VERIFYING); check(QueueRules.transition(e, JobState.COMPLETED).state == JobState.COMPLETED) },
         "process death is interrupted not successful" to { val e = QueueEntry(JobSpec("1", source, Trim(), defaults), JobState.RUNNING); check(QueueRules.recover(e).state == JobState.INTERRUPTED) },
+        "queue and finished partition every state" to {
+            val queued = setOf(JobState.QUEUED, JobState.PREPARING, JobState.RUNNING, JobState.VERIFYING)
+            val finished = setOf(JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED)
+            check(JobState.entries.filter(QueueLists::inQueue).toSet() == queued)
+            check(JobState.entries.filter(QueueLists::inFinished).toSet() == finished)
+            check(JobState.entries.all { QueueLists.inQueue(it) != QueueLists.inFinished(it) })
+        },
         "recovery leaves finished results alone" to { val e = QueueEntry(JobSpec("1", source, Trim(), defaults), JobState.COMPLETED); check(QueueRules.recover(e) == e) }
     )
     fun runAll() { cases.forEach { (name, test) -> try { test() } catch (e: Throwable) { throw AssertionError(name, e) } } }

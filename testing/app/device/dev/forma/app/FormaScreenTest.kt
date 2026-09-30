@@ -75,9 +75,10 @@ class FormaScreenTest {
     @Test fun leftShelfOpensTheQueueWithoutResettingTheEditor() {
         compose.setContent { FormaTheme { FormaScreen(TranscodeUiState(ready = true), emptyList(), null, {}) } }
         compose.onNodeWithTag("open-shelf").performClick()
-        compose.onNodeWithText("Queue · 0").performClick()
-        compose.onNodeWithText("Your queue").assertIsDisplayed()
-        compose.onNodeWithText("No queued files").assertExists()
+        compose.onNodeWithText("Queue (0)").performClick()
+        compose.onNodeWithText("Queue is empty").assertExists()
+        compose.onNodeWithTag("finished-list").performClick()
+        compose.onNodeWithText("No finished conversions yet").assertExists()
     }
     @Test fun failedConversionIsEasyToFindAndShowsItsReason() {
         val completed = (1..18).map { QueueEntry(JobSpec("done-$it", source, Trim(), Settings()), JobState.COMPLETED) }
@@ -86,19 +87,31 @@ class FormaScreenTest {
         compose.setContent { FormaTheme { FormaWorkspace(
             TranscodeUiState(ready = true, message = "A conversion failed. Review the item before starting remaining jobs."),
             completed + failed, RunState(RunMode.IDLE), onAction = {}, progressContent = {}) } }
-        compose.onNodeWithText("Queue · 1 failed").assertIsDisplayed()
         compose.onNodeWithText("View failed job").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("finished-list").assertIsDisplayed()
         compose.onNodeWithText(reason).assertIsDisplayed()
         compose.onNodeWithText("Add retry to queue").assertIsDisplayed()
     }
-    @Test fun preservedFutureAudioJobRemainsVisibleInQueue() {
+    @Test fun savedEncoderAndResultAreShownInSeparateLists() {
+        val pending = QueueEntry(JobSpec("pending", source.copy(name = "Waiting.mp4"), Trim(), Settings(video = VideoEncoder.X264)))
+        val done = QueueEntry(JobSpec("done", source.copy(name = "Done.mp4"), Trim(), Settings(video = VideoEncoder.H265_HW, rateControl = RateControl.BITRATE, fps = 30)), JobState.COMPLETED)
+        compose.setContent { FormaTheme { FormaWorkspace(TranscodeUiState(ready = true), listOf(pending, done), RunState(),
+            initiallyQueue = true, onAction = {}, progressContent = {}) } }
+        compose.onNodeWithText("Waiting.mp4").assertExists()
+        compose.onNodeWithText("Done.mp4").assertDoesNotExist()
+        compose.onNodeWithText("H.264 · software", substring = true).assertExists()
+        compose.onNodeWithTag("finished-list").performClick()
+        compose.onNodeWithText("Done.mp4").assertExists()
+        compose.onNodeWithText("Waiting.mp4").assertDoesNotExist()
+        compose.onNodeWithText("H.265 · device", substring = true).assertExists()
+    }
+    @Test fun preservedFutureAudioJobRemainsVisibleInFinished() {
         val opaque = dev.forma.core.audio.AudioEdit(schemaVersion=99)
         val job=QueueEntry(JobSpec("future",source,Trim(),Settings(container=Container.WAV,audio=AudioEncoder.PCM_F32LE,audioEdit=opaque)),JobState.FAILED)
         compose.setContent { FormaTheme { FormaScreen(TranscodeUiState(ready=true),listOf(job),null,{}) } }
         compose.onNodeWithTag("open-shelf").performClick()
-        compose.onNodeWithText("Queue · 1").performClick()
-        compose.onNodeWithText("Your queue").assertIsDisplayed()
-        compose.onNodeWithText("WAV · Duration unavailable").assertExists()
+        compose.onNodeWithText("Finished (1)").performClick()
+        compose.onNodeWithText("WAV · Duration unavailable · PCM_F32LE").assertExists()
     }
 
 }
