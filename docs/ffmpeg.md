@@ -11,10 +11,23 @@ Upstream [Android instructions at the pin](https://github.com/arthenica/ffmpeg-k
 `tools/build-ffmpeg.sh` checks out the pinned source under ignored `vendor/ffmpeg-kit-next`, refuses a different or dirty checkout, and invokes:
 
 ```bash
-./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-android-media-codec --enable-lib-android-zlib --enable-lib-libwebp
+./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-x265 --enable-lib-libvpx --enable-lib-libsvtav1 --enable-lib-dav1d --enable-lib-android-media-codec --enable-lib-android-zlib --enable-lib-libwebp
 ```
 
-The MediaCodec flag is essential: upstream's Android build help defaults it off. The upstream FFmpeg Android script separately enables JNI. Do not pass raw FFmpeg `--enable-mediacodec` to the wrapper frontend. Additional supported wrapper options may be passed to the helper.
+The MediaCodec flag is essential: upstream's Android build help defaults it off. The upstream FFmpeg Android script separately enables JNI. Do not pass raw FFmpeg `--enable-mediacodec` to the wrapper frontend. Additional supported wrapper options may be passed to the helper. The profile includes x265, libvpx and SVT-AV1 for the three software video choices, dav1d for AV1 decoding, and retains zlib/WebP for the image editor. The dav1d source build requires Meson and Ninja on the host.
+
+The build helper applies `tools/patch_ffmpeg_static_cxx.py` to three wrapper scripts after verifying the pinned checkout is clean, then restores them when the build exits. This links the C++ codec dependencies with the static NDK runtime so an unaligned `libc++_shared.so` is not packaged. The arm64 x265 build also disables DOTPROD and I8MM instructions: the pinned Android wrapper compiles them without runtime CPU detection, and older arm64 phones can crash on them. Baseline NEON remains enabled. Verify the final AAR and APK; the patch is an explicit build-profile change, not a change of the upstream source revision.
+
+On a host with the Android SDK/NDK but without Nix, use the same pinned profile through the upstream direct builder. For this arm64 phone:
+
+```bash
+export ANDROID_SDK_ROOT=/absolute/path/to/android-sdk
+export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
+./tools/build-ffmpeg.sh --direct --arch=arm64-v8a --jobs=6 \
+  '--extra-ldflags=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384'
+```
+
+The direct route requires `ANDROID_SDK_ROOT` and `ANDROID_NDK_ROOT`. An arm64-only artifact serves this phone; build every intended ABI before distribution.
 
 Consume the resulting Maven repository directory, not the AAR path:
 
@@ -24,9 +37,11 @@ Consume the resulting Maven repository directory, not the AAR path:
   :app:assembleDebug
 ```
 
-Gradle restricts the wrapper coordinate to that local repository. Maven Central resolves its `smart-exception-java` dependency. There is no fallback binary URL. H.264/AAC are the required initial software profile; x265/libvpx/Opus/SVT-AV1 remain explicit optional profile additions, with runtime capabilities determining availability.
+Gradle restricts the wrapper coordinate to that local repository. Maven Central resolves its `smart-exception-java` dependency. There is no fallback binary URL. H.264/x264, H.265/x265, VP9/libvpx and AV1/SVT-AV1 are in the source-build profile; runtime capabilities still determine which choices are offered. Opus remains optional.
 
 Before treating an AAR or APK as a native result, run `tools/verify_android_native.py` on both artifacts. It rejects API-only packages and missing FFmpeg libraries and checks all 64-bit native payloads for 16 KB ELF/RELRO alignment and appropriate APK ZIP alignment. Follow the [Android handoff](android-handoff.md) for commands and the initial preview dependency finding. Static checks do not establish loading or encoding on a real device.
+
+The arm64 codec build and three phone exports are recorded in [software video qualification](software-video-qualification.md).
 
 ## Execution and acceleration contract
 
