@@ -1,0 +1,7 @@
+# Audio verification cancellation check
+
+The common FFprobe source patch and coroutine adapter are also used by PR #2, #4 and #6. The pinned native wrapper does not interrupt `-count_frames` without this patch. `tools/build-ffmpeg.sh` applies it temporarily and restores the pinned checkout after the build.
+
+On 2026-09-29, the OnePlus LE2125/API 36 lab package `dev.forma.transcode.lab.audio` passed `NativeProbeCancellationTest` (2/2) using a four-hour, 600,000-frame FLAC file. It cancels before native start and during the full frame-count scan, confirms native return code 255, then probes the same file with its exact 691,200,000 samples preserved. `AudioJobDeviceTest` passed separately (1/1), including a real PCM export with 9,600 stereo frames, AAC export, and cancellation inside the production export verification path with no output publication. Its controlled verifier retains the candidate until simulated native completion; the separate native test proves actual FFprobe interruption.
+
+The shared arm64 AAR SHA-256 was `09bd962f7d3ad66b9bc29c2df67681b55b6dc6c2472135d48490e94ea51a7d3a`; this branch's lab APK SHA-256 was `6ffb787d4d09e95cd81d613f21e2c03a65781b35d225e330eb27dfbe7fe6c8f7`. Both passed native payload/16 KB alignment checks. Raw device output for this aligned build is under ignored `app/build/device-evidence/` as `ffprobe-samples-v4-instrument.log` and `audio-scan-cancel-v4-instrument.log`.
