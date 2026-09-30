@@ -5,6 +5,21 @@ from tools.patch_ffmpeg_static_cxx import patch
 
 
 class BuildContractTest(unittest.TestCase):
+    def test_both_routes_use_16k_elf_alignment(self):
+        source = (Path(__file__).resolve().parents[1] / 'build-ffmpeg.sh').read_text()
+        for command in ('./android.sh ', './nix-android.sh '):
+            invocation = next(line.strip() for line in source.splitlines() if line.strip().startswith(command))
+            self.assertIn('--extra-ldflags=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384', invocation)
+        self.assertIn('patch_ffmpeg_static_cxx.py', source)
+        self.assertIn('patch_ffprobe_cancel.py', source)
+
+    def test_direct_route_keeps_mediacodec_and_applies_probe_patch(self):
+        source = (Path(__file__).resolve().parents[1] / 'build-ffmpeg.sh').read_text()
+        invocation = next(line.strip() for line in source.splitlines() if line.strip().startswith('./android.sh '))
+        self.assertIn('--enable-lib-android-media-codec', invocation.split())
+        self.assertIn('--enable-lib-x264', invocation.split())
+        self.assertIn('patch_ffprobe_cancel.py', source)
+
     def test_profile_explicitly_enables_android_mediacodec(self):
         source = (Path(__file__).resolve().parents[1] / 'build-ffmpeg.sh').read_text()
         invocation = next(line.strip() for line in source.splitlines() if line.strip().startswith('./nix-android.sh '))

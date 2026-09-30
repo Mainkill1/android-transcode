@@ -11,20 +11,20 @@ Upstream [Android instructions at the pin](https://github.com/arthenica/ffmpeg-k
 `tools/build-ffmpeg.sh` checks out the pinned source under ignored `vendor/ffmpeg-kit-next`, refuses a different or dirty checkout, and invokes:
 
 ```bash
-./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-x265 --enable-lib-libvpx --enable-lib-libsvtav1 --enable-lib-dav1d --enable-lib-android-media-codec --enable-lib-android-zlib --enable-lib-libwebp
+./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-x265 --enable-lib-libvpx --enable-lib-libsvtav1 --enable-lib-dav1d --enable-lib-android-media-codec --enable-lib-android-zlib --enable-lib-libwebp \
+  '--extra-ldflags=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384'
 ```
 
 The MediaCodec flag is essential: upstream's Android build help defaults it off. The upstream FFmpeg Android script separately enables JNI. Do not pass raw FFmpeg `--enable-mediacodec` to the wrapper frontend. Additional supported wrapper options may be passed to the helper. The profile includes x265, libvpx and SVT-AV1 for the three software video choices, dav1d for AV1 decoding, and retains zlib/WebP for the image editor. The dav1d source build requires Meson and Ninja on the host.
 
-The build helper applies `tools/patch_ffmpeg_static_cxx.py` to three wrapper scripts after verifying the pinned checkout is clean, then restores them when the build exits. This links the C++ codec dependencies with the static NDK runtime so an unaligned `libc++_shared.so` is not packaged. The arm64 x265 build also disables DOTPROD and I8MM instructions: the pinned Android wrapper compiles them without runtime CPU detection, and older arm64 phones can crash on them. Baseline NEON remains enabled. Verify the final AAR and APK; the patch is an explicit build-profile change, not a change of the upstream source revision.
+The build helper applies `tools/patch_ffmpeg_static_cxx.py` and `tools/patch_ffprobe_cancel.py` after verifying the pinned checkout is clean, then restores the wrapper sources when the build exits. The first links C++ codec dependencies with the static NDK runtime and keeps arm64 x265 from using unqualified DOTPROD/I8MM instructions. The second makes the pinned FFprobe loop honor Stop during full frame-count scans. Both routes use the 16 KB ELF/RELRO linker flags above. Verify the final AAR and APK; these are explicit build-profile changes, not a change of the upstream source revision.
 
 On a host with the Android SDK/NDK but without Nix, use the same pinned profile through the upstream direct builder. For this arm64 phone:
 
 ```bash
 export ANDROID_SDK_ROOT=/absolute/path/to/android-sdk
 export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
-./tools/build-ffmpeg.sh --direct --arch=arm64-v8a --jobs=6 \
-  '--extra-ldflags=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384'
+./tools/build-ffmpeg.sh --direct --arch=arm64-v8a --jobs=6
 ```
 
 The direct route requires `ANDROID_SDK_ROOT` and `ANDROID_NDK_ROOT`. An arm64-only artifact serves this phone; build every intended ABI before distribution.
@@ -51,7 +51,7 @@ The arm64 codec build and three phone exports are recorded in [software video qu
 - The adapter reports compiled wrappers, then checks Android configuration support at preparation time. A decoder or compiled wrapper is not proof of a usable encoder.
 - Explicit H.264/H.265 device selections use a concrete checked component, VBR, supported YUV420 input and zero B frames. Current integration requires explicit fps, 8-bit SDR and no display-matrix transform. CPU decode and CPU filters remain CPU work.
 - `AccelerationPolicy.AUTO` is implemented/tested in core but its native preference UI, serialized jobs and fallback loop are the next-agent milestone. Existing quality presets are unchanged; CRF never becomes a device quality scale.
-- Coroutine cancellation calls `cancel(sessionId)` and waits for native completion before deleting staging resources. Hung-session watchdog work remains explicit, not unsafe cleanup.
+- Coroutine cancellation calls `cancel(sessionId)` and waits for native completion before deleting staging resources. The pinned FFprobe wrapper needs the source patch above to interrupt full frame-count scans; an unpatched AAR cannot satisfy this cancellation contract. Hung-session watchdog work remains explicit, not unsafe cleanup.
 
 No native AAR is supplied or device-qualified by this preparation. The CI `native-api-contract` job compiles the upstream wrapper without .so files and uses that API-only AAR for adapter compilation. Never ship it. The opt-in `NativeAccelerationSmokeTest` explicitly requires real native execution once `formaNative=true` is supplied.
 

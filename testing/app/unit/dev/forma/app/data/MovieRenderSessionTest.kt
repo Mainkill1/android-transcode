@@ -12,9 +12,11 @@ import org.junit.Test
 class MovieRenderSessionTest {
     private val source = Source("content://a", "a.mp4", 1000, 64, 64, 1, 1)
     private fun directory() = File("build/movie-runtime/${UUID.randomUUID()}").apply { check(mkdirs()) }
-    private class Recorder(val source: Source, val sizes: List<Int>, val decodeFails: Boolean = false, val missingFrames: Boolean = false, val emptyFrames: Boolean = false) : FfmpegBridge {
+    private class Recorder(val source: Source, val sizes: List<Int>, val decodeFails: Boolean = false, val missingFrames: Boolean = false, val emptyFrames: Boolean = false,
+        val scanStarted: CompletableDeferred<File>? = null, val nativeFinished: CompletableDeferred<Unit>? = null) : FfmpegBridge {
         val prepared = mutableListOf<List<String>>()
         var renders = 0
+        var countScans = 0
         override suspend fun capabilities() = Capabilities(true, "", setOf("libx264", "aac", "pcm_s16le", "pcm_f32le", "flac"), setOf("mp4","wav","flac"),
             setOf("scale", "trim", "setpts", "concat", "atrim", "asetpts", "aresample", "aformat", "apad", "setsar", "fps", "tpad", "format", "settb", "pad", "anullsrc", "color", "overlay"))
         override suspend fun probe(localPath: String) = source.copy(uri=localPath,audioStreams=listOf(dev.forma.core.audio.SourceAudioFacts(0,48000,2,"stereo","fltp",source.durationMs*1000,totalSamples=source.durationMs*48)))
@@ -22,6 +24,12 @@ class MovieRenderSessionTest {
             return Planner.arguments(source, trim, settings, input, output).also { prepared += it }
         }
         override suspend fun inspectStreams(localPath: String, countFrames: Boolean): OutputFacts {
+            if (countFrames && scanStarted != null && countScans++ == 0) {
+                scanStarted.complete(File(localPath))
+                try { awaitCancellation() } finally {
+                    withContext(NonCancellable) { requireNotNull(nativeFinished).await() }
+                }
+            }
             val fps=prepared.lastOrNull()?.let { if("-r" in it) it[it.indexOf("-r")+1].toInt() else 30 } ?: 30
             return OutputFacts(0,buildList {if(source.videoTracks>0)add(StreamFacts(StreamKind.VIDEO,0,source.durationMs*1000,if(missingFrames)null else if(emptyFrames)0 else source.durationMs*fps/1000,64,64));add(StreamFacts(StreamKind.AUDIO,0,source.durationMs*1000,sampleRate=48000))})
         }
@@ -43,6 +51,23 @@ class MovieRenderSessionTest {
             assertTrue(work.isCancelled); assertFalse(output.exists())
             assertEquals(listOf("source"), dir.list()!!.toList())
         } finally { dir.deleteRecursively() }
+    }
+    @Test fun stopDuringFrameCountRetainsCandidateUntilNativeEndsAndNextRenderStarts(): Unit = runBlocking {
+        val dir=directory(); val input=File(dir,"source").apply { writeText("original") }
+        val output=File(dir,"out.mp4"); val later=File(dir,"later.mp4")
+        val entered=CompletableDeferred<File>(); val nativeFinished=CompletableDeferred<Unit>()
+        try {
+            val recorder=Recorder(source,listOf(100),scanStarted=entered,nativeFinished=nativeFinished)
+            val renderer=FfmpegRenderSession(ManagedFfmpegBridge(recorder))
+            val work=launch { renderer.render(JobSpec("id",source,Trim(),Settings()),listOf(input),output,{}) }
+            val candidate=withTimeout(5000) { entered.await() }
+            work.cancel(); yield()
+            assertTrue(candidate.isFile); assertFalse(work.isCompleted); assertFalse(output.exists())
+            nativeFinished.complete(Unit); withTimeout(5000) { work.join() }
+            assertTrue(work.isCancelled); assertFalse(candidate.exists()); assertFalse(output.exists())
+            renderer.render(JobSpec("later",source,Trim(),Settings()),listOf(input),later,{})
+            assertEquals(100L,later.length()); assertEquals("original",input.readText())
+        } finally { nativeFinished.complete(Unit);dir.deleteRecursively() }
     }
     @Test fun strictEqualityRetriesOnlyOriginalSourcesAndCleansAttempts(): Unit = runBlocking {
         val dir=directory(); val input=File(dir,"source").apply { writeText("original") }; val output=File(dir,"output.mp4")

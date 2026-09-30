@@ -58,12 +58,34 @@ class AudioJobDeviceTest {
             val cancelled=spec.copy(id=UUID.randomUUID().toString())
             try { FfmpegTranscoder(files,traced).run(cancelled,{if(it==JobState.VERIFYING)throw CancellationException("Test verification cancellation")},{}) ;error("Cancellation was lost") }
             catch(_:CancellationException) { check(!files.output(cancelled).exists()) }
+            val scanEntered=CompletableDeferred<File>()
+            val nativeFinished=CompletableDeferred<Unit>()
+            val scanning=object:FfmpegBridge by bridge {
+                override suspend fun inspectStreams(localPath:String,countFrames:Boolean):OutputFacts {
+                    if (!countFrames) return bridge.inspectStreams(localPath,false)
+                    scanEntered.complete(File(localPath))
+                    try { awaitCancellation() } finally {
+                        withContext(NonCancellable) { nativeFinished.await();check(File(localPath).isFile) }
+                    }
+                }
+            }
+            val stopInScan=spec.copy(id=UUID.randomUUID().toString())
+            val scanningJob=launch { FfmpegTranscoder(files,scanning).run(stopInScan,{},{}) }
+            try {
+                val candidate=withTimeout(10_000) { scanEntered.await() }
+                scanningJob.cancel();yield()
+                check(candidate.isFile && !scanningJob.isCompleted && !files.output(stopInScan).exists())
+                nativeFinished.complete(Unit)
+                withTimeout(10_000) { scanningJob.join() }
+                check(scanningJob.isCancelled && !candidate.exists() && !files.output(stopInScan).exists())
+            } finally { nativeFinished.complete(Unit);scanningJob.cancelAndJoin() }
             report.put("phase","loudness")
             val loud=spec.copy(id=UUID.randomUUID().toString(),trim=Trim(),settings=peakSettings.copy(container=Container.M4A,audio=AudioEncoder.AAC,
                 audioEdit=AudioEdit(output=AudioOutputPolicy(normalization=NormalizationPolicy(mode=NormalizationMode.LOUDNESS)))))
             FfmpegTranscoder(files,traced).run(loud,{},{})
             artifacts+=files.output(loud);check(files.output(loud).isFile)
-            report.put("passed",true).put("peakDb",peak).put("shortStereoFrames",samples.size/2).put("defaultStereoLoudnessExport",true)
+            report.put("passed",true).put("peakDb",peak).put("shortStereoFrames",samples.size/2)
+                .put("verificationScanCancellationLeftNoOutput",true).put("defaultStereoLoudnessExport",true)
         } catch(e:Throwable) { report.put("passed",false).put("error",e.toString());throw e }
         finally { artifacts.forEach { it.delete() };sourceDir.deleteRecursively();File(context.filesDir,"native-readiness").apply { mkdirs() }.resolve("audio-jobs.json").writeText(report.toString(2)) }
     }

@@ -21,12 +21,13 @@ fi
 [[ "$(git -C "$SOURCE" rev-parse HEAD)" == "$REV" ]] || { echo 'Existing native checkout does not match the pinned revision.' >&2; exit 1; }
 [[ -z "$(git -C "$SOURCE" status --porcelain --untracked-files=no)" ]] || { echo 'Native checkout has tracked modifications; refusing to build.' >&2; exit 1; }
 python3 "$ROOT/tools/patch_ffmpeg_static_cxx.py" "$SOURCE"
-trap 'git -C "$SOURCE" restore -- scripts/function-android.sh scripts/android/libsvtav1.sh scripts/android/x265.sh' EXIT
+python3 "$ROOT/tools/patch_ffprobe_cancel.py" "$SOURCE"
+trap 'git -C "$SOURCE" restore -- scripts/function-android.sh scripts/android/libsvtav1.sh scripts/android/x265.sh android/ffmpeg-kit-next-android-lib/src/main/cpp/ffmpegkit.c android/ffmpeg-kit-next-android-lib/src/main/cpp/ffprobekit.c android/ffmpeg-kit-next-android-lib/src/main/cpp/fftools/ffprobe.c' EXIT
 cd "$SOURCE"
 if [[ "$direct" == true ]]; then
-    ./android.sh --enable-gpl --enable-lib-x264 --enable-lib-x265 --enable-lib-libvpx --enable-lib-libsvtav1 --enable-lib-dav1d --enable-lib-android-media-codec --enable-lib-android-zlib --enable-lib-libwebp "$@"
+    ./android.sh --enable-gpl --enable-lib-x264 --enable-lib-x265 --enable-lib-libvpx --enable-lib-libsvtav1 --enable-lib-dav1d --enable-lib-android-media-codec --enable-lib-android-zlib --enable-lib-libwebp '--extra-ldflags=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384' "$@"
 else
-    ./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-x265 --enable-lib-libvpx --enable-lib-libsvtav1 --enable-lib-dav1d --enable-lib-android-media-codec --enable-lib-android-zlib --enable-lib-libwebp "$@"
+    ./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-x265 --enable-lib-libvpx --enable-lib-libsvtav1 --enable-lib-dav1d --enable-lib-android-media-codec --enable-lib-android-zlib --enable-lib-libwebp '--extra-ldflags=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384' "$@"
 fi
 printf '\nNative Maven repository: %s/prebuilt/bundle-android-aar-24-maven\n' "$SOURCE"
 printf 'Required next: verify the AAR/APK with tools/verify_android_native.py, then run the physical-device smoke test.\n'

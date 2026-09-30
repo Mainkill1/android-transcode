@@ -34,6 +34,7 @@ android {
     if (formaTests && accelerationTests) {
         sourceSets["test"].java.srcDir(rootProject.file("testing/acceleration/appTest"))
         sourceSets["androidTest"].java.srcDir(rootProject.file("testing/acceleration/androidTest"))
+        if (nativeEnabled) sourceSets["androidTest"].java.srcDir(rootProject.file("testing/acceleration/nativeAndroidTest"))
     }
     buildFeatures { compose = true }
     if (formaTests && providers.gradleProperty("audioTests").orNull != "false") {
@@ -90,12 +91,13 @@ dependencies {
         androidTestImplementation(libs.androidx.runner)
         // Compose's transitive Espresso 3.5.0 uses InputManager reflection removed on API 36.
         androidTestImplementation(libs.espresso.core)
+        if (nativeEnabled) androidTestImplementation("com.arthenica:ffmpeg-kit-next:9.0.0")
     }
 }
 
 // UI-only debug builds remain useful, but cannot be promoted to a release by accident.
 // This checks intent; verify_android_native.py must still validate the produced AAR/APK.
-val nativeEnabledForRelease = providers.gradleProperty("ffmpegEnabled").orNull == "true"
+val nativeEnabledForRelease = nativeEnabled
 tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     doFirst {
         check(nativeEnabledForRelease) {
