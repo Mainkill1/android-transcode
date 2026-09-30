@@ -94,7 +94,7 @@ object OutputFactsReader {
                 ?: micros(tag)?.let { end -> start?.let { runCatching { Math.subtractExact(end,it) }.getOrNull() } }
             StreamFacts(kind,start,duration,s["nb_read_frames"]?.toLongOrNull()?.takeIf { it>=0 },
                 s["width"]?.toIntOrNull() ?: 0,s["height"]?.toIntOrNull() ?: 0,
-                kind==StreamKind.VIDEO && dev.forma.core.ColorRules.needsQualifiedPipeline(s["pix_fmt"].orEmpty(),s["color_transfer"].orEmpty(),s["bits_per_raw_sample"]?.toIntOrNull() ?: 0),
+                kind==StreamKind.VIDEO && dev.forma.core.ColorRules.needsQualifiedOutputPipeline(s["pix_fmt"].orEmpty(),s["color_transfer"].orEmpty(),s["bits_per_raw_sample"]?.toIntOrNull() ?: 0),
                 s["sample_rate"]?.toIntOrNull()?.takeIf { it>0 })
         }
         val retained=facts.filter { it.kind!=StreamKind.OTHER }

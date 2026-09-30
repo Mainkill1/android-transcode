@@ -96,10 +96,17 @@ internal class KitNextBridge : FfmpegBridge {
         val duration = root.optJSONObject("format")?.optString("duration")?.toDoubleOrNull()
             ?: (video + audio).mapNotNull { it.optString("duration").toDoubleOrNull() }.maxOrNull() ?: 0.0
         val pixelFormat = v?.optString("pix_fmt").orEmpty()
+        val hdrSideData = v?.optJSONArray("side_data_list")?.let { entries ->
+            (0 until entries.length()).any { index ->
+                val type = entries.optJSONObject(index)?.optString("side_data_type").orEmpty()
+                listOf("mastering display", "content light", "dovi", "hdr").any { type.contains(it, ignoreCase = true) }
+            }
+        } ?: false
         Source(localPath, File(localPath).name, (duration * 1000).toLong(), v?.optInt("width") ?: 0,
             v?.optInt("height") ?: 0, video.size, audio.size,
-            v != null && ColorRules.needsQualifiedPipeline(pixelFormat, v.optString("color_transfer"), v.optInt("bits_per_raw_sample")),
-            File(localPath).length(), audio.map { stream ->
+            v != null && ColorRules.needsQualifiedPipeline(pixelFormat, v.optString("color_transfer"), v.optInt("bits_per_raw_sample"),
+                v.optString("color_primaries"), v.optString("color_space"), hdrSideData),
+            File(localPath).takeIf { it.isFile }?.length() ?: -1L, audio.map { stream ->
                 val sampleRate = stream.optString("sample_rate").toIntOrNull()?.takeIf { it > 0 }
                 val ticks = stream.optString("duration_ts").toLongOrNull()?.takeIf { it >= 0 }
                 val base = stream.optString("time_base").split('/').map { it.toLongOrNull() }

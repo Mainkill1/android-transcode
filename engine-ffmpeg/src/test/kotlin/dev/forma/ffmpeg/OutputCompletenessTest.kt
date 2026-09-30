@@ -10,6 +10,12 @@ class OutputCompletenessTest {
     private val source=Source("original","original",5000,320,240,1,1)
     private fun video(duration:Long=5_000_000,frames:Long=150,start:Long=0)=StreamFacts(StreamKind.VIDEO,start,duration,frames,320,240)
     private fun audio(duration:Long=5_000_000,start:Long=0)=StreamFacts(StreamKind.AUDIO,start,duration,sampleRate=48000)
+    @Test fun main10OutputIsNotMistakenForQualifiedEightBitSdr() {
+        val stream=mapOf("codec_type" to "video", "start_time" to "0", "duration" to "5",
+            "width" to "320", "height" to "240", "pix_fmt" to "yuv420p10le",
+            "color_transfer" to "bt709", "bits_per_raw_sample" to "10")
+        assertTrue(OutputFactsReader.read("0",listOf(stream)).streams.single().hdr)
+    }
     private class Bridge(var input:OutputFacts,var output:OutputFacts):FfmpegBridge {
         override suspend fun capabilities()=Capabilities(true)
         override suspend fun probe(localPath:String)=error("Container summaries cannot establish completeness")
