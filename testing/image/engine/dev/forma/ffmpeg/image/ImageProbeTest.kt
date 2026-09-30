@@ -1,11 +1,54 @@
 package dev.forma.ffmpeg.image
 import dev.forma.core.image.*
+import dev.forma.core.*
+import dev.forma.ffmpeg.*
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.File
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.util.zip.CRC32
 class ImageProbeTest {
+    private fun webp(vararg chunks:Pair<String,ByteArray>):ByteArray {
+        val body=ByteArrayOutputStream();DataOutputStream(body).use { out ->
+            out.writeBytes("WEBP")
+            for((type,data) in chunks){out.writeBytes(type);out.writeByte(data.size);out.write(byteArrayOf(0,0,0));out.write(data);if(data.size and 1!=0)out.writeByte(0)}
+        }
+        val payload=body.toByteArray();val bytes=ByteArrayOutputStream();DataOutputStream(bytes).use{out->out.writeBytes("RIFF");out.writeByte(payload.size);out.writeByte(payload.size ushr 8);out.writeByte(payload.size ushr 16);out.writeByte(payload.size ushr 24);out.write(payload)}
+        return bytes.toByteArray()
+    }
+    private fun canvas(w:Int,h:Int)=byteArrayOf(0,0,0,0,(w-1).toByte(),((w-1) ushr 8).toByte(),((w-1) ushr 16).toByte(),(h-1).toByte(),((h-1) ushr 8).toByte(),((h-1) ushr 16).toByte())
+    private fun vp8(w:Int,h:Int)=byteArrayOf(0,0,0,0x9d.toByte(),1,0x2a,w.toByte(),(w ushr 8).toByte(),h.toByte(),(h ushr 8).toByte())
+    private fun vp8l(w:Int,h:Int):ByteArray {val bits=(w-1).toLong() or ((h-1).toLong() shl 14);return byteArrayOf(47,bits.toByte(),(bits ushr 8).toByte(),(bits ushr 16).toByte(),(bits ushr 24).toByte())}
+    private fun rejectedWebp(bytes:ByteArray){try{ImageProbe.inspectBytes(bytes);fail("Malformed WebP was admitted")}catch(e:ImageFailure){assertEquals("DECODE_FAILED",e.code)}}
+    @Test fun webpCanvasCannotHideLossyOrLosslessPayloadSize() {
+        rejectedWebp(webp("VP8X" to canvas(1,1),"VP8 " to vp8(64,48)))
+        rejectedWebp(webp("VP8X" to canvas(1,1),"VP8L" to vp8l(64,48)))
+    }
+    @Test fun matchingExtendedAndSimpleWebpUsePayloadDimensions() {
+        for(bytes in listOf(webp("VP8X" to canvas(64,48),"VP8 " to vp8(64,48)),webp("VP8X" to canvas(64,48),"VP8L" to vp8l(64,48)),webp("VP8 " to vp8(64,48)),webp("VP8L" to vp8l(64,48)))){
+            val info=ImageProbe.inspectBytes(bytes);assertEquals(64,info.width);assertEquals(48,info.height)
+        }
+    }
+    @Test fun duplicateMisorderedAndTruncatedWebpChunksAreRejected() {
+        val valid=webp("VP8X" to canvas(64,48),"VP8 " to vp8(64,48))
+        for(bytes in listOf(webp("VP8X" to canvas(64,48),"VP8X" to canvas(64,48),"VP8 " to vp8(64,48)),webp("VP8 " to vp8(64,48),"VP8X" to canvas(64,48)),webp("VP8X" to canvas(64,48),"VP8 " to vp8(64,48),"VP8 " to vp8(64,48)),webp("VP8X" to canvas(64,48),"VP8 " to vp8(64,48),"ALPH" to byteArrayOf(0)),valid.copyOf(valid.size-1).also{it[4]=(it.size-8).toByte()}))rejectedWebp(bytes)
+    }
+    @Test fun malformedWebpFailsBeforeNativeBridgeCalls()=runBlocking {
+        val file=File.createTempFile("image-probe-", ".webp")
+        try {
+            file.writeBytes(webp("VP8X" to canvas(1,1),"VP8 " to vp8(64,48)))
+            var nativeCalls=0
+            val bridge=object:FfmpegBridge {
+                override suspend fun capabilities():Capabilities {nativeCalls++;error("Native capabilities reached")}
+                override suspend fun probe(localPath:String):Source {nativeCalls++;error("Native probe reached")}
+                override suspend fun execute(arguments:List<String>,onProgress:(Progress)->Unit):NativeResult {nativeCalls++;error("Native execute reached")}
+            }
+            try{bridge.inspectImage(file.path);fail("Expected pre-decode rejection")}catch(e:ImageFailure){assertEquals("DECODE_FAILED",e.code)}
+            assertEquals(0,nativeCalls)
+        }finally{file.delete()}
+    }
     private fun png(w:Int=101,h:Int=77,animated:Boolean=false,depth:Int=8,gamma:Int?=null,chroma:List<Int>?=null):ByteArray {
         val bytes=ByteArrayOutputStream();val out=DataOutputStream(bytes);out.write(byteArrayOf(-119,80,78,71,13,10,26,10))
         fun chunk(type:String,data:ByteArray) { out.writeInt(data.size);val t=type.toByteArray();out.write(t);out.write(data);val crc=CRC32();crc.update(t);crc.update(data);out.writeInt(crc.value.toInt()) }

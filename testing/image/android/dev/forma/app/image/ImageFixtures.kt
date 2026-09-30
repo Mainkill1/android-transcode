@@ -9,6 +9,34 @@ import java.util.Random
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 object ImageFixtures {
+    /** Actual Android WebP bitstream with a deliberately conflicting extended canvas. */
+    fun conflictingWebpCanvas(directory:File):File {
+        directory.mkdirs()
+        val bitmap=Bitmap.createBitmap(64,48,Bitmap.Config.ARGB_8888).apply{setHasAlpha(false);eraseColor(Color.RED)}
+        val encoded=ByteArrayOutputStream().also{bitmap.compress(Bitmap.CompressFormat.WEBP,90,it)}.toByteArray()
+        bitmap.recycle()
+        check(String(encoded,0,4,Charsets.US_ASCII)=="RIFF" && String(encoded,8,4,Charsets.US_ASCII)=="WEBP")
+        var at=12;var frame:ByteArray?=null
+        while(at+8<=encoded.size){
+            val size=(encoded[at+4].toInt() and 255) or ((encoded[at+5].toInt() and 255) shl 8) or
+                ((encoded[at+6].toInt() and 255) shl 16) or ((encoded[at+7].toInt() and 255) shl 24)
+            check(size>=0 && at.toLong()+8+size+(size and 1)<=encoded.size)
+            val end=at+8+size+(size and 1)
+            if(String(encoded,at,4,Charsets.US_ASCII)=="VP8 "){frame=encoded.copyOfRange(at,end);break}
+            at=end
+        }
+        val vp8=checkNotNull(frame){"Android did not encode a lossy VP8 frame"}
+        val payload=ByteArrayOutputStream();DataOutputStream(payload).use {out->
+            out.write("WEBP".toByteArray());out.write("VP8X".toByteArray());out.write(byteArrayOf(10,0,0,0))
+            out.write(ByteArray(10)) // 1 × 1 canvas (minus-one fields are zero)
+            out.write(vp8)
+        }
+        val body=payload.toByteArray();val file=File(directory,"conflicting-canvas.webp")
+        DataOutputStream(file.outputStream()).use{out->
+            out.write("RIFF".toByteArray());repeat(4){out.writeByte(body.size ushr (8*it))};out.write(body)
+        }
+        return file
+    }
     fun png(context:Context,directory:File,w:Int=101,h:Int=77,alpha:Boolean=true,noise:Boolean=false):Pair<File,ImageInfo> {
         directory.mkdirs();val bitmap=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888).apply{setHasAlpha(alpha)};val random=Random(813)
         for(y in 0 until h)for(x in 0 until w)bitmap.setPixel(x,y,if(noise)Color.argb(if(alpha)random.nextInt(256) else 255,random.nextInt(256),random.nextInt(256),random.nextInt(256)) else when {
