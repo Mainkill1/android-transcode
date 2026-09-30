@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 val accelerationTests = providers.gradleProperty("accelerationTests").orNull != "false"
+val nativeEnabled = providers.gradleProperty("ffmpegEnabled").orNull == "true"
 android {
     namespace = "dev.forma.app"
     compileSdk = 36
@@ -18,6 +19,7 @@ android {
     if (accelerationTests) {
         sourceSets["test"].java.srcDir(rootProject.file("testing/acceleration/appTest"))
         sourceSets["androidTest"].java.srcDir(rootProject.file("testing/acceleration/androidTest"))
+        if (nativeEnabled) sourceSets["androidTest"].java.srcDir(rootProject.file("testing/acceleration/nativeAndroidTest"))
     }
     buildFeatures { compose = true }
     buildTypes {
@@ -57,11 +59,12 @@ dependencies {
     androidTestImplementation(libs.androidx.test)
     androidTestImplementation(libs.androidx.runner)
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    if (nativeEnabled) androidTestImplementation("com.arthenica:ffmpeg-kit-next:9.0.0")
 }
 
 // UI-only debug builds remain useful, but cannot be promoted to a release by accident.
 // This checks intent; verify_android_native.py must still validate the produced AAR/APK.
-val nativeEnabledForRelease = providers.gradleProperty("ffmpegEnabled").orNull == "true"
+val nativeEnabledForRelease = nativeEnabled
 tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     doFirst {
         check(nativeEnabledForRelease) {

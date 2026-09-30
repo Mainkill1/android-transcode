@@ -16,6 +16,8 @@ Upstream [Android instructions at the pin](https://github.com/arthenica/ffmpeg-k
 
 The MediaCodec flag is essential: upstream's Android build help defaults it off. The upstream FFmpeg Android script separately enables JNI. Do not pass raw FFmpeg `--enable-mediacodec` to the wrapper frontend. Additional supported wrapper options may be passed to the helper.
 
+On a host with the Android SDK/NDK but without Nix, set `ANDROID_SDK_ROOT` and `ANDROID_NDK_ROOT`, then run `tools/build-ffmpeg.sh --direct --arch=arm64-v8a --jobs=6` with the same optional wrapper flags. The helper temporarily patches the pinned FFprobe source so native frame-count scans honor session cancellation, and restores the checkout after the build. Build each intended ABI before distribution.
+
 Consume the resulting Maven repository directory, not the AAR path:
 
 ```bash
@@ -36,7 +38,7 @@ Before treating an AAR or APK as a native result, run `tools/verify_android_nati
 - The adapter reports compiled wrappers, then checks Android configuration support at preparation time. A decoder or compiled wrapper is not proof of a usable encoder.
 - Explicit H.264/H.265 device selections use a concrete checked component, VBR, supported YUV420 input and zero B frames. Current integration requires explicit fps, 8-bit SDR and no display-matrix transform. CPU decode and CPU filters remain CPU work.
 - `AccelerationPolicy.AUTO` is implemented/tested in core but its native preference UI, serialized jobs and fallback loop are the next-agent milestone. Existing quality presets are unchanged; CRF never becomes a device quality scale.
-- Coroutine cancellation calls `cancel(sessionId)` and waits for native completion before deleting staging resources. Hung-session watchdog work remains explicit, not unsafe cleanup.
+- Coroutine cancellation calls `cancel(sessionId)` and waits for native completion before deleting staging resources. The pinned FFprobe wrapper needs the source patch above to interrupt full frame-count scans; an unpatched AAR cannot satisfy this cancellation contract. Hung-session watchdog work remains explicit, not unsafe cleanup.
 
 No native AAR is supplied or device-qualified by this preparation. The CI `native-api-contract` job compiles the upstream wrapper without .so files and uses that API-only AAR for adapter compilation. Never ship it. The opt-in `NativeAccelerationSmokeTest` explicitly requires real native execution once `formaNative=true` is supplied.
 
