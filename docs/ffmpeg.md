@@ -11,7 +11,8 @@ Upstream [Android instructions at the pin](https://github.com/arthenica/ffmpeg-k
 `tools/build-ffmpeg.sh` checks out the pinned source under ignored `vendor/ffmpeg-kit-next`, refuses a different or dirty checkout, and invokes:
 
 ```bash
-./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-android-media-codec
+./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-android-media-codec \
+  '--extra-ldflags=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384'
 ```
 
 The MediaCodec flag is essential: upstream's Android build help defaults it off. The upstream FFmpeg Android script separately enables JNI. Do not pass raw FFmpeg `--enable-mediacodec` to the wrapper frontend. Additional supported wrapper options may be passed to the helper.
@@ -27,6 +28,8 @@ Consume the resulting Maven repository directory, not the AAR path:
 Gradle restricts the wrapper coordinate to that local repository. Maven Central resolves its `smart-exception-java` dependency. There is no fallback binary URL. H.264/AAC are the required initial software profile; x265/libvpx/Opus/SVT-AV1 remain explicit optional profile additions, with runtime capabilities determining availability.
 
 Before treating an AAR or APK as a native result, run `tools/verify_android_native.py` on both artifacts. It rejects API-only packages and missing FFmpeg libraries and checks all 64-bit native payloads for 16 KB ELF/RELRO alignment and appropriate APK ZIP alignment. Follow the [Android handoff](android-handoff.md) for commands and the initial preview dependency finding. Static checks do not establish loading or encoding on a real device.
+
+The pinned native FFprobe source needs `tools/patch_ffprobe_cancel.py` during source builds to interrupt full frame-count scans on Stop. The helper applies it temporarily and restores the checkout afterward. The physical native bridge qualification and its exact artifact hashes are recorded in PR #6.
 
 ## Execution and acceleration contract
 

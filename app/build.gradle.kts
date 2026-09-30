@@ -9,6 +9,7 @@ val selectedTestBuild = providers.gradleProperty("formaTestBuildType").orElse("d
 require(selectedTestBuild == "debug" || (formaTests && selectedTestBuild == "lab")) {
     "formaTestBuildType must be debug, or lab with formaTests enabled."
 }
+val nativeEnabled = providers.gradleProperty("ffmpegEnabled").orNull == "true"
 android {
     namespace = "dev.forma.app"
     compileSdk = 36
@@ -25,6 +26,7 @@ android {
     sourceSets["test"].java.setSrcDirs(if (formaTests) listOf(rootProject.file("testing/app/unit")) else emptyList<File>())
     sourceSets["androidTest"].java.setSrcDirs(if (formaTests)
         listOf(rootProject.file("testing/app/device"), rootProject.file("testing/shared")) else emptyList<File>())
+    if (nativeEnabled) sourceSets["androidTest"].java.srcDir(rootProject.file("testing/ffprobe/nativeAndroidTest"))
     if (formaTests) sourceSets["androidTest"].manifest.srcFile(rootProject.file("testing/shared/AndroidManifest.xml"))
     buildTypes {
         if (formaTests) create("lab") {
@@ -66,13 +68,14 @@ dependencies {
         androidTestImplementation(libs.compose.test)
         androidTestImplementation(libs.androidx.test)
         androidTestImplementation(libs.androidx.runner)
+    if (nativeEnabled) androidTestImplementation("com.arthenica:ffmpeg-kit-next:9.0.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     }
 }
 
 // UI-only debug builds remain useful, but cannot be promoted to a release by accident.
 // This checks intent; verify_android_native.py must still validate the produced AAR/APK.
-val nativeEnabledForRelease = providers.gradleProperty("ffmpegEnabled").orNull == "true"
+val nativeEnabledForRelease = nativeEnabled
 tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     doFirst {
         check(nativeEnabledForRelease) {

@@ -4,6 +4,8 @@ import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.FFmpegKitConfig
 import com.arthenica.ffmpegkit.FFmpegSession
 import com.arthenica.ffmpegkit.FFprobeKit
+import com.arthenica.ffmpegkit.FFprobeSession
+import com.arthenica.ffmpegkit.FFprobeSessionCompleteCallback
 import com.arthenica.ffmpegkit.ReturnCode
 import dev.forma.core.*
 import java.io.File
@@ -27,14 +29,17 @@ internal class KitNextBridge : FfmpegBridge {
             "FFmpegKitNext 9.0.0 · ${FFmpegKitConfig.getFFmpegVersion()}")
     }
 
-    private fun probeJson(localPath: String, countFrames: Boolean = false): JSONObject {
-        val session = FFprobeKit.executeWithArguments((listOf("-v", "error") + (if(countFrames) listOf("-count_frames") else emptyList()) + listOf("-show_streams", "-show_format", "-of", "json", localPath)).toTypedArray())
+    private suspend fun probeJson(localPath: String, countFrames: Boolean = false): JSONObject {
+        val arguments = (listOf("-v", "error") + (if(countFrames) listOf("-count_frames") else emptyList()) + listOf("-show_streams", "-show_format", "-of", "json", localPath)).toTypedArray()
+        val session = awaitNativeSession<FFprobeSession, FFprobeSession>(
+            start = { complete -> FFprobeKit.executeWithArgumentsAsync(arguments,
+                FFprobeSessionCompleteCallback { complete(it) }) },
+            cancel = { FFmpegKit.cancel(it.getSessionId()) })
         check(ReturnCode.isSuccess(session.getReturnCode())) { "FFprobe could not inspect this media file." }
         return JSONObject(session.getOutput().orEmpty())
     }
 
     override suspend fun inspectStreams(localPath: String, countFrames: Boolean): OutputFacts = withContext(Dispatchers.IO) {
-        // Synchronous FFprobe finishes its native worker before withContext can deliver cancellation.
         val root=probeJson(localPath,countFrames)
         val streams=root.getJSONArray("streams")
         val fields=(0 until streams.length()).map { i ->
@@ -52,13 +57,16 @@ internal class KitNextBridge : FfmpegBridge {
         OutputFactsReader.read(origin,observed)
     }
 
-    private fun observeStart(localPath: String,index: Int,kind: StreamKind): Map<String,String> {
-        fun inspect(frames: Boolean): JSONObject? {
+    private suspend fun observeStart(localPath: String,index: Int,kind: StreamKind): Map<String,String> {
+        suspend fun inspect(frames: Boolean): JSONObject? {
             val arguments=listOf("-v","error","-select_streams",index.toString(),"-read_intervals",if(frames) "%+#32" else "%+#1",
                 if(frames) "-show_frames" else "-show_packets","-show_entries",
                 if(frames) "frame=best_effort_timestamp,best_effort_timestamp_time,pts,pts_time" else "packet=pts,pts_time",
                 "-of","json",localPath)
-            val session=FFprobeKit.executeWithArguments(arguments.toTypedArray())
+            val session=awaitNativeSession<FFprobeSession, FFprobeSession>(
+                start = { complete -> FFprobeKit.executeWithArgumentsAsync(arguments.toTypedArray(),
+                    FFprobeSessionCompleteCallback { complete(it) }) },
+                cancel = { FFmpegKit.cancel(it.getSessionId()) })
             check(ReturnCode.isSuccess(session.getReturnCode())) { "FFprobe could not observe the stream presentation clock." }
             return JSONObject(session.getOutput().orEmpty()).optJSONArray(if(frames) "frames" else "packets")?.optJSONObject(0)
         }
