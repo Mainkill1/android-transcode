@@ -24,9 +24,9 @@ python3 "$ROOT/tools/patch_ffprobe_cancel.py" "$SOURCE"
 trap 'git -C "$SOURCE" restore -- android/ffmpeg-kit-next-android-lib/src/main/cpp/ffmpegkit.c android/ffmpeg-kit-next-android-lib/src/main/cpp/ffprobekit.c android/ffmpeg-kit-next-android-lib/src/main/cpp/fftools/ffprobe.c' EXIT
 cd "$SOURCE"
 if [[ "$direct" == true ]]; then
-    ./android.sh --enable-gpl --enable-lib-x264 --enable-lib-android-media-codec "$@"
+    ./android.sh --enable-gpl --enable-lib-x264 --enable-lib-android-media-codec '--extra-ldflags=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384' "$@"
 else
-    ./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-android-media-codec "$@"
+    ./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-android-media-codec '--extra-ldflags=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384' "$@"
 fi
 printf '\nNative Maven repository: %s/prebuilt/bundle-android-aar-24-maven\n' "$SOURCE"
 printf 'Required next: verify the AAR/APK with tools/verify_android_native.py, then run the physical-device smoke test.\n'

@@ -11,12 +11,13 @@ Upstream [Android instructions at the pin](https://github.com/arthenica/ffmpeg-k
 `tools/build-ffmpeg.sh` checks out the pinned source under ignored `vendor/ffmpeg-kit-next`, refuses a different or dirty checkout, and invokes:
 
 ```bash
-./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-android-media-codec
+./nix-android.sh -p android-r27d --enable-gpl --enable-lib-x264 --enable-lib-android-media-codec \
+  '--extra-ldflags=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384'
 ```
 
 The MediaCodec flag is essential: upstream's Android build help defaults it off. The upstream FFmpeg Android script separately enables JNI. Do not pass raw FFmpeg `--enable-mediacodec` to the wrapper frontend. Additional supported wrapper options may be passed to the helper.
 
-On a host with the Android SDK/NDK but without Nix, set `ANDROID_SDK_ROOT` and `ANDROID_NDK_ROOT`, then run `tools/build-ffmpeg.sh --direct --arch=arm64-v8a --jobs=6` with the same optional wrapper flags. The helper temporarily patches the pinned FFprobe source so native frame-count scans honor session cancellation, and restores the checkout after the build. Build each intended ABI before distribution.
+On a host with the Android SDK/NDK but without Nix, set `ANDROID_SDK_ROOT` and `ANDROID_NDK_ROOT`, then run `tools/build-ffmpeg.sh --direct --arch=arm64-v8a --jobs=6` with the same optional wrapper flags. Both routes pass the 16 KB ELF/RELRO linker flags above. The helper temporarily patches the pinned FFprobe source so native frame-count scans honor session cancellation, and restores the checkout after the build. Build each intended ABI before distribution.
 
 Consume the resulting Maven repository directory, not the AAR path:
 

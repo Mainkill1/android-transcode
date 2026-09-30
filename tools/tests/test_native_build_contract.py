@@ -10,6 +10,12 @@ class BuildContractTest(unittest.TestCase):
         self.assertIn('--enable-lib-x264', invocation.split())
         self.assertIn('patch_ffprobe_cancel.py', source)
 
+    def test_both_routes_request_16k_elf_alignment(self):
+        source = (Path(__file__).resolve().parents[1] / 'build-ffmpeg.sh').read_text()
+        for command in ('./android.sh ', './nix-android.sh '):
+            invocation = next(line.strip() for line in source.splitlines() if line.strip().startswith(command))
+            self.assertIn('--extra-ldflags=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384', invocation)
+
     def test_profile_explicitly_enables_android_mediacodec(self):
         source = (Path(__file__).resolve().parents[1] / 'build-ffmpeg.sh').read_text()
         invocation = next(line.strip() for line in source.splitlines() if line.strip().startswith('./nix-android.sh '))

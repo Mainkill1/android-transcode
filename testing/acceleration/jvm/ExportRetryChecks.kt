@@ -82,21 +82,25 @@ object ExportRetryChecks {
             // until the native completion callback, then removes it without another route.
             val verificationStarted = CompletableDeferred<Unit>()
             val nativeVerificationEnded = CompletableDeferred<Unit>()
+            val verificationEvents = mutableListOf<AttemptEvent>()
             calls = 0
             val verifyingWorker = launch {
                 ExportRetry.run(attempts, output, execute = { _, _ ->
-                    calls++; output.writeText("encoded candidate"); NativeResult(0, "")
+                    calls++
+                    if (calls == 1) NativeResult(1, "first device route rejected", FailureKind.CODEC_INITIALIZATION)
+                    else { output.writeText("encoded candidate"); NativeResult(0, "") }
                 }, verify = {
                     verificationStarted.complete(Unit)
                     try { awaitCancellation() } finally {
                         withContext(NonCancellable) { nativeVerificationEnded.await(); check(output.exists()) }
                     }
-                })
+                }, onAttempt = verificationEvents::add)
             }
             verificationStarted.await(); verifyingWorker.cancel(); yield()
-            check(output.exists() && calls == 1 && !verifyingWorker.isCompleted)
+            check(output.exists() && calls == 2 && !verifyingWorker.isCompleted)
             nativeVerificationEnded.complete(Unit); verifyingWorker.join()
-            check(!output.exists() && calls == 1)
+            check(!output.exists() && calls == 2)
+            check(verificationEvents.map { it.status } == listOf(AttemptStatus.STARTED, AttemptStatus.REJECTED, AttemptStatus.STARTED))
             ExportRetry.run(listOf(attempts.last()), output, execute = { _, _ ->
                 output.writeText("next job"); NativeResult(0, "")
             }, verify = {})
