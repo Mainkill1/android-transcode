@@ -58,6 +58,7 @@ class SoftwareVideoCodecsDeviceTest {
             report.put("originalSha256", originalHash)
             for ((encoder, container, codec) in selections) {
                 val evidence = JSONObject().put("requestedEncoder", encoder.ffmpeg)
+                    .put("requestedFps", 24).put("expectedFrames", 24)
                 cases.put(evidence)
                 check(encoder.ffmpeg in caps.encoders) { "${encoder.ffmpeg} is not packaged." }
                 val output = File(dir, "${encoder.name.lowercase()}.${container.extension}")
@@ -134,6 +135,8 @@ class SoftwareVideoCodecsDeviceTest {
             val trim = Trim(250, 1750)
             for ((encoder, container, codec) in selections) {
                 val evidence = JSONObject().put("requestedEncoder", encoder.ffmpeg)
+                    .put("trimStartMs", trim.startMs).put("trimEndMs", requireNotNull(trim.endMs))
+                    .put("requestedFps", 24).put("expectedFrames", 36)
                 cases.put(evidence)
                 check(encoder.ffmpeg in caps.encoders) { "${encoder.ffmpeg} is not packaged." }
                 val audio = if (container == Container.MP4) AudioEncoder.AAC else if (opus) AudioEncoder.OPUS else AudioEncoder.NONE
