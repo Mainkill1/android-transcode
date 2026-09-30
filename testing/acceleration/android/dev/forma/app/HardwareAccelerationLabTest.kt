@@ -44,6 +44,7 @@ class HardwareAccelerationLabTest {
         check(!directory.exists() && directory.mkdirs()) { "Refusing to reuse a previous run's directory." }
         val rows = JSONArray()
         val report = JSONObject().put("schemaVersion", 1).put("runId", runId).put("appCommit", appCommit)
+            .put("targetPackage", context.packageName)
             .put("status", "running").put("deviceQualified", false).put("benchmarkSmokeOnly", true)
             .put("samples", rows).put("fingerprint", Build.FINGERPRINT).put("model", Build.MODEL)
             .put("sdk", Build.VERSION.SDK_INT).put("abis", JSONArray(Build.SUPPORTED_ABIS.toList()))

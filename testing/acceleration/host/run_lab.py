@@ -12,7 +12,7 @@ import sys
 from typing import Any
 import uuid
 
-PACKAGE = "dev.forma.transcode"
+PACKAGES = ("dev.forma.transcode.lab", "dev.forma.transcode")
 MODES = ("JAVA", "NDK", "NDK_ASYNC", "DECODE_BUFFER", "SURFACE")
 
 
@@ -22,10 +22,12 @@ def instrumentation_passed(output: str, returncode: int) -> bool:
             and not any(s in output for s in ("FAILURES!!!", "INSTRUMENTATION_FAILED", "Process crashed")))
 
 
-def report_command(adb: str, serial: str, run_id: str) -> list[str]:
+def report_command(adb: str, serial: str, package: str, run_id: str) -> list[str]:
+    if package not in PACKAGES:
+        raise ValueError("Unsupported target application package.")
     if not re.fullmatch(r"[a-f0-9]{32}", run_id):
         raise ValueError("A fresh hexadecimal run ID is required.")
-    return [adb, "-s", serial, "exec-out", "run-as", PACKAGE, "cat",
+    return [adb, "-s", serial, "exec-out", "run-as", package, "cat",
             f"files/acceleration-lab/{run_id}/report.json"]
 
 
@@ -80,6 +82,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True, help="Exact adb device serial; never select an arbitrary connected phone.")
     parser.add_argument("--app-commit", required=True, help="Declared source commit of the installed APK (also records its actual SHA-256).")
+    parser.add_argument("--package", choices=PACKAGES, default=PACKAGES[0],
+                        help="Exact target application ID; defaults to the isolated lab build.")
     parser.add_argument("--adb", default="adb")
     parser.add_argument("--mode", choices=MODES, default="NDK")
     parser.add_argument("--baseline", choices=("JAVA", "SOFTWARE"), default="JAVA")
@@ -102,25 +106,26 @@ def main() -> int:
     if args.mode == "NDK_ASYNC" and args.format not in ("H264", "HEVC"):
         parser.error("NDK_ASYNC currently covers H264/HEVC extradata only.")
     run_id = uuid.uuid4().hex
-    expected = dict(runId=run_id, appCommit=args.app_commit, mode=args.mode, baseline=args.baseline,
+    workload = dict(runId=run_id, appCommit=args.app_commit, mode=args.mode, baseline=args.baseline,
                     format=args.format, width={360: 640, 720: 1280, 1080: 1920, 2160: 3840}[args.height],
                     height=args.height, fps=args.fps, seconds=args.seconds,
                     videoKbps=args.video_kbps, operatingRate=args.operating_rate)
+    expected = dict(workload, targetPackage=args.package)
     directory = args.output_dir / run_id
     directory.mkdir(parents=True, exist_ok=False)
     command = [args.adb, "-s", args.serial, "shell", "am", "instrument", "-w", "-r", "-e", "class",
                "dev.forma.app.HardwareAccelerationLabTest#benchmark", "-e", "formaAccelerationLab", "true"]
-    for key, value in expected.items():
+    for key, value in workload.items():
         command += ["-e", key, str(value)]
     command += ["-e", "keepMedia", str(args.keep_media).lower(),
-                PACKAGE + ".test/androidx.test.runner.AndroidJUnitRunner"]
+                args.package + ".test/androidx.test.runner.AndroidJUnitRunner"]
     # All remote values are fixed tokens, bounded numbers or hexadecimal identities. No shell=True.
     (directory / "request.json").write_text(json.dumps(expected, indent=2), encoding="utf-8")
     try:
         result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=args.timeout)
         transcript = result.stdout + "\n" + result.stderr
         (directory / "instrumentation.log").write_text(transcript, encoding="utf-8")
-        fetched = subprocess.run(report_command(args.adb, args.serial, run_id), capture_output=True,
+        fetched = subprocess.run(report_command(args.adb, args.serial, args.package, run_id), capture_output=True,
                                  text=True, encoding="utf-8", errors="replace", timeout=30)
         (directory / "report.json").write_text(fetched.stdout, encoding="utf-8")
         if not instrumentation_passed(transcript, result.returncode):

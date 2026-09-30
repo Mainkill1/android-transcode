@@ -30,62 +30,121 @@ bytes and identities. Sources are 640x360, 1280x720, 1920x1080 or 3840x2160;
 ## Build from the source-built native bundle
 
 Use the repository's pinned FFmpeg build; do not download an unrelated binary AAR.
-From a full checkout with Android SDK, JDK 17 and the supported native build tools:
+From a full checkout with Android SDK, JDK 17, the source-rebuilt graphics-path
+Maven artifact described in [device validation](../../docs/device-validation.md),
+and the supported native build tools:
 
 ```bash
+set -euo pipefail
+test -z "$(git status --porcelain)" # Commit source changes before capturing the build identity.
+APP_COMMIT="$(git rev-parse HEAD)" # Build from this clean, exact source revision.
 ./tools/build-ffmpeg.sh
 NATIVE_REPO="$PWD/vendor/ffmpeg-kit-next/prebuilt/bundle-android-aar-24-maven"
+GRAPHICS_REPO="$PWD/vendor/graphics-path/maven" # Source-rebuilt 16 KB aligned graphics-path AAR.
 ./gradlew -PffmpegEnabled=true -PffmpegRepo="$NATIVE_REPO" \
+  -PgraphicsPathRepo="$GRAPHICS_REPO" -PformaLab=true \
   :core:test :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
 python3 tools/verify_android_native.py app/build/outputs/apk/debug/app-debug.apk \
   --json native-apk-report.json
-adb -s DEVICE_SERIAL install -r app/build/outputs/apk/debug/app-debug.apk
-adb -s DEVICE_SERIAL install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+SERIAL=DEVICE_SERIAL # Replace explicitly; never infer a phone from adb's device list.
+APP=dev.forma.transcode.lab
+test "$SERIAL" != DEVICE_SERIAL
+test "$(adb -s "$SERIAL" get-state)" = device
+adb -s "$SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s "$SERIAL" install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 ```
 
 Also run the native AAR verifier and official `zipalign`/16 KB checks described in
 `docs/android-handoff.md`. A successful host check or Kotlin API compilation does
 not establish a usable native payload. These install commands replace the debug
-app/test APK on the **explicitly selected** device; do not use a production phone
+lab app/test APK on the **explicitly selected** device; do not use a production phone
 with valuable app data as an unattended build target.
 
-## Run over ADB, including from Windows
+## Run directly over ADB
 
-The Python host runner needs only Python 3.10+ and ADB. It does not use a shell
-command string. Supply the complete source commit used to build the installed
-APK; the report labels that as caller-declared and independently hashes the actual
-installed base APK. Do not substitute the current checkout SHA for an older APK.
+Run in the same Bash session and use the `SERIAL`, `APP` and `APP_COMMIT` from the
+build above. If the APK was built elsewhere, set `APP_COMMIT` to that build's
+complete 40-character lowercase source
+commit, not the current checkout. Confirm the installed package is the selected
+lab package with `adb -s "$SERIAL" shell pm path "$APP"`. Its test APK must also
+be installed. A supplied source SHA is caller-declared; the report independently
+hashes the installed base APK. The following Bash workflow uses OpenSSL for a fresh
+run ID and `jq` to reject mismatched or incomplete evidence:
 
 ```bash
-python3 testing/acceleration/host/run_lab.py --serial DEVICE_SERIAL \
-  --app-commit FULL_40_CHARACTER_LOWERCASE_COMMIT_SHA --mode NDK --format H264
+set -euo pipefail
+test "$APP" = dev.forma.transcode.lab
+[[ "$APP_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+RUN_ID="$(openssl rand -hex 16)"
+[[ "$RUN_ID" =~ ^[a-f0-9]{32}$ ]]
+EVIDENCE="testing/acceleration/results/$RUN_ID"
+mkdir -p "$EVIDENCE"
+APP_APK_SHA="$(sha256sum app/build/outputs/apk/debug/app-debug.apk | cut -d ' ' -f1)"
+adb -s "$SERIAL" shell am instrument -w -r \
+  -e class 'dev.forma.app.HardwareAccelerationLabTest#benchmark' \
+  -e formaAccelerationLab true -e runId "$RUN_ID" -e appCommit "$APP_COMMIT" \
+  -e mode NDK -e baseline JAVA -e format H264 \
+  -e width 1280 -e height 720 -e fps 30 -e seconds 3 \
+  -e videoKbps 4000 -e operatingRate 0 \
+  "$APP.test/androidx.test.runner.AndroidJUnitRunner" | tee "$EVIDENCE/instrumentation.log"
+grep -Eq '^OK \(1 test\)[[:space:]]*$' "$EVIDENCE/instrumentation.log"
+grep -Eq '^INSTRUMENTATION_CODE: -1[[:space:]]*$' "$EVIDENCE/instrumentation.log"
+! grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed' "$EVIDENCE/instrumentation.log"
+adb -s "$SERIAL" exec-out run-as "$APP" cat \
+  "files/acceleration-lab/$RUN_ID/report.json" > "$EVIDENCE/report.json"
+jq -e --arg run "$RUN_ID" --arg commit "$APP_COMMIT" \
+  --arg app "$APP" --arg apk "$APP_APK_SHA" '
+  (.fps * .seconds) as $frames |
+  (.runId == $run and .appCommit == $commit and .targetPackage == $app
+   and .appApkSha256 == $apk and .schemaVersion == 1 and .status == "passed"
+   and .deviceQualified == false and .mode == "NDK" and .baseline == "JAVA"
+   and .format == "H264" and .width == 1280 and .height == 720
+   and .fps == 30 and .seconds == 3 and .videoKbps == 4000 and .operatingRate == 0)
+  and (.nativeBuild | type == "string" and . != "Not loaded" and length > 0)
+  and (.fixtureSha256 | test("^[a-f0-9]{64}$"))
+  and (.samples | length == 4)
+    and (.samples | map(.index) == [0,1,2,3])
+    and (.samples | map(.route) == ["JAVA","NDK","NDK","JAVA"])
+    and (.samples | all(.[]; .passed == true and .frames == $frames
+                           and .bytes > 0 and .encodeAndMuxMs > 0
+                           and (.outputSha256 | test("^[a-f0-9]{64}$"))))
+' "$EVIDENCE/report.json"
 ```
 
-Windows uses the same command with `python` instead of `python3` and a single line.
-To compare hardware versus software, use `--mode JAVA --baseline SOFTWARE`.
-Use `--mode NDK_ASYNC`, `--mode DECODE_BUFFER` or `--mode SURFACE` for the other
-experiments. Add `--height 1080 --fps 60 --seconds 10` for a larger supported case.
-An optional `--operating-rate 240` requests an encoder resource hint for B only;
-it does **not** change output frame rate. It is rejected if absent from the loaded
-wrapper. This is not a performance guarantee or permission to drop frames.
+The shell must stop on any failed command, including `adb` in the pipe. Inspect
+`instrumentation.log` on failure; an ADB exit code alone, zero tests, a missing
+test class, or an old report is not a pass. The lab writes its report atomically to
+`files/acceleration-lab/<runId>/report.json`. The selected package is recorded by
+the Android **target context**, not copied from an instrumentation argument.
+Keep the log, report, local APK hash and exact source commit with the result.
 
-The runner invokes the separate instrumentation APK with these key arguments:
+Windows PowerShell can use the same `adb -s $SERIAL` instrumentation and `exec-out
+run-as $APP` commands; generate a 32-character ID with
+`[guid]::NewGuid().ToString('N')`, save both outputs, and check the same result
+fields with `ConvertFrom-Json`. The Python runner below is also portable to Windows.
 
-```text
-adb -s DEVICE_SERIAL shell am instrument -w -r \
-  -e class dev.forma.app.HardwareAccelerationLabTest#benchmark \
-  -e formaAccelerationLab true -e runId FRESH_32_HEX_ID \
-  -e appCommit FULL_40_HEX_SHA -e mode NDK -e baseline JAVA \
-  -e format H264 -e width 1280 -e height 720 -e fps 30 \
-  -e seconds 3 -e videoKbps 4000 -e operatingRate 0 \
-  dev.forma.transcode.test/androidx.test.runner.AndroidJUnitRunner
+## Optional Python runner and analysis
+
+The Python 3.10+ host runner automates the direct commands and validates additional
+timing, decoder and sample details. It does not use a shell command string. Its
+default package is the isolated lab build; `--package` also accepts the ordinary
+`dev.forma.transcode` debug app for explicitly selected experiments, but never
+falls back based on what happens to be installed. The selected ID is used for
+instrumentation, `run-as`, and report validation.
+
+```bash
+python3 testing/acceleration/host/run_lab.py --serial "$SERIAL" \
+  --app-commit "$APP_COMMIT" --package "$APP" --mode NDK --format H264
 ```
 
-Prefer the Python wrapper: it generates safe fresh IDs, pulls the exact report,
-requires **one passing instrumentation test** and validates all four results.
-`adb` returning zero, a skipped test, a missing test class or a stale JSON file is
-not success. Reports/logs go under ignored `testing/acceleration/results/<runId>/`.
-The native test writes `files/acceleration-lab/<runId>/report.json` atomically.
+Windows uses the same runner command with `python` instead of `python3`. To compare
+hardware versus software, use `--mode JAVA --baseline SOFTWARE`. Use `--mode
+NDK_ASYNC`, `--mode DECODE_BUFFER` or `--mode SURFACE` for the other experiments.
+Add `--height 1080 --fps 60 --seconds 10` for a larger supported case. An optional
+`--operating-rate 240` requests an encoder resource hint for B only; it does
+**not** change output frame rate. It is rejected if absent from the loaded wrapper.
+This is not a performance guarantee or permission to drop frames. Runner reports
+and logs go under ignored `testing/acceleration/results/<runId>/`.
 
 ## Evidence and limits
 
