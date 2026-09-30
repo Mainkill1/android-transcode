@@ -1,0 +1,7 @@
+# Power-stop verification cancellation check
+
+The common FFprobe source patch and coroutine adapter are also used by PR #2, #3 and #6. The pinned native wrapper does not interrupt `-count_frames` without this patch. `tools/build-ffmpeg.sh` applies it temporarily and restores the pinned checkout after the build.
+
+On 2026-09-29, the OnePlus LE2125/API 36 lab package `dev.forma.transcode.lab.settings` passed `NativeProbeCancellationTest` (2/2) using a four-hour, 600,000-frame FLAC file. It cancels before native start and during a running full frame-count scan, confirms native return code 255, then starts a new probe. The shared arm64 AAR SHA-256 was `09bd962f7d3ad66b9bc29c2df67681b55b6dc6c2472135d48490e94ea51a7d3a`; this branch's lab APK SHA-256 was `4631abb634b592a64907d01555a3d90b3a47fb3403047b068a4e729632f5e456`. Both passed native payload/16 KB alignment checks. Raw output for this aligned build is in ignored `app/build/device-evidence/ffprobe-cancel-v4-instrument.log`.
+
+`VerificationPowerCancellationTest` drives a controlled verifier through the actual run coordinator. It checks that power-policy Stop keeps the slot occupied until native completion, recovery cannot start overlapping work, a later manual Stop remains authoritative, and the next job starts only after the old session ends. The phone test covers the real native scan; a sustained unplug/thermal test through the service remains open.
