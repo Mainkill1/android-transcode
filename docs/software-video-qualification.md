@@ -14,7 +14,7 @@ The source-built arm64 lab APK was tested on OnePlus 9 Pro (LE2125, Android API 
 
 The build enables GPL, x264, x265, libvpx, SVT-AV1, dav1d, Android MediaCodec, Android zlib and WebP. `tools/patch_ffmpeg_static_cxx.py` temporarily uses the NDK static C++ runtime for the C++ codecs and disables x265 DOTPROD/I8MM instructions on arm64. The pinned wrapper files were restored after building. Native AAR and APK verification passed for arm64; `zipalign -c -P 16 -v 4` passed the APK.
 
-`SoftwareVideoCodecsDeviceTest` made a one-second 128×96 H.264 source and exported the following files through Forma's bridge. Android's MediaExtractor confirmed the output codec, native FFmpeg decoded every output fully, and the app's Media3 player reached end of playback for each. The native AV1 decode check used the included `libdav1d` software decoder because this phone has no usable AV1 MediaCodec decoder.
+The original `SoftwareVideoCodecsDeviceTest` made a one-second 128×96 H.264 source and exported the following files through Forma's bridge. Android's MediaExtractor confirmed the output codec, native FFmpeg decoded every output fully, and the app's Media3 player reached end of playback for each. The native AV1 decode check explicitly selected `libdav1d`. That run was **bridge smoke evidence only**: it bypassed the foreground service, durable queue completion and unmodified production decoder selection. Its Media3 player had no rendering surface, so `STATE_ENDED` did not establish a displayed frame.
 
 | Selection | Output codec | Bytes | Duration |
 | --- | --- | ---: | ---: |
@@ -24,4 +24,20 @@ The build enables GPL, x264, x265, libvpx, SVT-AV1, dav1d, Android MediaCodec, A
 
 The original x265 build crashed in I8MM instructions on this phone. The pinned wrapper compiled I8MM without Android runtime CPU detection. The revised arm64 native build disables DOTPROD and I8MM while retaining baseline ARM NEON. This restriction is arm64-only; x86 builds retain their native instruction set.
 
-This qualification covers short exports and static 16 KB compatibility checks. A physical 16 KB page-size device and long-form encode throughput remain unqualified. GPL and codec source-distribution obligations still apply before a public binary release.
+## Production-path follow-up
+
+The revised opt-in test retains the direct bridge smoke, and adds a separate service export for each software family. Each service job starts from a two-second H.264/AAC original, retains 250–1750 ms at an explicit 24 fps, and must reach `COMPLETED` in the persisted queue before its output is accepted. It asserts the exact software encoder reported by the production attempt, H.265/AAC or WebM/Opus when `libopus` is packaged, output codec and track count, 128×96 geometry, 36 decoded frames, retained duration, and the unchanged original SHA-256. If `libopus` is absent, the two WebM jobs are deliberately video-only and the report records `opusPackaged: false`; WebM audio remains unqualified. Both smoke and service outputs must pass the ordinary production decoder selection, `inspectStreams(countFrames = true)`, and the same stream-completeness contract as the exporter. Playback requires an owned surface, a selected video track and named decoder, a rendered-first-frame callback, and an error-free end state.
+
+Run only on an idle isolated `dev.forma.transcode.lab` installation with matching source-built app and test APKs. The test does not install or modify the normal app:
+
+```bash
+adb -s "$SERIAL" shell am instrument -w -r \
+  -e class dev.forma.app.SoftwareVideoCodecsDeviceTest \
+  -e formaSoftwareCodecs true \
+  dev.forma.transcode.lab.test/androidx.test.runner.AndroidJUnitRunner
+adb -s "$SERIAL" shell run-as dev.forma.transcode.lab ls files/native-readiness/software-codecs-*.json
+```
+
+Each invocation writes fresh `software-codecs-smoke-<UUID>.json` and `software-codecs-service-<UUID>.json` reports under the lab package's private `files/native-readiness` directory. Require `OK (2 tests)` and `status: PASS` in both reports; a compilation pass alone is not device qualification. The follow-up device run, its installed APK hashes, and its observed decoder and audio results remain to be recorded after integration with the current base.
+
+A physical 16 KB page-size device and long-form encode throughput remain unqualified. GPL and codec source-distribution obligations still apply before a public binary release.
