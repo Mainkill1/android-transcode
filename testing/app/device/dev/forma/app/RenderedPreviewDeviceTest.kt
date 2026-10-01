@@ -2,6 +2,7 @@ package dev.forma.app
 
 import android.graphics.Color
 import android.media.MediaMetadataRetriever
+import androidx.core.content.FileProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forma.app.data.MediaFiles
 import dev.forma.app.video.*
@@ -10,6 +11,7 @@ import dev.forma.core.*
 import dev.forma.ffmpeg.*
 import java.io.File
 import java.util.UUID
+import java.security.MessageDigest
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
@@ -134,5 +136,64 @@ class RenderedPreviewDeviceTest {
             } finally {retriever.release()}
             controller.cancelAndJoin()
         } finally {sourceFile.delete();scope.cancel()}
+    }
+
+    @Test fun boundedMovieWindowMatchesFullRenderAcrossDissolve() = runBlocking {
+        assumeTrue("Run native fixture explicitly",InstrumentationRegistry.getArguments().getString("formaNative")=="true")
+        val app=InstrumentationRegistry.getInstrumentation().targetContext
+        val folder=File(app.filesDir,"imports/movie-window-${UUID.randomUUID()}").apply {mkdirs()}
+        val red=File(folder,"red.mp4");val blue=File(folder,"blue.mp4")
+        val full=File(folder,"full.mp4")
+        val bridge=ManagedFfmpegBridge(createFfmpegBridge())
+        val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
+        val controller=RenderedPreviewController(app,MediaFiles(app,bridge),bridge,RunCoordinator(scope),scope)
+        try {
+            for((file,color) in listOf(red to "red",blue to "blue")) {
+                val encoded=bridge.execute(listOf("-hide_banner","-v","error","-nostdin","-n",
+                    "-f","lavfi","-i","color=$color:s=160x90:r=30:d=6",
+                    "-c:v","libx264","-pix_fmt","yuv420p",file.path)) {}
+                assertEquals(encoded.diagnostics,0,encoded.exitCode)
+            }
+            suspend fun imported(file:File)=bridge.probe(file.path).copy(uri=FileProvider.getUriForFile(app,
+                "${app.packageName}.files",file).toString(),name=file.name,bytes=file.length())
+            val first=imported(red);val second=imported(blue)
+            val hashBefore=listOf(red,blue).map(::digest)
+            val movie=MovieProject(sequence=SequenceSpec(EditTimeline(listOf(
+                TimelineClip("red",first),TimelineClip("blue",second))),CanvasSpec(160,90,30),1_000),
+                settings=Settings(audio=AudioEncoder.NONE),targetBytes=null)
+            val fullArgs=bridge.prepareSequence(movie.sequence,movie.settings,listOf(red.path,blue.path),full.path)
+            val fullResult=bridge.execute(fullArgs) {}
+            assertEquals(fullResult.diagnostics,0,fullResult.exitCode)
+            controller.requestSequence(movie,5_500,1)
+            val state=withTimeout(120_000) {controller.state.first {it is VideoRenderState.Ready || it is VideoRenderState.Error}}
+            if(state is VideoRenderState.Error)fail(state.message)
+            val ready=state as VideoRenderState.Ready
+            assertEquals(RenderedPreviewController.MOVIE_KEY,ready.sourceKey)
+            assertEquals(movie,ready.movie)
+            assertEquals(Trim(3_000,8_000),ready.window)
+            val facts=bridge.probe(ready.file.path)
+            assertTrue("Unexpected preview duration ${facts.durationMs}",facts.durationMs in 4_800..5_200)
+            for((local,global) in listOf(1_500L to 4_500L,2_500L to 5_500L,3_500L to 6_500L)) {
+                val observed=centerPixel(ready.file,local)
+                val expected=centerPixel(full,global)
+                for(channel in 0..2)assertTrue("Pixel mismatch at $local ms: ${observed.toList()} vs ${expected.toList()}",
+                    kotlin.math.abs(observed[channel]-expected[channel])<=35)
+            }
+            val strict=bridge.execute(listOf("-hide_banner","-v","error","-nostdin","-xerror",
+                "-i",ready.file.path,"-map","0:v:0","-f","null","-")) {}
+            assertEquals(strict.diagnostics,0,strict.exitCode)
+            assertEquals(hashBefore,listOf(red,blue).map(::digest))
+        } finally {controller.cancelAndJoin();folder.deleteRecursively();scope.cancel()}
+    }
+
+    private fun digest(file:File)=MessageDigest.getInstance("SHA-256").digest(file.readBytes()).toList()
+    private fun centerPixel(file:File,timeMs:Long):IntArray {
+        val retriever=MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(file.path)
+            val bitmap=checkNotNull(retriever.getFrameAtTime(timeMs*1_000,MediaMetadataRetriever.OPTION_CLOSEST_SYNC))
+            val color=bitmap.getPixel(bitmap.width/2,bitmap.height/2)
+            return intArrayOf(Color.red(color),Color.green(color),Color.blue(color))
+        } finally {retriever.release()}
     }
 }

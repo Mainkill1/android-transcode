@@ -103,6 +103,7 @@ sealed interface UiAction {
     data object MovieUndo : UiAction
     data object MovieRedo : UiAction
     data object MoviePreview : UiAction
+    data class MoviePreviewAt(val movieTimeMs:Long):UiAction
     data object MovieExport : UiAction
     data object MovieQueue : UiAction
     data object OpenMoviePreview : UiAction
@@ -468,6 +469,8 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             UiAction.MovieUndo -> { movieHistory.undo(); publishMovie() }
             UiAction.MovieRedo -> { movieHistory.redo(); publishMovie() }
             UiAction.MoviePreview -> enqueueMovie(preview = true, start = true)
+            is UiAction.MoviePreviewAt -> graph.videoPreviews.requestSequence(mutable.value.movie,
+                action.movieTimeMs,mutable.value.movieRevision)
             UiAction.MovieExport -> enqueueMovie(preview = false, start = true)
             UiAction.MovieQueue -> enqueueMovie(preview = false, start = false)
             UiAction.OpenMoviePreview -> mutable.value.moviePreviewJobId?.let { id -> launchRead { outputIntent(id, false) } }
@@ -762,6 +765,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         catch (error: IllegalStateException) { mutable.update { it.copy(message = error.message ?: "This movie edit is unavailable.") } }
     }
     private fun publishMovie() {
+        if(movieHistory.current!=mutable.value.movie)graph.videoPreviews.invalidate()
         mutable.update { ui ->
             val current = movieHistory.current
             ui.copy(movie = current, movieCanUndo = movieHistory.canUndo, movieCanRedo = movieHistory.canRedo,

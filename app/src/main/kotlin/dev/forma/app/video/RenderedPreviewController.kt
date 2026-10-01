@@ -8,6 +8,7 @@ import dev.forma.core.*
 import dev.forma.ffmpeg.FfmpegBridge
 import java.io.File
 import java.util.UUID
+import java.util.Locale
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +20,7 @@ sealed interface VideoRenderState {
     data class Waiting(val sourceKey:String,val revision:Long):VideoRenderState
     data class Rendering(val sourceKey:String,val revision:Long):VideoRenderState
     data class Ready(val file:File,val sourceKey:String,val revision:Long,val window:Trim,
-        val edit:SourceEdit?=null,val settings:Settings?=null):VideoRenderState
+        val edit:SourceEdit?=null,val settings:Settings?=null,val movie:MovieProject?=null):VideoRenderState
     data class Error(val sourceKey:String,val revision:Long,val message:String):VideoRenderState
 }
 
@@ -33,10 +34,26 @@ class RenderedPreviewController(context:Context,private val files:MediaFiles,pri
     private var serial=0L
 
     fun request(edit:SourceEdit,settings:Settings,playheadMs:Long,revision:Long) {
+        schedule(edit.source.uri,revision,edit,settings,null) {render(edit,settings,playheadMs)}
+    }
+
+    fun requestSequence(movie:MovieProject,playheadMs:Long,revision:Long) {
+        when(val result=SequenceWindowPlanner.window(movie,playheadMs)) {
+            is MovieWindowResult.Unsupported -> {
+                invalidate()
+                mutable.value=VideoRenderState.Error(MOVIE_KEY,revision,result.reason)
+            }
+            is MovieWindowResult.Planned ->
+                schedule(MOVIE_KEY,revision,null,null,movie) {renderSequence(movie,result.window)}
+        }
+    }
+
+    private fun schedule(key:String,revision:Long,edit:SourceEdit?,settings:Settings?,movie:MovieProject?,
+        renderNow:suspend ()->Pair<File,Trim>) {
         val previous=task
         previous?.cancel()
         val token=++serial
-        mutable.value=VideoRenderState.Waiting(edit.source.uri,revision)
+        mutable.value=VideoRenderState.Waiting(key,revision)
         task=scope.launch {
             previous?.join()
             if(token!=serial)return@launch
@@ -55,13 +72,13 @@ class RenderedPreviewController(context:Context,private val files:MediaFiles,pri
                     if(lease==null)delay(25)
                 }
                 if(token!=serial)return@launch
-                mutable.value=VideoRenderState.Rendering(edit.source.uri,revision)
-                val result=render(edit,settings,playheadMs)
+                mutable.value=VideoRenderState.Rendering(key,revision)
+                val result=renderNow()
                 output=result.first
                 ensureActive()
-                if(token==serial)mutable.value=VideoRenderState.Ready(result.first,edit.source.uri,revision,result.second,edit,settings)
+                if(token==serial)mutable.value=VideoRenderState.Ready(result.first,key,revision,result.second,edit,settings,movie)
             } catch(cancel:CancellationException) {throw cancel}
-            catch(error:Exception) {if(token==serial)mutable.value=VideoRenderState.Error(edit.source.uri,revision,
+            catch(error:Exception) {if(token==serial)mutable.value=VideoRenderState.Error(key,revision,
                 error.message ?: "Could not render preview." )}
             finally {
                 if(token!=serial || mutable.value !is VideoRenderState.Ready)
@@ -113,5 +130,42 @@ class RenderedPreviewController(context:Context,private val files:MediaFiles,pri
         finally {files.workDir(spec).deleteRecursively()}
     }
 
-    companion object {const val MAX_PREVIEW_BYTES=96L*1024*1024}
+    private suspend fun renderSequence(movie:MovieProject,window:MovieWindow):Pair<File,Trim> = withContext(Dispatchers.IO) {
+        val c=window.sequence.canvas
+        val ratio=minOf(1.0,720.0/maxOf(c.width,c.height))
+        val canvas=c.copy(width=maxOf(4,(c.width*ratio).toInt()/2*2),
+            height=maxOf(4,(c.height*ratio).toInt()/2*2))
+        val sequence=window.sequence.copy(canvas=canvas)
+        val settings=movie.settings.copy(container=Container.MP4,video=VideoEncoder.X264,
+            rateControl=RateControl.QUALITY,crf=28,keepMetadata=false,
+            audio=if(movie.settings.audio==AudioEncoder.NONE)AudioEncoder.NONE else AudioEncoder.AAC)
+        val id=UUID.randomUUID().toString()
+        val first=sequence.timeline.clips.first().source
+        val spec=JobSpec(id,first,Trim(),settings,targetBytes=null,sequence=sequence)
+        val directory=File(root,id).apply {check(isDirectory || mkdirs()) {"Could not prepare movie preview storage."}}
+        val output=File(directory,"preview.mp4")
+        try {
+            val inputs=files.stageInputs(spec)
+            val prepared=bridge.prepareSequence(sequence,settings,inputs.map {it.path},output.path)
+            val duration=window.outputFrames.toDouble()/c.fps
+            val seek=window.seekFrames.toDouble()/c.fps
+            val limit=prepared.indexOfLast {it=="-t"}
+            check(limit>=0 && limit+1<prepared.size) {"The movie preview renderer has no output duration."}
+            val args=prepared.toMutableList().apply {
+                this[limit+1]=String.format(Locale.ROOT,"%.6f",duration)
+                add(limit,"-ss");add(limit+1,String.format(Locale.ROOT,"%.6f",seek))
+            }
+            val result=bridge.execute(args) {}
+            check(result.exitCode==0) {"Could not render movie preview. ${result.diagnostics}"}
+            currentCoroutineContext().ensureActive()
+            check(output.length() in 1..MAX_PREVIEW_BYTES) {"Movie preview exceeded the private storage limit."}
+            val actual=bridge.probe(output.path)
+            check(actual.videoTracks>0 && actual.durationMs in 1..5_500 &&
+                kotlin.math.abs(actual.durationMs-duration*1_000)<250) {"Movie preview duration or video track is invalid."}
+            output to Trim(window.requestStartFrame*1_000/c.fps,window.requestEndFrame*1_000/c.fps)
+        } catch(error:Throwable) {directory.deleteRecursively();throw error}
+        finally {files.workDir(spec).deleteRecursively()}
+    }
+
+    companion object {const val MAX_PREVIEW_BYTES=96L*1024*1024;const val MOVIE_KEY="movie-preview"}
 }

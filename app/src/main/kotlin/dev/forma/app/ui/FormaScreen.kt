@@ -220,7 +220,7 @@ import kotlin.math.ceil
                         }
                     }
                     "movie" -> {
-                        item(key = "movie-controls") { MovieControls(ui, jobs, run, onAction) }
+                        item(key = "movie-controls") { MovieControls(ui, jobs, run, onAction, videoRender) }
                     }
                     "queue" -> {
                         item(key = "queue-heading") {
