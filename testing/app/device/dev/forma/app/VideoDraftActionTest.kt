@@ -14,6 +14,7 @@ import org.junit.Test
 
 class VideoDraftActionTest {
     @Test fun draftWritesDuringUnfinishedCropKeepLastCommittedEdit() = runBlocking {
+        assumeTrue("Run native fixture explicitly",InstrumentationRegistry.getArguments().getString("formaNative")=="true")
         val app=InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as FormaApplication
         val fixture=File(app.filesDir,"imports/unfinished-crop-${UUID.randomUUID()}.mp4")
         val vm=TranscodeViewModel(app)

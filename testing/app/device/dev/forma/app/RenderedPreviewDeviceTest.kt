@@ -100,6 +100,7 @@ class RenderedPreviewDeviceTest {
     }
 
     @Test fun nativeRenderedCropRotationMatchesExportGeometry() = runBlocking {
+        assumeTrue("Run native fixture explicitly",InstrumentationRegistry.getArguments().getString("formaNative")=="true")
         val app=InstrumentationRegistry.getInstrumentation().targetContext
         val sourceFile=File(app.cacheDir,"native-preview-${UUID.randomUUID()}.mp4")
         val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)

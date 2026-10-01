@@ -20,6 +20,7 @@ class PreviewPlayerUiTest {
     @get:Rule val compose=createComposeRule()
 
     @Test fun renderedVideoPlaysInsideEditorAndCanPause() {
+        assumeTrue("Run native fixture explicitly",InstrumentationRegistry.getArguments().getString("formaNative")=="true")
         runBlocking {
         val context=InstrumentationRegistry.getInstrumentation().targetContext
         val file=File(context.cacheDir,"player-test-${UUID.randomUUID()}.mp4")
