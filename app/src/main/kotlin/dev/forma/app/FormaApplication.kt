@@ -23,6 +23,7 @@ class AppGraph(private val application: Application) {
     val bridge = ManagedFfmpegBridge(createFfmpegBridge())
     val files = MediaFiles(application, bridge)
     val queue = QueueRepository(application)
+    val deliveries = DeliveryWorker(queue,files,PublicOutputPublisher(application,queue))
     val runs = RunCoordinator(scope)
     val previews = dev.forma.app.audio.AudioPreviewController(scope)
     val powerMonitor = AndroidPowerMonitor(application)
@@ -35,6 +36,7 @@ class AppGraph(private val application: Application) {
     private val initialization = Mutex()
     private var initialized = false
     suspend fun initialize() = withContext(Dispatchers.IO) {
+        var resumeDelivery=false
         initialization.withLock {
             if (!initialized) {
                 settings.load()
@@ -60,7 +62,9 @@ class AppGraph(private val application: Application) {
                 if(!references.preserveImports)files.cleanupImports(queuedSources + references.uris)
                 else queue.error.value="Some image drafts cannot be read. Their originals are retained for recovery."
                 initialized = true
+                resumeDelivery=true
             }
         }
+        if(resumeDelivery) scope.launch { deliveries.resumePending() }
     }
 }

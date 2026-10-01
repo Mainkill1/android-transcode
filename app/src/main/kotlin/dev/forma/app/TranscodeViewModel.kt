@@ -109,6 +109,7 @@ sealed interface UiAction {
     data class ChangeEffects(val uri: String, val effects: ClipEffects) : UiAction
     data class RemoveJob(val id: String) : UiAction
     data class Retry(val id: String) : UiAction
+    data class RetrySave(val id: String) : UiAction
     data class OpenSource(val uri: String) : UiAction
     data class OpenOutput(val id: String) : UiAction
     data class Share(val id: String) : UiAction
@@ -308,6 +309,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                 graph.queue.addTagged(listOf(retry),mapOf(retry.id to delivery))
                 mutable.update { it.copy(message = "A new copy of this job is waiting in the queue.") }
             }
+            is UiAction.RetrySave -> runOperation { graph.deliveries.retry(action.id) }
             is UiAction.OpenSource -> launchRead {
                 val uri = Uri.parse(action.uri)
                 val mime = withContext(Dispatchers.IO) { getApplication<Application>().contentResolver.getType(uri) } ?: "video/*"
@@ -570,8 +572,11 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     private suspend fun outputIntent(id: String, share: Boolean) {
         val entry = jobs.value.firstOrNull { it.spec.id == id && it.state == JobState.COMPLETED } ?: return
         val uri = withContext(Dispatchers.IO) {
-            require(graph.files.output(entry.spec).isFile) { "The output is no longer available. Retry the job to recreate it." }
-            graph.files.outputUri(entry.spec)
+            val saved=entry.delivery.receipt as? DeliveryReceipt.Saved
+            if(saved!=null) Uri.parse(saved.uri) else {
+                require(graph.files.output(entry.spec).isFile) { "The output is no longer available. Retry the job to recreate it." }
+                graph.files.outputUri(entry.spec)
+            }
         }
         if (share) {
             val send = Intent(Intent.ACTION_SEND).setType(entry.spec.mime).putExtra(Intent.EXTRA_STREAM, uri)

@@ -194,6 +194,8 @@ class TranscodeService : Service() {
                             notify("$status · attempt ${event.number}/${event.total}",null,spec.source.name)
                         })
                     }
+                    if(graph.queue.entries.value.firstOrNull { it.spec.id==spec.id }?.state==JobState.COMPLETED)
+                        graph.deliveries.resumePending()
                     completed++
                 } catch (cancel: CancellationException) { throw cancel }
                 catch (error: LinkageError) { graph.queue.transition(spec.id, JobState.FAILED, "The native encoder could not load: ${error.message}") }

@@ -276,3 +276,31 @@ separate test sender APK was removed after testing; Forma remains installed.
 Downloaded-media conversions, output decoding, saved-copy integrity and physical
 playback pass as described above. The power-reading limitation and unrun broader
 device/product gates remain explicit rather than inferred from these results.
+
+## Public save destination qualification (2026-10-01)
+
+The isolated `feat/public-save-destinations` lab build was tested on the OnePlus 9 Pro
+at `10.0.0.56:38477` (Android 16) and an Android 9/API 28 x86_64 emulator. The
+physical native test generated short video, audio, and image sources, ran each
+through the production verifier, then copied the verified private outputs into
+`Movies/Forma`, `Music/Forma`, and `Pictures/Forma`. Each public URI's bytes matched
+its private verified output; the video/audio outputs retained their expected tracks.
+The aligned native lab APK SHA-256 was
+`94d1a28efe096b6865d1a8258267cd776141a53ca743b812c51036ad10a7e29d`.
+The pinned native AAR SHA-256 was
+`09bd962f7d3ad66b9bc29c2df67681b55b6dc6c2472135d48490e94ea51a7d3a`.
+
+The OnePlus instrumentation run reported **OK (15 tests)** for public save
+publication, crash recovery, filename collision, foreign-URI protection, cancellation,
+corrupt readback, missing private output, delivery cards, and native video/audio/image
+publication. The API 28 emulator passed public-folder permission denial and grant
+cases, plus custom document-tree creation and journal recovery. Denied permission
+kept the conversion complete and its private output intact. The tree test used the
+Android external-storage document provider; it checked the provider-returned name.
+
+`tools/check-core.sh` passed 49 checks, `tools/check-android-readiness.sh` passed,
+the core/engine/app unit suites and native-enabled lab build passed, and `:app:lintLab`
+completed without errors. `tools/verify_android_native.py` accepted both the AAR
+and the APK built with the local 16 KB-aligned graphics-path dependency. The physical
+tests use disposable lab media and remove their public copies; they do not validate
+the older normal-package queue or replace the user's installed normal build.

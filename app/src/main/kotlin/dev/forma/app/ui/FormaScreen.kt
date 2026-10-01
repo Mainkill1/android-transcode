@@ -329,6 +329,27 @@ import kotlin.math.ceil
         }
         Text(description, style = MaterialTheme.typography.bodySmall)
         Text(byteLimitLabel(entry.spec.targetBytes),style=MaterialTheme.typography.bodySmall)
+        if(entry.state==JobState.COMPLETED) {
+            val location=when(val destination=entry.delivery.destination) {
+                is SaveDestination.FormaLibrary -> when(destination.category) {
+                    MediaCategory.VIDEO -> "Movies/Forma"
+                    MediaCategory.AUDIO -> "Music/Forma"
+                    MediaCategory.IMAGE -> "Pictures/Forma"
+                }
+                is SaveDestination.DocumentTree -> destination.label
+                null -> "Forma"
+            }
+            val receipt=entry.delivery.receipt
+            Text(when(receipt) {
+                is DeliveryReceipt.Saved -> "Saved to $location · ${receipt.displayName}"
+                is DeliveryReceipt.Copying -> "Saving to $location…"
+                DeliveryReceipt.Waiting -> "Saving to $location…"
+                is DeliveryReceipt.Failed -> "Converted; save failed · $location"
+                DeliveryReceipt.PrivateLegacy -> "Private in Forma"
+            },style=MaterialTheme.typography.bodySmall)
+            if(receipt is DeliveryReceipt.Failed) Text(receipt.message,style=MaterialTheme.typography.bodySmall,
+                color=MaterialTheme.colorScheme.error)
+        }
         TextButton(onClick={settingsDetails=!settingsDetails}) { Text(if(settingsDetails) "Hide settings" else "Settings snapshot") }
         if(settingsDetails) {
             Text("Defaults revision ${entry.spec.preferences.app.revision} · ${entry.spec.preferences.overrideCount} overrides",style=MaterialTheme.typography.labelSmall)
@@ -349,8 +370,11 @@ import kotlin.math.ceil
             when (entry.state) {
                 JobState.COMPLETED -> {
                     Button(onClick = { action(UiAction.Share(entry.spec.id)) }) { Text("Share output") }
-                    TextButton(onClick = { action(UiAction.OpenOutput(entry.spec.id)) }) { Text(if(entry.spec is QueueJobSpec.Image)"View output" else "Play output") }
-                    TextButton(onClick = { action(UiAction.Export(entry.spec.id)) }) { Text("Save copy") }
+                    TextButton(onClick = { action(UiAction.OpenOutput(entry.spec.id)) }) { Text(if(entry.delivery.receipt is DeliveryReceipt.Saved) "View saved file"
+                        else if(entry.spec is QueueJobSpec.Image) "View output" else "Play output") }
+                    if(entry.delivery.receipt is DeliveryReceipt.Failed)
+                        TextButton(onClick = { action(UiAction.RetrySave(entry.spec.id)) }) { Text("Retry save") }
+                    TextButton(onClick = { action(UiAction.Export(entry.spec.id)) }) { Text("Save another copy") }
                 }
                 JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED -> TextButton(onClick = { action(UiAction.Retry(entry.spec.id)) }) { Text("Add retry to queue") }
                 JobState.QUEUED -> TextButton(onClick = { action(UiAction.RemoveJob(entry.spec.id)) }) { Text("Remove queued file") }

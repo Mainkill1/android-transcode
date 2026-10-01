@@ -100,6 +100,7 @@ private class CreateOutput : ActivityResultContract<ExportRequest, Uri?>() {
     }
     var exportId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingStart by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingStorageRetry by rememberSaveable { mutableStateOf<String?>(null) }
     var askedNotifications by rememberSaveable { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { vm.importSources(it) }
     val save = rememberLauncherForActivityResult(CreateOutput()) { uri ->
@@ -113,12 +114,25 @@ private class CreateOutput : ActivityResultContract<ExportRequest, Uri?>() {
         pendingStart = null
         if (pending == "convert") vm.act(UiAction.Convert) else if (pending == "queue") vm.act(UiAction.StartQueue)
     }
+    val storagePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        val id=pendingStorageRetry
+        pendingStorageRetry=null
+        if(grants.values.all { it } && id!=null) vm.act(UiAction.RetrySave(id))
+    }
     FormaWorkspace(ui, jobs, run, initiallyQueue, workspaceRequest = workspaceRequest, progressContent = progressContent, onAction = { action ->
         when (action) {
             UiAction.Import -> if (ui.fileTask == null) picker.launch(arrayOf("video/*", "audio/*", "image/*"))
             is UiAction.Export -> if (ui.fileTask == null && exportId == null) jobs.firstOrNull { it.spec.id == action.id }?.let {
                 exportId = action.id
                 save.launch(ExportRequest(vm.graph.files.exportName(it.spec), it.spec.mime))
+            }
+            is UiAction.RetrySave -> {
+                if(Build.VERSION.SDK_INT<=28 &&
+                    (ContextCompat.checkSelfPermission(context,Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED ||
+                    ContextCompat.checkSelfPermission(context,Manifest.permission.READ_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED)) {
+                    pendingStorageRetry=action.id
+                    storagePermission.launch(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE,Manifest.permission.READ_EXTERNAL_STORAGE))
+                } else vm.act(action)
             }
             UiAction.Convert, UiAction.StartQueue -> {
                 val needsPrompt = Build.VERSION.SDK_INT >= 33 && !askedNotifications &&
