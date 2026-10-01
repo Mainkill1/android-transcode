@@ -25,7 +25,7 @@ sealed interface VideoRenderState {
 }
 
 /** Short private preview; all FFmpeg work passes through the process-shared native bridge. */
-class RenderedPreviewController(context:Context,private val files:MediaFiles,private val bridge:FfmpegBridge,
+class RenderedPreviewController(private val context:Context,private val files:MediaFiles,private val bridge:FfmpegBridge,
     private val runs:RunCoordinator,private val scope:CoroutineScope) {
     private val root=File(context.cacheDir,"video-preview")
     private val mutable=MutableStateFlow<VideoRenderState>(VideoRenderState.Idle)
@@ -140,13 +140,11 @@ class RenderedPreviewController(context:Context,private val files:MediaFiles,pri
             rateControl=RateControl.QUALITY,crf=28,keepMetadata=false,
             audio=if(movie.settings.audio==AudioEncoder.NONE)AudioEncoder.NONE else AudioEncoder.AAC)
         val id=UUID.randomUUID().toString()
-        val first=sequence.timeline.clips.first().source
-        val spec=JobSpec(id,first,Trim(),settings,targetBytes=null,sequence=sequence)
         val directory=File(root,id).apply {check(isDirectory || mkdirs()) {"Could not prepare movie preview storage."}}
         val output=File(directory,"preview.mp4")
         try {
-            val inputs=files.stageInputs(spec)
-            val prepared=bridge.prepareSequence(sequence,settings,inputs.map {it.path},output.path)
+            withPreviewSourcePaths(context,sequence.timeline.clips.map {it.source}) {inputs ->
+            val prepared=bridge.prepareSequence(sequence,settings,inputs,output.path)
             val duration=window.outputFrames.toDouble()/c.fps
             val seek=window.seekFrames.toDouble()/c.fps
             val limit=prepared.indexOfLast {it=="-t"}
@@ -163,8 +161,8 @@ class RenderedPreviewController(context:Context,private val files:MediaFiles,pri
             check(actual.videoTracks>0 && actual.durationMs in 1..5_500 &&
                 kotlin.math.abs(actual.durationMs-duration*1_000)<250) {"Movie preview duration or video track is invalid."}
             output to Trim(window.requestStartFrame*1_000/c.fps,window.requestEndFrame*1_000/c.fps)
+            }
         } catch(error:Throwable) {directory.deleteRecursively();throw error}
-        finally {files.workDir(spec).deleteRecursively()}
     }
 
     companion object {const val MAX_PREVIEW_BYTES=96L*1024*1024;const val MOVIE_KEY="movie-preview"}

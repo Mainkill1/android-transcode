@@ -54,6 +54,19 @@ class VideoTimelineTest {
         compose.onNodeWithTag("timeline-end-handle").assertIsDisplayed()
     }
 
+    @Test fun rejectedTrimReturnsToTheCommittedRange() {
+        val short=source.copy(durationMs=10_000)
+        val committed=Trim(1_000,8_000)
+        val attempts=mutableListOf<Trim>()
+        compose.setContent {FormaTheme {VideoTimeline(short,committed,1_000,
+            onSeek={},onTrim={attempts+=it},loadFrames={_,times->List(times.size){null}})}}
+        compose.onNodeWithTag("timeline-start-handle").performTouchInput {
+            swipe(start=center,end=center+Offset(70f,0f),durationMillis=350)
+        }
+        compose.runOnIdle {assertEquals(1,attempts.size);assertNotEquals(committed,attempts.single())}
+        compose.onNodeWithText("Start 0:00:01.000",substring=true).assertExists()
+    }
+
     @Test fun pinchZoomsTheVisibleWindowAndFitRestoresIt() {
         val short=source.copy(durationMs=10_000)
         compose.setContent {FormaTheme {VideoTimeline(short,Trim(),0,

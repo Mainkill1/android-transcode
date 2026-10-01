@@ -95,7 +95,7 @@ import kotlinx.coroutines.withContext
         Box(Modifier.fillMaxWidth().height(48.dp).onSizeChanged {widthPx=it.width}) {
             TimelineHandle("Start",TrimEdge.START,viewport,widthPx,source.durationMs,density,
                 onGesture={dragging=it},onUpdate={next->viewport=next;latestSeek(next.playheadMs)},
-                onCommit={latestTrim(it)})
+                onCommit={latestTrim(it);viewport=viewport.copy(trim=trim)})
         }
         Box(Modifier.fillMaxWidth().height(94.dp).testTag("video-timeline-filmstrip")
             .semantics {contentDescription="Video filmstrip, ${frames.count {it!=null}} frames"}
@@ -131,7 +131,7 @@ import kotlinx.coroutines.withContext
         Box(Modifier.fillMaxWidth().height(48.dp).onSizeChanged {widthPx=it.width}) {
             TimelineHandle("End",TrimEdge.END,viewport,widthPx,source.durationMs,density,
                 onGesture={dragging=it},onUpdate={next->viewport=next;latestSeek(next.playheadMs)},
-                onCommit={latestTrim(it)})
+                onCommit={latestTrim(it);viewport=viewport.copy(trim=trim)})
         }
         if(frameError)Text("Frames unavailable; time controls still work.",style=MaterialTheme.typography.labelSmall)
         FlowRow(horizontalArrangement=Arrangement.spacedBy(4.dp)) {

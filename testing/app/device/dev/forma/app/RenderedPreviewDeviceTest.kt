@@ -164,6 +164,7 @@ class RenderedPreviewDeviceTest {
             val fullArgs=bridge.prepareSequence(movie.sequence,movie.settings,listOf(red.path,blue.path),full.path)
             val fullResult=bridge.execute(fullArgs) {}
             assertEquals(fullResult.diagnostics,0,fullResult.exitCode)
+            val stagedBefore=File(app.filesDir,"work").listFiles().orEmpty().map {it.name}.toSet()
             controller.requestSequence(movie,5_500,1)
             val state=withTimeout(120_000) {controller.state.first {it is VideoRenderState.Ready || it is VideoRenderState.Error}}
             if(state is VideoRenderState.Error)fail(state.message)
@@ -171,6 +172,8 @@ class RenderedPreviewDeviceTest {
             assertEquals(RenderedPreviewController.MOVIE_KEY,ready.sourceKey)
             assertEquals(movie,ready.movie)
             assertEquals(Trim(3_000,8_000),ready.window)
+            assertEquals("A short preview must not copy whole source files into work storage",stagedBefore,
+                File(app.filesDir,"work").listFiles().orEmpty().map {it.name}.toSet())
             val facts=bridge.probe(ready.file.path)
             assertTrue("Unexpected preview duration ${facts.durationMs}",facts.durationMs in 4_800..5_200)
             for((local,global) in listOf(1_500L to 4_500L,2_500L to 5_500L,3_500L to 6_500L)) {
