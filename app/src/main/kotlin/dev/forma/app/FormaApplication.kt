@@ -18,6 +18,7 @@ class FormaApplication : Application() {
 /** UI lifecycles never own native encoding. The foreground service owns its run ticket. */
 class AppGraph(private val application: Application) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    fun launchDurable(block:suspend CoroutineScope.()->Unit):Job=scope.launch(block=block)
     val settings = dev.forma.app.settings.SettingsRepository(application, scope)
     val treeGrants = dev.forma.app.settings.TreeGrantStore(application)
     val bridge = ManagedFfmpegBridge(createFfmpegBridge())

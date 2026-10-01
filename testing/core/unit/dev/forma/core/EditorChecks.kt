@@ -66,6 +66,12 @@ object EditorChecks {
             check(visual is PreviewCrop.Valid)
             check(PreviewGeometry.mapCrop(640,480,0,effects,visual.crop)==PreviewCrop.Valid(selected))
             check(PreviewGeometry.mapCrop(641,481,0,ClipEffects(rotation=QuarterTurn.CLOCKWISE),CropRect(20,20,200,200)) is PreviewCrop.Unsupported)
+            val oddSizeEffects=ClipEffects(rotation=QuarterTurn.CLOCKWISE)
+            val oddOverlay=PreviewGeometry.displayRect(641,481,0,oddSizeEffects,CropRect(0,0,640,480)) as PreviewCrop.Valid
+            check(oddOverlay.crop==CropRect(1,0,480,640))
+            val oddDrag=PreviewGeometry.dragDisplayCorner(oddOverlay.crop,0,31,20,481,641)
+            check(oddDrag.x==31)
+            check(PreviewGeometry.mapCrop(641,481,0,oddSizeEffects,oddDrag) is PreviewCrop.Valid)
         }
         test("unsupported display matrix blocks crop") {
             check(PreviewGeometry.mapCrop(640,480,null,ClipEffects(),CropRect(0,0,100,100)) is PreviewCrop.Unsupported)

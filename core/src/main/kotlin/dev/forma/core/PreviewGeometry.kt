@@ -80,6 +80,30 @@ object PreviewGeometry {
         inside(crop,width,height) && crop.width>=4 && crop.height>=4 &&
             listOf(crop.x,crop.y,crop.width,crop.height).all { it%2==0 }
 
+    /** Preserve the displayed edge parity imposed by a rotated odd-sized source. */
+    fun dragDisplayCorner(rect:CropRect,corner:Int,pointerX:Int,pointerY:Int,width:Int,height:Int):CropRect {
+        require(corner in 0..3)
+        val x=snapParity(pointerX,width,rect.x%2)
+        val y=snapParity(pointerY,height,rect.y%2)
+        val right=rect.x+rect.width;val bottom=rect.y+rect.height
+        return when(corner) {
+            0 -> CropRect(x,y,right-x,bottom-y)
+            1 -> CropRect(rect.x,y,x-rect.x,bottom-y)
+            2 -> CropRect(rect.x,rect.y,x-rect.x,y-rect.y)
+            else -> CropRect(x,rect.y,right-x,y-rect.y)
+        }
+    }
+
+    private fun snapParity(value:Int,max:Int,parity:Int):Int {
+        val clamped=value.coerceIn(0,max)
+        val below=clamped-Math.floorMod(clamped-parity,2)
+        return when {
+            below<0 -> below+2
+            below+2<=max && clamped-below>1 -> below+2
+            else -> below
+        }
+    }
+
     private fun inside(r:CropRect,w:Int,h:Int):Boolean = r.x>=0 && r.y>=0 && r.width>0 && r.height>0 &&
         r.x.toLong()+r.width<=w && r.y.toLong()+r.height<=h
     private fun turnedSize(w:Int,h:Int,turn:QuarterTurn):Pair<Int,Int> = when(turn) {

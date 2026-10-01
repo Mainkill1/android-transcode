@@ -18,7 +18,8 @@ sealed interface VideoRenderState {
     data object Stale:VideoRenderState
     data class Waiting(val sourceKey:String,val revision:Long):VideoRenderState
     data class Rendering(val sourceKey:String,val revision:Long):VideoRenderState
-    data class Ready(val file:File,val sourceKey:String,val revision:Long,val window:Trim):VideoRenderState
+    data class Ready(val file:File,val sourceKey:String,val revision:Long,val window:Trim,
+        val edit:SourceEdit?=null,val settings:Settings?=null):VideoRenderState
     data class Error(val sourceKey:String,val revision:Long,val message:String):VideoRenderState
 }
 
@@ -41,20 +42,32 @@ class RenderedPreviewController(context:Context,private val files:MediaFiles,pri
             if(token!=serial)return@launch
             root.listFiles()?.forEach {it.deleteRecursively()}
             var output:File?=null
+            var lease:RunCoordinator.PreviewLease?=null
             try {
-                runs.state.first {it.mode==RunMode.IDLE}
-                ensureActive()
+                val renderingJob=currentCoroutineContext()[Job]!!
+                while(lease==null) {
+                    runs.state.first {it.mode==RunMode.IDLE}
+                    ensureActive()
+                    lease=runs.tryAcquirePreview {
+                        if(token==serial)mutable.value=VideoRenderState.Stale
+                        renderingJob.cancel(CancellationException("Foreground conversion started."))
+                    }
+                    if(lease==null)delay(25)
+                }
                 if(token!=serial)return@launch
                 mutable.value=VideoRenderState.Rendering(edit.source.uri,revision)
                 val result=render(edit,settings,playheadMs)
                 output=result.first
                 ensureActive()
-                if(token==serial)mutable.value=VideoRenderState.Ready(result.first,edit.source.uri,revision,result.second)
+                if(token==serial)mutable.value=VideoRenderState.Ready(result.first,edit.source.uri,revision,result.second,edit,settings)
             } catch(cancel:CancellationException) {throw cancel}
             catch(error:Exception) {if(token==serial)mutable.value=VideoRenderState.Error(edit.source.uri,revision,
                 error.message ?: "Could not render preview." )}
-            finally {if(token!=serial || mutable.value !is VideoRenderState.Ready)
-                output?.parentFile?.deleteRecursively()}
+            finally {
+                if(token!=serial || mutable.value !is VideoRenderState.Ready)
+                    output?.parentFile?.deleteRecursively()
+                lease?.close()
+            }
         }
     }
 

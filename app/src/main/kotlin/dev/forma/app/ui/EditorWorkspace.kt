@@ -44,15 +44,28 @@ import kotlin.math.roundToInt
 @Composable fun VideoEditorWorkspace(edit:SourceEdit,ui:TranscodeUiState,frame:VideoFrameState,
     render:VideoRenderState=VideoRenderState.Idle,onAction:(UiAction)->Unit,onBack:()->Unit) {
     var close by remember {mutableStateOf(false)}
+    var pendingExit by remember {mutableStateOf<String?>(null)}
+    var exitBase by remember {mutableLongStateOf(0)}
     BackHandler {if(ui.videoDraftDirty)close=true else onBack()}
     var playhead by rememberSaveable(edit.source.uri) {mutableLongStateOf(edit.trim.startMs)}
     var cropNumbers by remember {mutableStateOf(false)}
     LaunchedEffect(edit.source.uri,playhead,ui.videoRevision) {onAction(UiAction.SeekQuickVideo(playhead))}
-    if(close) AlertDialog(onDismissRequest={close=false},title={Text("Leave this edit?")},
-        text={Text("Keep the draft or discard these edits.")},
-        confirmButton={FormaTextButton(onClick={onAction(UiAction.SaveVideoDraft);close=false;onBack()}){Text("Save draft")}},
-        dismissButton={Row {FormaTextButton(onClick={onAction(UiAction.DiscardVideoDraft);close=false;onBack()}){Text("Discard")}
-            FormaTextButton(onClick={close=false}){Text("Keep editing")}}})
+    LaunchedEffect(ui.videoDraftExitSerial,ui.videoDraftExitResult,pendingExit) {
+        if(pendingExit!=null && ui.videoDraftExitSerial>exitBase) {
+            if(ui.videoDraftExitResult==pendingExit) {pendingExit=null;close=false;onBack()}
+            else pendingExit=null
+        }
+    }
+    if(close) AlertDialog(onDismissRequest={if(!ui.videoDraftBusy)close=false},title={Text("Leave this edit?")},
+        text={Text(if(ui.videoDraftBusy)"Finishing draft change…" else
+            ui.message?.takeIf {ui.videoDraftExitResult=="error"} ?: "Keep the draft or discard these edits.")},
+        confirmButton={FormaTextButton(onClick={
+            pendingExit="saved";exitBase=ui.videoDraftExitSerial;onAction(UiAction.SaveVideoDraft)
+        },enabled=!ui.videoDraftBusy){Text("Save draft")}},
+        dismissButton={Row {FormaTextButton(onClick={
+            pendingExit="discarded";exitBase=ui.videoDraftExitSerial;onAction(UiAction.DiscardVideoDraft)
+        },enabled=!ui.videoDraftBusy){Text("Discard")}
+            FormaTextButton(onClick={close=false},enabled=!ui.videoDraftBusy){Text("Keep editing")}}})
     Column(Modifier.fillMaxSize().testTag("video-editor"),verticalArrangement=Arrangement.spacedBy(10.dp)) {
         Row {FormaTextButton(onClick={if(ui.videoDraftDirty)close=true else onBack()}){Text("Back")}
             Spacer(Modifier.weight(1f))
@@ -60,7 +73,8 @@ import kotlin.math.roundToInt
             FormaTextButton(onClick={onAction(UiAction.RedoVideo)},enabled=ui.videoCanRedo){Text("Redo")}}
         Text(edit.source.name,style=MaterialTheme.typography.titleMedium,maxLines=1)
         val playable=(render as? VideoRenderState.Ready)?.takeIf {
-            it.sourceKey==edit.source.uri && it.revision==ui.videoRevision
+            it.sourceKey==edit.source.uri && it.revision==ui.videoRevision &&
+                it.edit==edit && it.settings==edit.snapshot(ui.editor.settings)
         }
         if(playable!=null) Column {
             VideoPreviewPlayer(playable)
@@ -189,15 +203,9 @@ import kotlin.math.roundToInt
                 val r=gestureCrop ?:return@detectDragGestures
                 val scale=min(size.width.toFloat()/f.first,size.height.toFloat()/f.second)
                 val left=(size.width-f.first*scale)/2;val top=(size.height-f.second*scale)/2
-                val x=((((change.position.x-left)/scale).roundToInt().coerceIn(0,f.first))/2)*2
-                val y=((((change.position.y-top)/scale).roundToInt().coerceIn(0,f.second))/2)*2
-                val right=r.x+r.width;val bottom=r.y+r.height
-                val next=when(corner) {
-                    0->CropRect(x,y,right-x,bottom-y)
-                    1->CropRect(r.x,y,x-r.x,bottom-y)
-                    2->CropRect(r.x,r.y,x-r.x,y-r.y)
-                    else->CropRect(x,r.y,right-x,y-r.y)
-                }
+                val x=((change.position.x-left)/scale).roundToInt()
+                val y=((change.position.y-top)/scale).roundToInt()
+                val next=PreviewGeometry.dragDisplayCorner(r,corner,x,y,f.first,f.second)
                 val mapped=PreviewGeometry.mapCrop(currentEdit.source.width,currentEdit.source.height,
                     currentEdit.source.displayRotationDegrees,currentEdit.effects,next)
                 if(mapped is PreviewCrop.Valid) {

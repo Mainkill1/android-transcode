@@ -77,6 +77,27 @@ class RenderedPreviewDeviceTest {
         } finally {gate.complete(Unit);sourceFile.delete();scope.cancel()}
     }
 
+    @Test fun foregroundConversionPreemptsPreviewAndWaitsForItsCleanup() = runBlocking {
+        val app=InstrumentationRegistry.getInstrumentation().targetContext
+        val sourceFile=File(app.cacheDir,"preempt-preview-${UUID.randomUUID()}.mp4").apply {writeBytes(ByteArray(512){2})}
+        val source=Source(sourceFile.toURI().toString(),"sample.mp4",20_000,640,360,1,bytes=sourceFile.length())
+        val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
+        val runs=RunCoordinator(scope)
+        val entered=CompletableDeferred<Unit>();val finish=CompletableDeferred<Unit>()
+        val bridge=FakeBridge(entered,finish)
+        val controller=RenderedPreviewController(app,MediaFiles(app,bridge),bridge,runs,scope)
+        val conversionStarted=CompletableDeferred<Unit>()
+        try {
+            controller.request(SourceEdit(source),Settings(),10_000,1)
+            withTimeout(10_000) {entered.await()}
+            val ticket=runs.start {conversionStarted.complete(Unit)}!!
+            withTimeout(10_000) {controller.state.first {it is VideoRenderState.Stale}}
+            withTimeout(10_000) {conversionStarted.await();ticket.job.join()}
+            assertTrue(File(app.cacheDir,"video-preview").listFiles().orEmpty().isEmpty())
+            assertFalse(bridge.args.last().let(::File).exists())
+        } finally {finish.complete(Unit);controller.cancelAndJoin();sourceFile.delete();scope.cancel()}
+    }
+
     @Test fun nativeRenderedCropRotationMatchesExportGeometry() = runBlocking {
         val app=InstrumentationRegistry.getInstrumentation().targetContext
         val sourceFile=File(app.cacheDir,"native-preview-${UUID.randomUUID()}.mp4")

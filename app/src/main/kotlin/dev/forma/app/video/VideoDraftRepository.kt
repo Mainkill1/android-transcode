@@ -73,7 +73,10 @@ class VideoDraftRepository(context:Context) {
         VideoDraftReferences(uris,preserve)
     } }
 
-    suspend fun discard(uri:String)=withContext(Dispatchers.IO) {mutex.withLock {AtomicFile(file(uri)).delete()} }
+    suspend fun discard(uri:String)=withContext(Dispatchers.IO) {mutex.withLock {
+        AtomicFile(file(uri)).delete()
+        check(read(file(uri),uri) is VideoDraftLoad.Missing) {"The video draft could not be discarded."}
+    } }
 
     private fun read(target:File,expectedUri:String?):VideoDraftLoad {
         val backup=File("${target.path}.bak")

@@ -3,7 +3,7 @@
 The lab APK was tested on the OnePlus 9 Pro (Android 16) and an API 28 emulator.
 The lab package is isolated from the user's normal Forma installation. The APK
 checked on the phone was SHA-256
-`ae135c6783c11e9238db0e14dbf22f2d17a1d5ba2d7c1dd96412b7c27bd9cc5c`.
+`23f46c9c67cc5caa1d644623986c29829d6e6d9125bef5f3c8851e28c0e9a2b9`.
 
 ## Evidence
 
@@ -18,10 +18,13 @@ checked on the phone was SHA-256
   Media3 play/pause passed. The native preview test decoded a 60 × 80 output
   from an 80 × 60 crop rotated clockwise, then sampled red/green pixels at
   opposite ends to prove spatial orientation. The native geometry test also
-  checked a 90-degree metadata source. The strict queued-export editor smoke
+  checked a 90-degree metadata source. Review repairs additionally passed
+  foreground-conversion preemption, extractor cleanup after ViewModel scope
+  cancellation, save-before-exit completion, and an odd-dimension rotated
+  crop gesture (13 focused tests). The strict queued-export editor smoke
   passed all five cases: neutral, speed, crop/color, fades, and audio-only.
-- Emulator (API 28): focused editor, draft, and quick-frame tests passed
-  (8 tests). The phone's repeated cached-frame crop gesture produced one undo
+- Emulator (API 28): focused editor and quick-frame tests passed
+  (9 tests). The phone's repeated cached-frame crop gesture produced one undo
   commit per drag and a 14.8 ms p95 state-to-Compose update across 12 drags.
   This measures Compose commit latency, not display-photon latency.
 
@@ -29,8 +32,9 @@ The quick video frame is nearest-decodable navigation feedback. Android may
 apply source rotation during extraction; the controller records whether its
 bitmap is already upright. HDR quick-frame color is labelled approximate.
 Rendered preview uses a private five-second H.264/AAC MP4 at up to 720p and
-30 fps. It waits for the foreground run state and uses the shared native bridge
-mutex, so native conversion and preview do not overlap. The player releases
+30 fps. It reserves an idle preview slot that foreground conversion preempts;
+conversion waits for native preview cleanup. The shared native bridge mutex
+also prevents overlapping native calls. The player releases
 its Media3 instance when the editor leaves; superseded files are removed, and
 startup cleanup removes any abandoned preview file.
 

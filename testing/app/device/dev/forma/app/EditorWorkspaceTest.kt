@@ -105,4 +105,37 @@ class EditorWorkspaceTest {
                 assertTrue("Crop state-to-compose p95 $p95 ms exceeds 150 ms",p95<=150.0)
         }
     }
+
+    @Test fun backWaitsForDurableDraftResultBeforeLeaving() {
+        var ui by mutableStateOf(TranscodeUiState(ready=true,sources=listOf(edit),selectedUri=source.uri,
+            videoDraftDirty=true))
+        var backs=0
+        val actions=mutableListOf<UiAction>()
+        compose.setContent {FormaTheme {VideoEditorWorkspace(edit,ui,VideoFrameState.Idle,
+            onAction={actions+=it},onBack={backs++})}}
+        compose.onNodeWithText("Back").performClick()
+        compose.onNodeWithText("Save draft").performClick()
+        compose.runOnIdle {assertEquals(0,backs);assertTrue(actions.contains(UiAction.SaveVideoDraft))}
+        compose.runOnIdle {ui=ui.copy(videoDraftBusy=true)}
+        compose.onNodeWithText("Finishing draft change…").assertExists()
+        compose.runOnIdle {ui=ui.copy(videoDraftBusy=false,videoDraftExitSerial=1,videoDraftExitResult="saved",videoDraftDirty=false)}
+        compose.waitUntil(5_000) {backs==1}
+    }
+
+    @Test fun oddSizedRotatedVideoCropHandleRemainsDraggable() {
+        val odd=Source("content://video/odd","odd.mp4",10_000,641,481,1)
+        var current by mutableStateOf(SourceEdit(odd,effects=ClipEffects(
+            crop=CropRect(0,0,640,480),rotation=QuarterTurn.CLOCKWISE)))
+        val frame=VideoFrameState.Ready(Bitmap.createBitmap(481,641,Bitmap.Config.ARGB_8888),0,
+            odd.uri,0,"Quick frame",true)
+        compose.setContent {FormaTheme {VideoEditorWorkspace(current,
+            TranscodeUiState(ready=true,sources=listOf(current),selectedUri=odd.uri),frame,
+            onAction={if(it is UiAction.ChangeVideoEdit)current=it.edit},onBack={})}}
+        compose.onNodeWithTag("video-preview").performTouchInput {
+            val fit=minOf(width/481f,height/641f)
+            val corner=Offset((width-481*fit)/2+fit,(height-641*fit)/2)
+            swipe(start=corner,end=corner+Offset(45f,30f),durationMillis=350)
+        }
+        compose.runOnIdle {assertTrue("Crop handle did not move",current.effects.crop!=CropRect(0,0,640,480))}
+    }
 }

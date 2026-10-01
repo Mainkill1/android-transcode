@@ -75,4 +75,20 @@ class VideoFrameControllerTest {
             assertTrue(ready.status.contains("Quick frame"))
         } finally {controller.closeAndJoin();scope.cancel()}
     }
+
+    @Test fun retrieverClosesAfterViewModelScopeIsCancelled() = runBlocking {
+        val owner=CoroutineScope(SupervisorJob()+Dispatchers.IO)
+        var closed=false
+        val controller=VideoFrameController(app,owner,34,extractorFactory={object:VideoFrameExtractor {
+            override fun open(uri:String) {}
+            override suspend fun frame(timeUs:Long,width:Int,height:Int,scaled:Boolean)=
+                Bitmap.createBitmap(16,16,Bitmap.Config.ARGB_8888)
+            override fun close() {closed=true}
+        }})
+        controller.request(source,0,1)
+        withTimeout(5_000) {controller.state.first {it is VideoFrameState.Ready}}
+        owner.cancel()
+        withTimeout(5_000) {controller.closeAndJoin()}
+        assertTrue("Native frame extractor leaked after owner scope cancellation",closed)
+    }
 }

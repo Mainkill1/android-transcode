@@ -15,6 +15,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -54,6 +56,8 @@ class VideoFrameController(private val context:Context,private val scope:Corouti
     private val sdkInt:Int=Build.VERSION.SDK_INT,
     private val extractorFactory:()->VideoFrameExtractor={RetrieverExtractor(context)}) {
     private val serial=Mutex()
+    // ViewModel.onCleared cancels its scope before calling close(); native release must outlive it.
+    private val cleanupScope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private val generation=AtomicLong()
     private val mutable=MutableStateFlow<VideoFrameState>(VideoFrameState.Idle)
     val state=mutable.asStateFlow()
@@ -123,9 +127,12 @@ class VideoFrameController(private val context:Context,private val scope:Corouti
         generation.incrementAndGet()
         active?.cancel()
         mutable.value=VideoFrameState.Idle
-        releasing=scope.launch(Dispatchers.IO) { serial.withLock {
-            extractor?.close();extractor=null;openUri=null
-        } }
+        releasing=cleanupScope.launch {
+            try {
+                active?.cancelAndJoin()
+                serial.withLock {extractor?.close();extractor=null;openUri=null}
+            } finally {cleanupScope.cancel()}
+        }
     }
 
     suspend fun closeAndJoin() {
