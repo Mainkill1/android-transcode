@@ -58,15 +58,22 @@ import kotlin.math.roundToLong
             }
         }
         if (selected != null) key(selected.id) {
-            var range by remember(selected.trim) { mutableStateOf(selected.trim.startMs.toFloat()..(selected.trim.endMs ?: selected.source.durationMs).toFloat()) }
-            Text("Keep ${range.start.roundToLong()}–${range.endInclusive.roundToLong()} ms of ${selected.source.name}")
-            RangeSlider(value=range, onValueChange={ if (it.endInclusive-it.start >= 50f) range=it },
-                onValueChangeFinished={ action(UiAction.MovieEdit(TimelineCommand.TrimClip(selected.id,Trim(range.start.roundToLong(),range.endInclusive.roundToLong())))) },
-                valueRange=0f..selected.source.durationMs.toFloat(), modifier=Modifier.testTag("movie-bracket-trim").semantics { contentDescription="Kept range of selected movie clip" },
-                startThumb={ Text("[",Modifier.sizeIn(minWidth=52.dp,minHeight=52.dp).wrapContentSize(),fontSize=32.sp) },
-                endThumb={ Text("]",Modifier.sizeIn(minWidth=52.dp,minHeight=52.dp).wrapContentSize(),fontSize=32.sp) })
+            Text("Movie length ${TimelineTimecode.format(SequencePlanner.duration(movie.sequence))}",style=MaterialTheme.typography.labelMedium)
+            if(selected.source.videoTracks>0) {
+                var playhead by remember(selected.id) {mutableLongStateOf(selected.trim.startMs)}
+                VideoTimeline(selected.source,selected.trim,playhead,onSeek={playhead=it},
+                    onTrim={action(UiAction.MovieEdit(TimelineCommand.TrimClip(selected.id,it)))})
+            } else {
+                var range by remember(selected.trim) { mutableStateOf(selected.trim.startMs.toFloat()..(selected.trim.endMs ?: selected.source.durationMs).toFloat()) }
+                Text("Keep ${range.start.roundToLong()}–${range.endInclusive.roundToLong()} ms of ${selected.source.name}")
+                RangeSlider(value=range, onValueChange={ if (it.endInclusive-it.start >= 50f) range=it },
+                    onValueChangeFinished={ action(UiAction.MovieEdit(TimelineCommand.TrimClip(selected.id,Trim(range.start.roundToLong(),range.endInclusive.roundToLong())))) },
+                    valueRange=0f..selected.source.durationMs.toFloat(), modifier=Modifier.testTag("movie-bracket-trim").semantics { contentDescription="Kept range of selected movie clip" },
+                    startThumb={ Text("[",Modifier.sizeIn(minWidth=52.dp,minHeight=52.dp).wrapContentSize(),fontSize=32.sp) },
+                    endThumb={ Text("]",Modifier.sizeIn(minWidth=52.dp,minHeight=52.dp).wrapContentSize(),fontSize=32.sp) })
+            }
             FlowRow {
-                FormaTextButton(onClick={ exactTrim=true }) { Text("Exact trim times") }
+                if(selected.source.videoTracks==0)FormaTextButton(onClick={ exactTrim=true }) { Text("Exact trim times") }
                 FormaTextButton(onClick={ split=true }, modifier=Modifier.testTag("movie-split")) { Text("Split selected clip") }
             }
             EditControls(SourceEdit(selected.source,selected.trim,selected.settings.effects),selected.settings) {

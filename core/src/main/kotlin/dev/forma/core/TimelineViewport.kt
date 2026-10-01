@@ -4,6 +4,15 @@ import kotlin.math.roundToLong
 
 enum class TrimEdge { START, END }
 
+object TimelineTimecode {
+    fun format(milliseconds:Long):String {
+        val safe=milliseconds.coerceAtLeast(0)
+        val seconds=safe/1_000
+        return "%d:%02d:%02d.%03d".format(java.util.Locale.ROOT,
+            seconds/3_600,seconds/60%60,seconds%60,safe%1_000)
+    }
+}
+
 /** Millisecond storage with Double precision only across the visible screen window. */
 data class TimelineViewport(val durationMs:Long,val visibleStartMs:Long,val visibleDurationMs:Long,
     val playheadMs:Long,val trim:Trim) {
