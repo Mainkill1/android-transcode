@@ -325,6 +325,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun restoreVideoHistory(redo:Boolean) {
+        mutable.value.selected?.source?.uri?.let(::rollbackVideoGesture)
         val current=mutable.value.selected ?: return
         val history=videoHistory[current.source.uri] ?: return
         if(redo && history.future.isEmpty() || !redo && history.past.isEmpty()) return
@@ -371,6 +372,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         when (action) {
             is UiAction.ChangeVideoEdit -> changeVideoEdit(action.edit,action.commit)
             is UiAction.VideoTool -> {
+                mutable.value.selected?.source?.uri?.let(::rollbackVideoGesture)
                 mutable.update {it.copy(videoTool=action.tool)}
                 rememberSelectedVideoSession()
                 mutable.value.selected?.let {saveVideoDraft(it,mutable.value.videoRevision)}

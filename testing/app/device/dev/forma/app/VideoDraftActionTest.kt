@@ -12,7 +12,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class VideoDraftActionTest {
-    @Test fun saveDuringUnfinishedCropKeepsLastCommittedEdit() = runBlocking {
+    @Test fun draftWritesDuringUnfinishedCropKeepLastCommittedEdit() = runBlocking {
         val app=InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as FormaApplication
         val fixture=File(app.filesDir,"imports/unfinished-crop-${UUID.randomUUID()}.mp4")
         val vm=TranscodeViewModel(app)
@@ -42,6 +42,19 @@ class VideoDraftActionTest {
             assertEquals(selected,completed.selected)
             val disk=app.graph.videoDrafts.load(selected.source.uri) as VideoDraftLoad.Valid
             assertEquals(selected,disk.draft.edit)
+            vm.act(UiAction.ChangeVideoEdit(provisional,commit=false))
+            vm.act(UiAction.VideoTool("Rotate"))
+            val toolDraft=withTimeout(10_000) {
+                var latest:VideoDraftLoad.Valid
+                while(true) {
+                    latest=app.graph.videoDrafts.load(selected.source.uri) as VideoDraftLoad.Valid
+                    if(latest.draft.tool=="Rotate")break
+                    delay(20)
+                }
+                latest
+            }
+            assertEquals(selected,toolDraft.draft.edit)
+            assertEquals(selected,vm.state.value.selected)
         } finally {
             importedUri?.let {app.graph.videoDrafts.discard(it)}
             fixture.delete()

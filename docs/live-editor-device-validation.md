@@ -3,7 +3,7 @@
 The lab APK was tested on the OnePlus 9 Pro (Android 16) and an API 28 emulator.
 The lab package is isolated from the user's normal Forma installation. The APK
 checked on the phone was SHA-256
-`92085d648d40a6a196c9d6df77f28241e5d1b15da76b49e1a62d7b939967d2f7`.
+`b925ee79cd1ea6cbcc61af2135bc5096fcab8227686526240098b74ad26a7623`.
 
 ## Evidence
 
@@ -22,7 +22,7 @@ checked on the phone was SHA-256
   foreground-conversion preemption, extractor cleanup after ViewModel scope
   cancellation, save-before-exit completion, and an odd-dimension rotated
   crop gesture, one advanced-slider undo commit per drag, and rollback of an
-  unfinished crop before Save (15 focused tests). The strict queued-export editor smoke
+  unfinished crop before Save or tool switching (15 focused tests). The strict queued-export editor smoke
   passed all five cases: neutral, speed, crop/color, fades, and audio-only.
 - Emulator (API 28): focused editor and quick-frame tests passed
   (10 tests). The phone's repeated cached-frame crop gesture produced one undo
