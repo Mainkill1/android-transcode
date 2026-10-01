@@ -35,7 +35,7 @@ class UnifiedJobCodecTest {
 
     @Test fun mixedKindsRetainFrozenLayersCompletionAndImagePolicy() {
         val saved = root()
-        assertEquals(4, saved.getInt("schema"))
+        assertEquals(5, saved.getInt("schema"))
         val restored = JobCodec.decode(saved.toString())
         assertEquals(listOf(av, image), restored)
         for (entry in restored) {
@@ -67,7 +67,7 @@ class UnifiedJobCodecTest {
         val legacy = root().put("schema", 3)
         for (index in 0 until legacy.getJSONArray("jobs").length()) {
             legacy.getJSONArray("jobs").getJSONObject(index).apply {
-                remove("preferences"); remove("completedAtMs"); remove("targetBytes"); remove("sequence")
+                remove("preferences"); remove("completedAtMs"); remove("targetBytes"); remove("sequence"); remove("delivery")
                 if(has("settings")) getJSONObject("settings").remove("effects")
             }
         }
@@ -84,7 +84,7 @@ class UnifiedJobCodecTest {
     @Test fun untaggedSettingsSchemaThreeRetainsItsRequiredProvenanceAndTimestamp() {
         val legacy = JSONObject(JobCodec.encode(listOf(av))).put("schema", 3)
         legacy.getJSONArray("jobs").getJSONObject(0).remove("kind")
-        legacy.getJSONArray("jobs").getJSONObject(0).apply { remove("targetBytes");remove("sequence");getJSONObject("settings").remove("effects") }
+        legacy.getJSONArray("jobs").getJSONObject(0).apply { remove("targetBytes");remove("sequence");remove("delivery");getJSONObject("settings").remove("effects") }
         assertEquals(listOf(av), JobCodec.decode(legacy.toString()))
         legacy.getJSONArray("jobs").getJSONObject(0).remove("preferences")
         assertTrue(runCatching { JobCodec.decode(legacy.toString()) }.isFailure)
@@ -105,7 +105,7 @@ class UnifiedJobCodecTest {
     }
 
     @Test fun futureAndHybridEnvelopesRejectWithoutDroppingAnyRecords() {
-        reject { it.put("schema", 5) }
+        reject { it.put("schema", 6) }
         reject { it.getJSONArray("jobs").getJSONObject(1).put("kind", "future-image") }
         reject { it.getJSONArray("jobs").getJSONObject(1).put("futureField", "keep") }
         reject { it.put("schema", 3) } // Tagged schema 3 did not store preference/timestamp layers.
@@ -113,8 +113,8 @@ class UnifiedJobCodecTest {
         reject { it.getJSONArray("jobs").getJSONObject(1).put("id", av.spec.id) }
         val mixedLegacy = root().put("schema", 3)
         mixedLegacy.getJSONArray("jobs").getJSONObject(0).remove("kind")
-        mixedLegacy.getJSONArray("jobs").getJSONObject(0).apply { remove("targetBytes");remove("sequence");getJSONObject("settings").remove("effects") }
-        mixedLegacy.getJSONArray("jobs").getJSONObject(1).apply { remove("preferences"); remove("completedAtMs") }
+        mixedLegacy.getJSONArray("jobs").getJSONObject(0).apply { remove("targetBytes");remove("sequence");remove("delivery");getJSONObject("settings").remove("effects") }
+        mixedLegacy.getJSONArray("jobs").getJSONObject(1).apply { remove("preferences"); remove("completedAtMs"); remove("delivery") }
         assertTrue("Different schema-3 envelopes must not be combined by guessing",
             runCatching { JobCodec.decode(mixedLegacy.toString()) }.isFailure)
     }

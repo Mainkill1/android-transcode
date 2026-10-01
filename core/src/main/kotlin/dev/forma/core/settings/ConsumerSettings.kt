@@ -20,7 +20,10 @@ object ConsumerSettings {
     fun expiredHistory(entries:List<QueueEntry>,days:Int,nowMs:Long):Set<String> {
         require(days in 0..90 && nowMs>=0)
         val age=days*DAY_MS
-        return entries.filter { entry -> entry.state==JobState.COMPLETED && entry.completedAtMs?.let {
+        return entries.filter { entry -> entry.state==JobState.COMPLETED &&
+            entry.delivery.receipt !in setOf(DeliveryReceipt.Waiting) &&
+            entry.delivery.receipt !is DeliveryReceipt.Copying &&
+            entry.delivery.receipt !is DeliveryReceipt.Failed && entry.completedAtMs?.let {
             it>=0 && it<=nowMs && nowMs-it>=age
         }==true }.map { it.spec.id }.toSet()
     }

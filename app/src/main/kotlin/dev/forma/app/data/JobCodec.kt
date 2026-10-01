@@ -32,11 +32,12 @@ object JobCodec {
         require(it is Boolean) { "Saved $key must be a Boolean." };it
     }
 
-    fun encode(entries: List<QueueEntry>): String = JSONObject().put("schema", 4)
+    fun encode(entries: List<QueueEntry>): String = JSONObject().put("schema", 5)
         .put("jobs", JSONArray(entries.map { entry ->
             val common = JSONObject().put("id", entry.spec.id).put("state", entry.state.name).put("message", entry.message)
                 .put("preferences", encodePreferences(entry.spec.preferences))
                 .put("completedAtMs", entry.completedAtMs ?: JSONObject.NULL)
+                .put("delivery", encodeDelivery(entry.delivery))
             when (val tagged = entry.spec) {
                 is QueueJobSpec.Image -> {
                     common.put("kind", "image")
@@ -80,7 +81,53 @@ object JobCodec {
         .put("clips", JSONArray(sequence.timeline.clips.map { clip -> JSONObject().put("id", clip.id)
             .put("source", encodeSource(clip.source)).put("trim", encodeTrim(clip.trim)).put("settings", encodeSettings(clip.settings)) }))
 
-    private enum class Family { LEGACY1, AUDIO2, RUNTIME2, EFFECTS2, TAGGED3, SETTINGS3, MOVIE3, MODERN4 }
+    private fun encodeDelivery(delivery: Delivery): JSONObject = JSONObject().apply {
+        val destination = when (val chosen = delivery.destination) {
+            null -> JSONObject.NULL
+            is SaveDestination.FormaLibrary -> JSONObject().put("kind", "forma").put("category", chosen.category.name)
+            is SaveDestination.DocumentTree -> JSONObject().put("kind", "tree").put("uri", chosen.uri).put("label", chosen.label)
+        }
+        put("destination", destination)
+        when (val receipt = delivery.receipt) {
+            DeliveryReceipt.PrivateLegacy -> put("state", "private")
+            DeliveryReceipt.Waiting -> put("state", "waiting")
+            is DeliveryReceipt.Copying -> { put("state", "copying"); put("intentName", receipt.intentName); put("uri", receipt.uri ?: JSONObject.NULL) }
+            is DeliveryReceipt.Saved -> { put("state", "saved"); put("uri", receipt.uri); put("displayName", receipt.displayName)
+                put("bytes", receipt.bytes); put("digest", receipt.digest) }
+            is DeliveryReceipt.Failed -> { put("state", "failed"); put("message", receipt.message); put("uri", receipt.uri ?: JSONObject.NULL) }
+        }
+    }
+
+    private fun decodeDelivery(record: JSONObject): Delivery {
+        val destination = if (record.isNull("destination")) null else record.getJSONObject("destination").let { d ->
+            when (string(d,"kind")) {
+                "forma" -> { fields(d,setOf("kind","category")); SaveDestination.FormaLibrary(MediaCategory.valueOf(string(d,"category"))) }
+                "tree" -> { fields(d,setOf("kind","uri","label")); SaveDestination.DocumentTree(string(d,"uri"),string(d,"label")) }
+                else -> throw IllegalArgumentException("Unsupported saved destination.")
+            }
+        }
+        fun uri(): String? = if (record.isNull("uri")) null else string(record,"uri").also(::requireContentUri)
+        val receipt = when (string(record,"state")) {
+            "private" -> { fields(record,setOf("destination","state")); DeliveryReceipt.PrivateLegacy }
+            "waiting" -> { fields(record,setOf("destination","state")); DeliveryReceipt.Waiting }
+            "copying" -> { fields(record,setOf("destination","state","intentName","uri"));
+                DeliveryReceipt.Copying(string(record,"intentName").also(::requireDisplayName),uri()) }
+            "saved" -> { fields(record,setOf("destination","state","uri","displayName","bytes","digest"));
+                val bytes=integer(record,"bytes");require(bytes>=0) { "Invalid saved byte count." }
+                val digest=string(record,"digest");require(Regex("[0-9a-f]{64}").matches(digest)) { "Invalid saved digest." }
+                DeliveryReceipt.Saved(uri() ?: throw IllegalArgumentException("Missing saved URI."),
+                    string(record,"displayName").also(::requireDisplayName),bytes,digest) }
+            "failed" -> { fields(record,setOf("destination","state","message","uri"));
+                DeliveryReceipt.Failed(string(record,"message").also { require(it.length in 1..500) },uri()) }
+            else -> throw IllegalArgumentException("Unsupported saved delivery state.")
+        }
+        return Delivery(destination,receipt)
+    }
+
+    private fun requireContentUri(uri:String) { require(uri.startsWith("content://") && uri.length<=4096 && uri.none(Char::isISOControl)) { "Invalid saved URI." } }
+    private fun requireDisplayName(name:String) { require(name.isNotBlank() && name.length<=255 && name.none(Char::isISOControl) && '/' !in name && '\\' !in name) { "Invalid saved filename." } }
+
+    private enum class Family { LEGACY1, AUDIO2, RUNTIME2, EFFECTS2, TAGGED3, SETTINGS3, MOVIE3, MODERN4, MODERN5 }
 
     /** A historical envelope has one recognized family; never infer missing intent record by record. */
     private fun family(record: JSONObject, schema: Int): Family = when(schema) {
@@ -97,14 +144,15 @@ object JobCodec {
             record.has("sequence") || record.has("targetBytes") || record.getJSONObject("settings").has("effects") -> Family.MOVIE3
             else -> throw IllegalArgumentException("Unrecognized schema-3 envelope; the original queue is preserved.")
         }
-        else -> Family.MODERN4
+        4 -> Family.MODERN4
+        else -> Family.MODERN5
     }
 
     fun decode(text: String): List<QueueEntry> {
         val root=JSONObject(text)
         fields(root,setOf("schema","jobs"))
         val schema=int(root,"schema")
-        require(schema in 1..4) { "Unsupported queue schema. The original file has been preserved." }
+        require(schema in 1..5) { "Unsupported queue schema. The original file has been preserved." }
         val jobs=root.getJSONArray("jobs")
         require(jobs.length() <= 200) { "Too many saved jobs." }
         val families=(0 until jobs.length()).map { family(jobs.getJSONObject(it),schema) }
@@ -114,13 +162,13 @@ object JobCodec {
         return (0 until jobs.length()).map { index ->
             val record=jobs.getJSONObject(index)
             val wire=families[index]
-            if(wire == Family.MODERN4 || wire == Family.TAGGED3) decodeTagged(record,wire) else decodeAv(record,wire)
+            if(wire in setOf(Family.MODERN4,Family.MODERN5,Family.TAGGED3)) decodeTagged(record,wire) else decodeAv(record,wire)
         }.also { require(it.map { entry -> entry.spec.id }.distinct().size == it.size) { "Duplicate job identifiers." } }
     }
 
     private fun decodeTagged(record: JSONObject, family: Family): QueueEntry = when(string(record,"kind")) {
         "av" -> decodeAv(record,family)
-        "image" -> decodeImage(record,family == Family.MODERN4)
+        "image" -> decodeImage(record,family)
         else -> throw IllegalArgumentException("Unsupported queue kind; the original file is preserved.")
     }
 
@@ -132,28 +180,32 @@ object JobCodec {
             require(it >= 0) { "Invalid saved completion timestamp." }
         }
 
-    private fun decodeImage(record: JSONObject, preferences: Boolean): QueueEntry {
+    private fun decodeImage(record: JSONObject, family: Family): QueueEntry {
+        val preferences=family in setOf(Family.MODERN4,Family.MODERN5)
         val base=setOf("kind","id","state","message","resolvedFormat","document","info")
-        fields(record,if(preferences) base + setOf("preferences","completedAtMs") else base)
+        fields(record,base + (if(preferences) setOf("preferences","completedAtMs") else emptySet()) +
+            (if(family==Family.MODERN5) setOf("delivery") else emptySet()))
         val job=ImageJobSpec(identifier(record),ImageDocumentCodec.decode(record.getJSONObject("document")),
             if(record.isNull("info")) null else ImageDocumentCodec.decodeInfo(record.getJSONObject("info")),
             if(record.isNull("resolvedFormat")) null else ImageFormat.valueOf(string(record,"resolvedFormat")),
             if(preferences) decodePreferences(record.getJSONObject("preferences")) else MediaPreferences.legacy(Settings()))
-        return QueueEntry(QueueJobSpec.Image(job),JobState.valueOf(string(record,"state")),string(record,"message"),completionTime(record,preferences))
+        return QueueEntry(QueueJobSpec.Image(job),JobState.valueOf(string(record,"state")),string(record,"message"),
+            completionTime(record,preferences),if(family==Family.MODERN5) decodeDelivery(record.getJSONObject("delivery")) else Delivery.LEGACY)
     }
 
-    private fun hasAudio(family: Family) = family in setOf(Family.AUDIO2,Family.TAGGED3,Family.SETTINGS3,Family.MODERN4)
-    private fun hasEffects(family: Family) = family in setOf(Family.EFFECTS2,Family.MOVIE3,Family.MODERN4)
-    private fun fullAudioWriter(family: Family) = family in setOf(Family.TAGGED3,Family.SETTINGS3,Family.MODERN4)
+    private fun hasAudio(family: Family) = family in setOf(Family.AUDIO2,Family.TAGGED3,Family.SETTINGS3,Family.MODERN4,Family.MODERN5)
+    private fun hasEffects(family: Family) = family in setOf(Family.EFFECTS2,Family.MOVIE3,Family.MODERN4,Family.MODERN5)
+    private fun fullAudioWriter(family: Family) = family in setOf(Family.TAGGED3,Family.SETTINGS3,Family.MODERN4,Family.MODERN5)
 
     private fun decodeAv(record: JSONObject, family: Family): QueueEntry {
-        val preferences=family == Family.MODERN4 || family == Family.SETTINGS3
-        val tagged=family == Family.MODERN4 || family == Family.TAGGED3
-        val hasTarget=family in setOf(Family.MODERN4,Family.RUNTIME2,Family.MOVIE3)
-        val hasSequence=family == Family.MODERN4 || family == Family.MOVIE3
+        val preferences=family in setOf(Family.MODERN4,Family.MODERN5,Family.SETTINGS3)
+        val tagged=family in setOf(Family.MODERN4,Family.MODERN5,Family.TAGGED3)
+        val hasTarget=family in setOf(Family.MODERN4,Family.MODERN5,Family.RUNTIME2,Family.MOVIE3)
+        val hasSequence=family in setOf(Family.MODERN4,Family.MODERN5,Family.MOVIE3)
         fields(record,setOf("id","state","message","source","trim","settings") +
             (if(tagged) setOf("kind") else emptySet()) + (if(preferences) setOf("preferences","completedAtMs") else emptySet()) +
-            (if(hasTarget) setOf("targetBytes") else emptySet()) + (if(hasSequence) setOf("sequence") else emptySet()))
+            (if(hasTarget) setOf("targetBytes") else emptySet()) + (if(hasSequence) setOf("sequence") else emptySet()) +
+            (if(family==Family.MODERN5) setOf("delivery") else emptySet()))
         val settings=decodeSettings(record.getJSONObject("settings"),family)
         val target=if(!hasTarget || record.isNull("targetBytes")) null else integer(record,"targetBytes").also(UploadFit::validateTarget)
         val sequence=if(!hasSequence || record.isNull("sequence")) null else decodeSequence(record.getJSONObject("sequence"),family)
@@ -166,7 +218,8 @@ object JobCodec {
             (job.source.durationMs == 0L || (job.trim.startMs < job.source.durationMs && (job.trim.endMs ?: job.source.durationMs) <= job.source.durationMs))) {
             "Invalid saved source range; the original queue is preserved."
         }
-        return QueueEntry(job,JobState.valueOf(string(record,"state")),string(record,"message"),completionTime(record,preferences))
+        return QueueEntry(job,JobState.valueOf(string(record,"state")),string(record,"message"),completionTime(record,preferences),
+            if(family==Family.MODERN5) decodeDelivery(record.getJSONObject("delivery")) else Delivery.LEGACY)
     }
 
     private fun decodeSource(source: JSONObject, family: Family): Source {

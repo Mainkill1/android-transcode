@@ -13,12 +13,12 @@ class MoviePersistenceTest {
         targetBytes = 25_000_000).toJob("00000000-0000-0000-0000-000000000001"))
     @Test fun movieAndEveryClipSettingSurviveRestart() {
         assertEquals(listOf(entry), JobCodec.decode(JobCodec.encode(listOf(entry))))
-        assertEquals(4, JSONObject(JobCodec.encode(listOf(entry))).getInt("schema"))
+        assertEquals(5, JSONObject(JobCodec.encode(listOf(entry))).getInt("schema"))
     }
     @Test fun legacySchemaTwoRemainsSingleClipWithManualBudget() {
         val root = JSONObject(JobCodec.encode(listOf(entry))).put("schema", 2)
         val job = root.getJSONArray("jobs").getJSONObject(0)
-        job.remove("sequence"); job.remove("targetBytes");job.remove("kind");job.remove("preferences");job.remove("completedAtMs")
+        job.remove("sequence"); job.remove("targetBytes");job.remove("kind");job.remove("preferences");job.remove("completedAtMs");job.remove("delivery")
         job.getJSONObject("source").remove("audioStreams");job.getJSONObject("settings").remove("audioEdit")
         val saved = JobCodec.decode(root.toString()).single().spec
         assertNull(saved.sequence); assertNull(saved.targetBytes)
@@ -57,7 +57,7 @@ class MoviePersistenceTest {
     private fun movieLegacy(schema: Int): JSONObject {
         val root=JSONObject(JobCodec.encode(listOf(entry))).put("schema",schema)
         val job=root.getJSONArray("jobs").getJSONObject(0)
-        job.remove("kind");job.remove("preferences");job.remove("completedAtMs")
+        job.remove("kind");job.remove("preferences");job.remove("completedAtMs");job.remove("delivery")
         fun legacyClip(record:JSONObject) { record.getJSONObject("source").remove("audioStreams");record.getJSONObject("settings").remove("audioEdit") }
         legacyClip(job)
         val clips=job.getJSONObject("sequence").getJSONArray("clips")

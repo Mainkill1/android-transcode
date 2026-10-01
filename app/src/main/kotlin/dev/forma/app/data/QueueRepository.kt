@@ -32,10 +32,19 @@ class QueueRepository(context: Context) {
     }
     suspend fun add(specs: List<JobSpec>) = addTagged(specs.map(QueueJobSpec::Av))
     suspend fun addImages(specs: List<ImageJobSpec>) = addTagged(specs.map(QueueJobSpec::Image))
-    suspend fun addTagged(specs: List<QueueJobSpec>) = change {
+    suspend fun addTagged(specs: List<QueueJobSpec>, deliveries: Map<String, Delivery> = emptyMap()) = change {
         require(it.size + specs.size <= 200) { "The queue is limited to 200 entries in this foundation." }
         require((it.map { j -> j.spec.id } + specs.map { j -> j.id }).distinct().size == it.size + specs.size)
-        it + specs.map(::QueueEntry)
+        require(deliveries.keys.all { id -> specs.any { spec -> spec.id == id } }) { "Unknown delivery job." }
+        it + specs.map { spec -> QueueEntry(spec, delivery=deliveries[spec.id] ?: Delivery.LEGACY) }
+    }
+    suspend fun updateDelivery(id: String, expected: DeliveryReceipt, next: Delivery): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val old=mutable.value.firstOrNull { it.spec.id==id } ?: return@withLock false
+            if(old.delivery.receipt!=expected || old.delivery.destination!=next.destination) return@withLock false
+            persist(mutable.value.map { if(it.spec.id==id) it.copy(delivery=next) else it })
+            true
+        }
     }
     suspend fun removeQueued(id: String) = change { entries ->
         require(entries.first { it.spec.id == id }.state == JobState.QUEUED) { "Only a waiting job can be removed." }

@@ -12,7 +12,7 @@ class ByteCapQueueTest {
     private fun runtimeLegacy(schema: Int, target: Long?): JSONObject =
         JSONObject(JobCodec.encode(listOf(entry(target)))).put("schema", schema).also {
             it.getJSONArray("jobs").getJSONObject(0).apply {
-                remove("kind"); remove("preferences"); remove("completedAtMs"); remove("sequence")
+                remove("kind"); remove("preferences"); remove("completedAtMs"); remove("sequence"); remove("delivery")
                 getJSONObject("source").remove("audioStreams")
                 getJSONObject("settings").remove("audioEdit"); getJSONObject("settings").remove("effects")
                 if(schema == 1) remove("targetBytes")
@@ -82,7 +82,7 @@ class ByteCapQueueTest {
         val mixed=runtimeLegacy(2,10000000)
         val audio=JSONObject(JobCodec.encode(listOf(entry(null)))).getJSONArray("jobs").getJSONObject(0)
         audio.put("id","4d4754f2-f642-4f9c-9cf4-c6db11a77dca")
-        for(field in listOf("kind","preferences","completedAtMs","targetBytes","sequence")) audio.remove(field)
+        for(field in listOf("kind","preferences","completedAtMs","targetBytes","sequence","delivery")) audio.remove(field)
         audio.getJSONObject("settings").remove("effects")
         assertEquals(1,JobCodec.decode(JSONObject().put("schema",2).put("jobs",org.json.JSONArray().put(audio)).toString()).size)
         mixed.getJSONArray("jobs").put(audio)

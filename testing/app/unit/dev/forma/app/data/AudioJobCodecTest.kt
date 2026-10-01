@@ -14,7 +14,7 @@ class AudioJobCodecTest {
 
     private fun legacyRoot(schema:Int):JSONObject=JSONObject(JobCodec.encode(listOf(oldEntry))).put("schema",schema).also {
         val job=it.getJSONArray("jobs").getJSONObject(0)
-        job.remove("kind");job.remove("preferences");job.remove("completedAtMs");job.remove("targetBytes");job.remove("sequence");job.getJSONObject("settings").remove("effects")
+        job.remove("kind");job.remove("preferences");job.remove("completedAtMs");job.remove("targetBytes");job.remove("sequence");job.remove("delivery");job.getJSONObject("settings").remove("effects")
     }
     @Test fun legacyJobsUpgradeToAudioSchemaWithoutChangingTheirSettings() {
         val root = legacyRoot(1)
@@ -22,7 +22,7 @@ class AudioJobCodecTest {
         val legacy = root.toString()
         assertEquals(listOf(oldEntry), JobCodec.decode(legacy))
         val upgraded = JSONObject(JobCodec.encode(JobCodec.decode(legacy)))
-        assertEquals(4, upgraded.getInt("schema"))
+        assertEquals(5, upgraded.getInt("schema"))
         assertTrue(upgraded.getJSONArray("jobs").getJSONObject(0).getJSONObject("settings").has("audioEdit"))
     }
     @Test fun orderedEditsAndOutputPolicySurviveQueueRoundTrip() {
