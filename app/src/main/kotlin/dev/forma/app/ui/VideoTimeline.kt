@@ -141,8 +141,9 @@ import kotlinx.coroutines.withContext
         }
     }
     if(exact) ExactTimelineTimes(viewport.trim,source.durationMs,onDismiss={exact=false},onApply={value ->
-        viewport=viewport.copy(trim=value,playheadMs=value.startMs)
-        latestTrim(value);latestSeek(value.startMs);exact=false
+        latestTrim(value);latestSeek(value.startMs)
+        viewport=viewport.copy(trim=trim,playheadMs=value.startMs)
+        exact=false
     })
 }
 

@@ -65,6 +65,11 @@ class VideoTimelineTest {
         }
         compose.runOnIdle {assertEquals(1,attempts.size);assertNotEquals(committed,attempts.single())}
         compose.onNodeWithText("Start 0:00:01.000",substring=true).assertExists()
+        compose.onNodeWithText("Exact times").performClick()
+        compose.onAllNodes(hasSetTextAction())[0].performTextReplacement("2500")
+        compose.onNodeWithText("Apply times").performClick()
+        compose.runOnIdle {assertEquals(2,attempts.size);assertEquals(2_500L,attempts.last().startMs)}
+        compose.onNodeWithText("Start 0:00:01.000",substring=true).assertExists()
     }
 
     @Test fun pinchZoomsTheVisibleWindowAndFitRestoresIt() {
