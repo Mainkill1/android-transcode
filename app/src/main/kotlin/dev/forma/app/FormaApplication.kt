@@ -18,6 +18,7 @@ class FormaApplication : Application() {
 /** UI lifecycles never own native encoding. The foreground service owns its run ticket. */
 class AppGraph(private val application: Application) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    fun launchDurable(block:suspend CoroutineScope.()->Unit):Job=scope.launch(block=block)
     val settings = dev.forma.app.settings.SettingsRepository(application, scope)
     val treeGrants = dev.forma.app.settings.TreeGrantStore(application)
     val bridge = ManagedFfmpegBridge(createFfmpegBridge())
@@ -27,12 +28,14 @@ class AppGraph(private val application: Application) {
     val deliveries = DeliveryWorker(queue,files,publisher)
     val runs = RunCoordinator(scope)
     val previews = dev.forma.app.audio.AudioPreviewController(scope)
+    val videoPreviews = dev.forma.app.video.RenderedPreviewController(application,files,bridge,runs,scope)
     val powerMonitor = AndroidPowerMonitor(application)
     val power = PowerRuntime(settings.state, powerMonitor.samples, runs.state, scope)
     val transcoder = FfmpegTranscoder(files, bridge)
     val imageMarkup = dev.forma.app.image.ImageMarkupRenderer()
     val imageTranscoder = ImageTranscoder(files, bridge, imageMarkup)
     val imageDrafts = dev.forma.app.image.ImageDraftRepository(application)
+    val videoDrafts = dev.forma.app.video.VideoDraftRepository(application)
     val imagePreviews = dev.forma.app.image.ImagePreviewController(scope, runs, files, bridge, imageMarkup, application)
     private val initialization = Mutex()
     private var initialized = false
@@ -52,15 +55,18 @@ class AppGraph(private val application: Application) {
                 files.cleanupWork()
                 java.io.File(application.cacheDir,"audio-preview").deleteRecursively()
                 java.io.File(application.cacheDir,"image-preview").deleteRecursively()
+                java.io.File(application.cacheDir,"video-preview").deleteRecursively()
                 val references=imageDrafts.references()
+                val videoReferences=videoDrafts.references()
                 val queuedSources=queue.entries.value.flatMap { entry ->
                     when(val spec=entry.spec) {
                         is dev.forma.core.image.QueueJobSpec.Av -> dev.forma.core.JobPlans.sourceUris(spec.job) + spec.source.uri
                         is dev.forma.core.image.QueueJobSpec.Image -> setOf(spec.source.uri)
                     }
                 }.toSet()
-                if(!references.preserveImports)files.cleanupImports(queuedSources + references.uris)
-                else queue.error.value="Some image drafts cannot be read. Their originals are retained for recovery."
+                if(!references.preserveImports && !videoReferences.preserveImports)
+                    files.cleanupImports(queuedSources + references.uris + videoReferences.uris)
+                else queue.error.value="Some saved drafts cannot be read. Their originals are retained for recovery."
                 initialized = true
             }
         }

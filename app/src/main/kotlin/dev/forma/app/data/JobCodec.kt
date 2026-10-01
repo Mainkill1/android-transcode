@@ -57,6 +57,7 @@ object JobCodec {
     private fun encodeSource(source: Source): JSONObject = JSONObject().put("uri", source.uri).put("name", source.name)
         .put("durationMs", source.durationMs).put("width", source.width).put("height", source.height)
         .put("videoTracks", source.videoTracks).put("audioTracks", source.audioTracks).put("hdr", source.hdr).put("bytes", source.bytes)
+        .apply { if(source.displayRotationDegrees!=0) put("displayRotationDegrees",source.displayRotationDegrees ?: JSONObject.NULL) }
         .put("audioStreams", JSONArray(source.audioStreams.map { f ->
             JSONObject().put("streamIndex", f.streamIndex).put("sampleRateHz", f.sampleRateHz ?: JSONObject.NULL)
                 .put("channels", f.channels ?: JSONObject.NULL).put("layout", f.channelLayout ?: JSONObject.NULL)
@@ -225,9 +226,13 @@ object JobCodec {
     private fun decodeSource(source: JSONObject, family: Family): Source {
         val base=setOf("uri","name","durationMs","width","height","videoTracks","audioTracks","hdr","bytes")
         val supportsFacts=hasAudio(family) || family == Family.LEGACY1
-        fields(source,if(supportsFacts) base + "audioStreams" else base,if(fullAudioWriter(family)) base + "audioStreams" else base)
+        val audio=if(supportsFacts) base + "audioStreams" else base
+        val rotation=if(family==Family.MODERN5) setOf("displayRotationDegrees") else emptySet()
+        fields(source,audio+rotation,if(fullAudioWriter(family)) base + "audioStreams" else base)
+        val displayRotation=if(!source.has("displayRotationDegrees")) 0 else if(source.isNull("displayRotationDegrees")) null
+            else int(source,"displayRotationDegrees").also { require(it in setOf(0,90,180,270)) { "Unsupported saved display rotation." } }
         return Source(string(source,"uri"),string(source,"name"),integer(source,"durationMs"),int(source,"width"),int(source,"height"),
-            int(source,"videoTracks"),int(source,"audioTracks"),boolean(source,"hdr"),integer(source,"bytes"),decodeStreams(source,fullAudioWriter(family)))
+            int(source,"videoTracks"),int(source,"audioTracks"),boolean(source,"hdr"),integer(source,"bytes"),decodeStreams(source,fullAudioWriter(family)),displayRotationDegrees=displayRotation)
     }
     private fun decodeTrim(trim: JSONObject): Trim {
         fields(trim,setOf("startMs","endMs"))

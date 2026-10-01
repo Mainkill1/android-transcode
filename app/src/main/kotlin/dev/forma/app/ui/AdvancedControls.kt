@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,13 +66,29 @@ import kotlin.math.roundToLong
                 update(dev.forma.app.audio.AudioEditorSettings.withStereo(s,it),"audio.channels")
             }
         }
-        ui.selected?.let { edit -> Section("Trim selected file") {
+        ui.selected?.let { edit -> AdvancedTrimControls(edit,action) }
+        ui.selected?.let { EditControls(it, s, action) }
+        Section("Output details") {
+            Toggle("Keep source metadata", s.keepMetadata) { update(s.copy(keepMetadata = it)) }
+            Text("One audio track · No subtitles", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable internal fun AdvancedTrimControls(edit:SourceEdit,action:(UiAction)->Unit) {
+    Section("Trim selected file") {
+            var pendingTrim by remember(edit.source.uri) { mutableStateOf<Trim?>(null) }
             Text(edit.source.name, style = MaterialTheme.typography.labelLarge)
             Text("Keep ${mediaTime(edit.trim.startMs)} – ${mediaTime(edit.trim.endMs ?: edit.source.durationMs)}")
             RangeSlider(value = edit.trim.startMs.toFloat()..(edit.trim.endMs ?: edit.source.durationMs).toFloat(),
-                onValueChange = { range -> if (range.endInclusive - range.start >= 50f) action(UiAction.ChangeTrim(edit.source.uri,
-                    Trim(range.start.roundToLong(), range.endInclusive.roundToLong()))) },
+                onValueChange = { range -> if (range.endInclusive - range.start >= 50f) {
+                    val next=Trim(range.start.roundToLong(), range.endInclusive.roundToLong())
+                    pendingTrim=next
+                    action(UiAction.ChangeTrim(edit.source.uri,next,commit=false))
+                } },
+                onValueChangeFinished = {pendingTrim?.let {action(UiAction.ChangeTrim(edit.source.uri,it,commit=true))};pendingTrim=null},
                 valueRange = 0f..edit.source.durationMs.toFloat(),
+                modifier = Modifier.testTag("advanced-trim-range"),
                 startThumb = { Text("[", Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).wrapContentSize(), fontSize = 32.sp) },
                 endThumb = { Text("]", Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).wrapContentSize(), fontSize = 32.sp) })
             Text("Keep the selected range", style = MaterialTheme.typography.bodySmall)
@@ -80,14 +97,8 @@ import kotlin.math.roundToLong
                 TextButton(onClick = { action(UiAction.ChangeTrim(edit.source.uri, Trim((edit.trim.startMs + 100).coerceAtMost((edit.trim.endMs ?: edit.source.durationMs) - 50).coerceAtLeast(0), edit.trim.endMs))) }) { Text("Start +0.1s") }
                 TextButton(onClick = { action(UiAction.ChangeTrim(edit.source.uri, Trim())) }) { Text("Use entire file") }
             }
-        } }
-        ui.selected?.let { EditControls(it, s, action) }
-        Section("Output details") {
-            Toggle("Keep source metadata", s.keepMetadata) { update(s.copy(keepMetadata = it)) }
-            Text("One audio track · No subtitles", style = MaterialTheme.typography.bodySmall)
-        }
     }
-}
+    }
 
 /** A touch-friendly selector instead of a small cascading menu. */
 @Composable internal fun <T> Choice(label: String, value: T, options: List<T>, title: (T) -> String,

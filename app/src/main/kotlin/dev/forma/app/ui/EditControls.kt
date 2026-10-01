@@ -77,18 +77,18 @@ import dev.forma.core.*
 
 @Composable private fun CropDialog(edit: SourceEdit, onDismiss: () -> Unit, apply: (CropRect?) -> Unit) {
     val c = edit.effects.crop
+    val size=PreviewGeometry.displaySize(edit.source.width,edit.source.height,edit.source.displayRotationDegrees)
     var x by remember { mutableStateOf((c?.x ?: 0).toString()) }
     var y by remember { mutableStateOf((c?.y ?: 0).toString()) }
-    var width by remember { mutableStateOf((c?.width ?: edit.source.width / 2 * 2).toString()) }
-    var height by remember { mutableStateOf((c?.height ?: edit.source.height / 2 * 2).toString()) }
+    var width by remember { mutableStateOf((c?.width ?: (size?.first ?: 0) / 2 * 2).toString()) }
+    var height by remember { mutableStateOf((c?.height ?: (size?.second ?: 0) / 2 * 2).toString()) }
     val values = listOf(x, y, width, height).map { it.toIntOrNull() }
     val crop = if (values.all { it != null }) CropRect(values[0]!!, values[1]!!, values[2]!!, values[3]!!) else null
-    val valid = crop != null && crop.x >= 0 && crop.y >= 0 && crop.width >= 4 && crop.height >= 4 &&
-        listOf(crop.x, crop.y, crop.width, crop.height).all { it % 2 == 0 } &&
-        crop.x.toLong() + crop.width <= edit.source.width && crop.y.toLong() + crop.height <= edit.source.height
+    val valid = crop != null && size != null && PreviewGeometry.validExportCrop(crop,size.first,size.second)
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Crop in source pixels") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Even coordinates and dimensions inside ${edit.source.width} × ${edit.source.height}. Display-matrix sources need separate crop qualification.")
+            Text(size?.let { "Even coordinates and dimensions inside ${it.first} × ${it.second}." }
+                ?: "This source has an unsupported display transform; crop is unavailable.")
             CropNumber("X", x) { x = it }; CropNumber("Y", y) { y = it }
             CropNumber("Width", width) { width = it }; CropNumber("Height", height) { height = it }
             if (!valid) Text("Enter an in-bounds crop of at least 4 × 4.", color = MaterialTheme.colorScheme.error)

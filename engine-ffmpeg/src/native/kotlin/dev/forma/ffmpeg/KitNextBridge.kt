@@ -109,6 +109,16 @@ internal class KitNextBridge : FfmpegBridge {
                 listOf("mastering display", "content light", "dovi", "hdr").any { type.contains(it, ignoreCase = true) }
             }
         } ?: false
+        val transforms=v?.optJSONArray("side_data_list")?.let { entries ->
+            (0 until entries.length()).mapNotNull { index -> entries.optJSONObject(index) }
+                .filter { it.has("displaymatrix") || it.has("rotation") }
+        }.orEmpty()
+        val displayRotation=if(transforms.size>1) null else {
+            val transform=transforms.singleOrNull()
+            val reported=transform?.optDouble("rotation",Double.NaN)?.takeIf(Double::isFinite)
+                ?: v?.optJSONObject("tags")?.optString("rotate")?.toDoubleOrNull()
+            PreviewGeometry.metadataRotation(transform?.optString("displaymatrix"),reported)
+        }
         Source(localPath, File(localPath).name, (duration * 1000).toLong(), v?.optInt("width") ?: 0,
             v?.optInt("height") ?: 0, video.size, audio.size,
             v != null && ColorRules.needsQualifiedPipeline(pixelFormat, v.optString("color_transfer"), v.optInt("bits_per_raw_sample"),
@@ -131,7 +141,7 @@ internal class KitNextBridge : FfmpegBridge {
                     title = tags?.optString("title")?.takeIf { it.isNotEmpty() },
                     timelineOffsetUs = stream.optString("start_time").toDoubleOrNull()?.takeIf { it.isFinite() }?.let {
                         ((it - (v?.optString("start_time")?.toDoubleOrNull() ?: 0.0)) * 1000000).toLong() })
-            })
+            },displayRotationDegrees=displayRotation)
     }
 
     /** Kept for single-route callers; production exports use prepareAttempts and ExportRetry. */

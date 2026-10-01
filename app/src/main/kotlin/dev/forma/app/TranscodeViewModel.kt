@@ -10,6 +10,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.forma.app.service.TranscodeService
 import dev.forma.app.service.DeliveryService
+import dev.forma.app.video.VideoFrameController
+import dev.forma.app.video.VideoDraft
+import dev.forma.app.video.VideoDraftLoad
 import dev.forma.app.work.ProgressGate
 import dev.forma.core.*
 import dev.forma.core.image.*
@@ -52,7 +55,15 @@ data class TranscodeUiState(
     val moviePreviewJobId: String? = null,
     val moviePreviewRevision: Long? = null,
     val destinationMode: String = "forma",
-    val chosenFolderLabel: String? = null
+    val chosenFolderLabel: String? = null,
+    val videoTool:String = "Crop",
+    val videoRevision:Long = 0,
+    val videoCanUndo:Boolean = false,
+    val videoCanRedo:Boolean = false,
+    val videoDraftDirty:Boolean = false,
+    val videoDraftBusy:Boolean = false,
+    val videoDraftExitSerial:Long = 0,
+    val videoDraftExitResult:String? = null
 ) {
     val imageDocument get() = selected?.source?.uri?.let(imageDocuments::get)
     val selected: SourceEdit? get() = sources.firstOrNull { it.source.uri == selectedUri } ?: sources.firstOrNull()
@@ -65,6 +76,15 @@ data class TranscodeUiState(
 }
 
 sealed interface UiAction {
+    data class ChangeVideoEdit(val edit:SourceEdit,val commit:Boolean=true):UiAction
+    data class VideoTool(val tool:String):UiAction
+    data object UndoVideo:UiAction
+    data object RedoVideo:UiAction
+    data object SaveVideoDraft:UiAction
+    data object DiscardVideoDraft:UiAction
+    data class SeekQuickVideo(val timeMs:Long):UiAction
+    data class RenderVideoPreview(val playheadMs:Long):UiAction
+    data object CloseVideoPreview:UiAction
     data object ToggleImageEditor : UiAction
     data object UndoImage : UiAction
     data object RedoImage : UiAction
@@ -106,7 +126,7 @@ sealed interface UiAction {
     data class ChangeSettings(val settings: Settings, val preferences: MediaPreferences? = null, val explicitIds: Set<String> = emptySet()) : UiAction
     data class Select(val uri: String) : UiAction
     data class RemoveSource(val uri: String) : UiAction
-    data class ChangeTrim(val uri: String, val trim: Trim) : UiAction
+    data class ChangeTrim(val uri: String, val trim: Trim,val commit:Boolean=true) : UiAction
     data class ChangeEffects(val uri: String, val effects: ClipEffects) : UiAction
     data class RemoveJob(val id: String) : UiAction
     data class Retry(val id: String) : UiAction
@@ -119,6 +139,16 @@ sealed interface UiAction {
 
 class TranscodeViewModel(application: Application) : AndroidViewModel(application) {
     val graph = (application as FormaApplication).graph
+    private val videoFrames=VideoFrameController(application,viewModelScope)
+    val videoFrame=videoFrames.state
+    val videoRender=graph.videoPreviews.state
+    private data class VideoHistory(val current:SourceEdit,val past:List<SourceEdit> = emptyList(),val future:List<SourceEdit> = emptyList())
+    private data class VideoSession(val tool:String="Crop",val revision:Long=0,val dirty:Boolean=false)
+    private val videoHistory=mutableMapOf<String,VideoHistory>()
+    private val videoSessions=mutableMapOf<String,VideoSession>()
+    private data class VideoGestureBase(val edit:SourceEdit,val dirty:Boolean)
+    private val videoGestureBase=mutableMapOf<String,VideoGestureBase>()
+    private var videoSave:Job?=null
     private val mutable = MutableStateFlow(TranscodeUiState())
     val state = mutable.asStateFlow()
     val jobs = graph.queue.entries
@@ -183,6 +213,22 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         initialization = viewModelScope.launch {
             try {
                 graph.initialize()
+                if(mutable.value.sources.isEmpty()) when(val draft=graph.videoDrafts.latest()) {
+                    is VideoDraftLoad.Valid -> {
+                        val source=draft.draft.edit.source
+                        val readable=withContext(Dispatchers.IO) { runCatching {
+                            getApplication<Application>().contentResolver.openInputStream(Uri.parse(source.uri))?.use { true } ?: false
+                        }.getOrDefault(false) }
+                        if(readable) {
+                            videoHistory[source.uri]=VideoHistory(draft.draft.edit)
+                            videoSessions[source.uri]=VideoSession(draft.draft.tool,draft.draft.revision,false)
+                            mutable.update { it.copy(sources=listOf(draft.draft.edit),selectedUri=source.uri,
+                                videoTool=draft.draft.tool,videoRevision=draft.draft.revision,videoDraftDirty=false) }
+                        } else mutable.update { it.copy(message="Saved video draft source is unavailable. Add the source again to continue editing.") }
+                    }
+                    is VideoDraftLoad.Corrupt -> mutable.update { it.copy(message="Saved video draft is damaged. Its source was kept for recovery.") }
+                    VideoDraftLoad.Missing -> Unit
+                }
                 if(graph.queue.entries.value.any { it.state==JobState.COMPLETED &&
                     (it.delivery.receipt==DeliveryReceipt.Waiting || it.delivery.receipt is DeliveryReceipt.Copying) })
                     runCatching { DeliveryService.start(getApplication()) }.onFailure { error ->
@@ -212,16 +258,183 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             catch (error: Exception) { mutable.update { it.copy(ready = false, message = "Could not open the app's queue: ${error.message}") } }
         }
     }
-    private fun edit(change: (TranscodeUiState) -> TranscodeUiState) = mutable.update { old ->
+    private fun edit(change: (TranscodeUiState) -> TranscodeUiState) {
+        val before=mutable.value
+        mutable.update { old ->
         val next = change(old)
         val previewChanged = AudioEditorSettings.previewKey(old.selected,old.editor.settings) != AudioEditorSettings.previewKey(next.selected,next.editor.settings)
         if (previewChanged) graph.previews.invalidate()
         val audio = if (previewChanged) next.audioEditor.copy(revision=old.audioEditor.revision+1,
             preview=next.audioEditor.preview.copy(identity="",status=if(next.audioEditor.preview.result!=null) "Stale" else "Not rendered",error=null)) else next.audioEditor
         next.copy(audioEditor=audio, validating = if (key(next) != key(old)) true else old.validating)
+        }
+        val after=mutable.value
+        if(before.sources!=after.sources || before.selectedUri!=after.selectedUri ||
+            before.editor.settings!=after.editor.settings) graph.videoPreviews.invalidate()
+    }
+
+    fun requestQuickVideoFrame(timeMs:Long,revision:Long) {
+        val selected=mutable.value.selected?.source ?: return
+        if(selected.videoTracks>0 && selected.imageInfo==null) videoFrames.request(selected,timeMs,revision)
+    }
+
+    private fun rememberSelectedVideoSession() {
+        val ui=mutable.value;val source=ui.selected?.source ?:return
+        if(source.videoTracks>0 && source.imageInfo==null)
+            videoSessions[source.uri]=VideoSession(ui.videoTool,ui.videoRevision,ui.videoDraftDirty)
+    }
+
+    private fun showVideoSession(uri:String?) {
+        val selected=mutable.value.sources.firstOrNull {it.source.uri==uri}
+        val session=if((selected?.source?.videoTracks ?: 0)>0 && selected?.source?.imageInfo==null)
+            uri?.let(videoSessions::get) ?: VideoSession() else VideoSession()
+        val history=uri?.let(videoHistory::get)
+        mutable.update {it.copy(videoTool=session.tool,videoRevision=session.revision,
+            videoCanUndo=history?.past?.isNotEmpty()==true,videoCanRedo=history?.future?.isNotEmpty()==true,
+            videoDraftDirty=session.dirty)}
+    }
+
+    private fun changeVideoEdit(value:SourceEdit,commit:Boolean) {
+        if(mutable.value.videoDraftBusy || mutable.value.selected?.source?.uri!=value.source.uri)return
+        val current=mutable.value.sources.firstOrNull {it.source.uri==value.source.uri} ?: return
+        if(value.source!=current.source) return
+        if(value.trim.startMs<0 || value.trim.startMs>=value.source.durationMs ||
+            value.trim.endMs?.let {it<=value.trim.startMs || it>value.source.durationMs}==true) return
+        value.effects.crop?.let {crop ->
+            val size=PreviewGeometry.displaySize(value.source.width,value.source.height,value.source.displayRotationDegrees) ?: return
+            if(!PreviewGeometry.validExportCrop(crop,size.first,size.second)) return
+        }
+        if(value!=current) graph.videoPreviews.invalidate()
+        val uri=value.source.uri
+        val history=videoHistory[uri] ?: VideoHistory(current)
+        val gesture=if(commit) videoGestureBase.remove(uri) else {
+            videoGestureBase.putIfAbsent(uri,VideoGestureBase(history.current,mutable.value.videoDraftDirty));null
+        }
+        val baseline=gesture?.edit ?: history.current
+        val next=if(commit && value!=baseline)
+            VideoHistory(value,(history.past+baseline).takeLast(40))
+        else history.copy(current=value)
+        videoHistory[uri]=next
+        val revision=mutable.value.videoRevision+(if(commit && value!=baseline) 1 else 0)
+        mutable.update { old -> old.copy(sources=old.sources.map {if(it.source.uri==uri)value else it},
+            videoRevision=revision,videoCanUndo=next.past.isNotEmpty(),videoCanRedo=next.future.isNotEmpty(),
+            videoDraftDirty=if(commit && gesture!=null && value==baseline)gesture.dirty
+                else old.videoDraftDirty || value!=baseline) }
+        rememberSelectedVideoSession()
+        if(commit) saveVideoDraft(value,revision)
+    }
+
+    private fun restoreVideoHistory(redo:Boolean) {
+        mutable.value.selected?.source?.uri?.let(::rollbackVideoGesture)
+        val current=mutable.value.selected ?: return
+        val history=videoHistory[current.source.uri] ?: return
+        if(redo && history.future.isEmpty() || !redo && history.past.isEmpty()) return
+        val next=if(redo) VideoHistory(history.future.last(),history.past+history.current,history.future.dropLast(1))
+            else VideoHistory(history.past.last(),history.past.dropLast(1),history.future+history.current)
+        videoHistory[current.source.uri]=next
+        graph.videoPreviews.invalidate()
+        val revision=mutable.value.videoRevision+1
+        mutable.update {old -> old.copy(sources=old.sources.map {if(it.source.uri==current.source.uri)next.current else it},
+            videoRevision=revision,videoCanUndo=next.past.isNotEmpty(),videoCanRedo=next.future.isNotEmpty(),videoDraftDirty=true)}
+        rememberSelectedVideoSession()
+        saveVideoDraft(next.current,revision)
+    }
+
+    private fun rollbackVideoGesture(uri:String) {
+        val baseline=videoGestureBase.remove(uri) ?:return
+        videoHistory[uri]=videoHistory[uri]?.copy(current=baseline.edit) ?: VideoHistory(baseline.edit)
+        graph.videoPreviews.invalidate()
+        mutable.update {ui -> ui.copy(sources=ui.sources.map {if(it.source.uri==uri)baseline.edit else it},
+            videoDraftDirty=if(ui.selected?.source?.uri==uri)baseline.dirty else ui.videoDraftDirty)}
+        if(mutable.value.selected?.source?.uri==uri)rememberSelectedVideoSession()
+    }
+
+    private fun saveVideoDraft(edit:SourceEdit,revision:Long) {
+        val previous=videoSave
+        val tool=mutable.value.videoTool
+        videoSave=graph.launchDurable {try {
+            previous?.join()
+            graph.videoDrafts.save(VideoDraft(edit,tool,revision))
+        } catch(cancel:CancellationException) {throw cancel}
+        catch(error:Exception) {withContext(Dispatchers.Main.immediate) {
+            videoSessions[edit.source.uri]=videoSessions[edit.source.uri]?.copy(dirty=true) ?: VideoSession(dirty=true)
+            mutable.update {ui -> if(ui.selected?.source?.uri==edit.source.uri)
+                ui.copy(videoDraftDirty=true,message="Could not save video draft: ${error.message}")
+                else ui.copy(message="Could not save video draft: ${error.message}") }
+        }}}
+    }
+
+    override fun onCleared() {
+        videoFrames.close()
+        super.onCleared()
     }
     fun act(action: UiAction) {
         when (action) {
+            is UiAction.ChangeVideoEdit -> changeVideoEdit(action.edit,action.commit)
+            is UiAction.VideoTool -> {
+                mutable.value.selected?.source?.uri?.let(::rollbackVideoGesture)
+                mutable.update {it.copy(videoTool=action.tool)}
+                rememberSelectedVideoSession()
+                mutable.value.selected?.let {saveVideoDraft(it,mutable.value.videoRevision)}
+            }
+            UiAction.UndoVideo -> restoreVideoHistory(false)
+            UiAction.RedoVideo -> restoreVideoHistory(true)
+            UiAction.SaveVideoDraft -> mutable.value.selected?.let {current ->
+                if(!mutable.value.videoDraftBusy) {
+                    rollbackVideoGesture(current.source.uri)
+                    val selected=mutable.value.selected ?:return@let
+                    val previous=videoSave;val revision=mutable.value.videoRevision;val tool=mutable.value.videoTool
+                    mutable.update {it.copy(videoDraftBusy=true,videoDraftExitResult=null)}
+                    videoSave=graph.launchDurable {
+                        try {
+                            previous?.join()
+                            graph.videoDrafts.save(VideoDraft(selected,tool,revision))
+                            withContext(Dispatchers.Main.immediate) {
+                                videoSessions[selected.source.uri]=VideoSession(tool,revision,false)
+                                mutable.update {ui -> ui.copy(videoDraftBusy=false,
+                                    videoDraftDirty=if(ui.selected?.source?.uri==selected.source.uri)false else ui.videoDraftDirty,
+                                    videoDraftExitSerial=ui.videoDraftExitSerial+1,videoDraftExitResult="saved")}
+                            }
+                        } catch(cancel:CancellationException) {throw cancel}
+                        catch(error:Exception) {withContext(Dispatchers.Main.immediate) {mutable.update {it.copy(
+                            videoDraftBusy=false,videoDraftExitSerial=it.videoDraftExitSerial+1,
+                            videoDraftExitResult="error",message="Could not save video draft: ${error.message}")} }}
+                    }
+                }
+            }
+            UiAction.DiscardVideoDraft -> mutable.value.selected?.let {selected ->
+                if(!mutable.value.videoDraftBusy) {
+                    val previous=videoSave
+                    mutable.update {it.copy(videoDraftBusy=true,videoDraftExitResult=null)}
+                    videoSave=graph.launchDurable {
+                        try {
+                            previous?.join()
+                            graph.videoDrafts.discard(selected.source.uri)
+                            withContext(Dispatchers.Main.immediate) {
+                                graph.videoPreviews.invalidate()
+                                val reset=selected.copy(trim=Trim(),effects=ClipEffects())
+                                videoHistory.remove(selected.source.uri);videoGestureBase.remove(selected.source.uri)
+                                videoSessions.remove(selected.source.uri)
+                                mutable.update {ui -> ui.copy(sources=ui.sources.map {if(it.source.uri==selected.source.uri)reset else it},
+                                    videoRevision=if(ui.selected?.source?.uri==selected.source.uri)ui.videoRevision+1 else ui.videoRevision,
+                                    videoCanUndo=if(ui.selected?.source?.uri==selected.source.uri)false else ui.videoCanUndo,
+                                    videoCanRedo=if(ui.selected?.source?.uri==selected.source.uri)false else ui.videoCanRedo,
+                                    videoDraftDirty=if(ui.selected?.source?.uri==selected.source.uri)false else ui.videoDraftDirty,
+                                    videoDraftBusy=false,videoDraftExitSerial=ui.videoDraftExitSerial+1,videoDraftExitResult="discarded")}
+                            }
+                        } catch(cancel:CancellationException) {throw cancel}
+                        catch(error:Exception) {withContext(Dispatchers.Main.immediate) {mutable.update {it.copy(
+                            videoDraftBusy=false,videoDraftExitSerial=it.videoDraftExitSerial+1,
+                            videoDraftExitResult="error",message="Could not discard video draft: ${error.message}")} }}
+                    }
+                }
+            }
+            is UiAction.SeekQuickVideo -> requestQuickVideoFrame(action.timeMs,mutable.value.videoRevision)
+            is UiAction.RenderVideoPreview -> mutable.value.selected?.let { selected ->
+                graph.videoPreviews.request(selected,selected.snapshot(mutable.value.editor.settings),
+                    action.playheadMs,mutable.value.videoRevision)
+            }
+            UiAction.CloseVideoPreview -> graph.videoPreviews.invalidate()
             UiAction.ToggleImageEditor -> {
                 mutable.update { it.copy(imageEditor=it.imageEditor.copy(open=!it.imageEditor.open)) }
                 if(mutable.value.imageEditor.open)renderImage(false)
@@ -285,11 +498,29 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                     preferences=preferences),
                     audioEditor=if(audioChanged)it.audioEditor.copy(canUndo=audioHistory.canUndo,canRedo=audioHistory.canRedo) else it.audioEditor) }
             }
-            is UiAction.Select -> { edit { it.copy(selectedUri = action.uri) }; if(mutable.value.imageEditor.open)renderImage(false) }
-            is UiAction.RemoveSource -> edit { it.copy(validating = true, sources = it.sources.filterNot { e -> e.source.uri == action.uri }) }
-            is UiAction.ChangeTrim -> edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(trim = action.trim) else e }) }
+            is UiAction.Select -> {
+                graph.videoPreviews.invalidate();mutable.value.selected?.source?.uri?.let(::rollbackVideoGesture);rememberSelectedVideoSession()
+                edit { it.copy(selectedUri = action.uri) };showVideoSession(action.uri)
+                if(mutable.value.imageEditor.open)renderImage(false)
+            }
+            is UiAction.RemoveSource -> {
+                graph.videoPreviews.invalidate();mutable.value.selected?.source?.uri?.let(::rollbackVideoGesture);rememberSelectedVideoSession()
+                edit { it.copy(validating = true, sources = it.sources.filterNot { e -> e.source.uri == action.uri }) }
+                showVideoSession(mutable.value.selected?.source?.uri)
+            }
+            is UiAction.ChangeTrim -> {
+                val current=mutable.value.sources.firstOrNull {it.source.uri==action.uri}
+                if((current?.source?.videoTracks ?: 0)>0 && current?.source?.imageInfo==null)
+                    changeVideoEdit(current!!.copy(trim=action.trim),action.commit)
+                else edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(trim = action.trim) else e }) }
+            }
             is UiAction.SetTargetBytes -> { action.targetBytes?.let(UploadFit::validateTarget); edit { it.copy(targetBytes=action.targetBytes,editor=it.editor.copy(targetBytes=action.targetBytes)) } }
-            is UiAction.ChangeEffects -> edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(effects = action.effects) else e }) }
+            is UiAction.ChangeEffects -> {
+                val current=mutable.value.sources.firstOrNull {it.source.uri==action.uri}
+                if((current?.source?.videoTracks ?: 0)>0 && current?.source?.imageInfo==null)
+                    changeVideoEdit(current!!.copy(effects=action.effects),true)
+                else edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(effects = action.effects) else e }) }
+            }
             UiAction.Queue -> enqueue(false)
             UiAction.Convert -> enqueue(true)
             UiAction.StartQueue -> runOperation { startQueue() }
@@ -465,6 +696,8 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                     val imported = SourceEdit(if (shared) graph.files.importShared(uri) else graph.files.inspect(uri))
                     initializeImage(imported.source)
                     // Publish completed files incrementally. Cancelling preserves already imported sources.
+                    mutable.value.selected?.source?.uri?.let(::rollbackVideoGesture)
+                    rememberSelectedVideoSession()
                     edit { old -> old.copy(validating = true,
                         message = if (old.sources.isEmpty() && !settingsChosen && imported.source.videoTracks == 0 && imported.source.imageInfo == null)
                             AudioEditorSettings.audioImportProblem(old.editor.settings) ?: old.message else old.message,
@@ -473,6 +706,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                                 preferences=old.editor.preferences.changed(old.editor.settings,AudioEditorSettings.audioImport(old.editor.settings))) else old.editor,
                         sources = (old.sources + imported).distinctBy { it.source.uri },
                         selectedUri = if (shared && index == 0) imported.source.uri else old.selectedUri ?: imported.source.uri) }
+                    showVideoSession(mutable.value.selected?.source?.uri)
                 } catch (cancel: CancellationException) { throw cancel }
                 catch (error: Exception) { errors += error.message ?: "A selected file could not be inspected." }
             }
@@ -490,6 +724,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         mutable.update { it.copy(message = "Copy saved.") }
     }
     private fun enqueue(start: Boolean) {
+        videoGestureBase.keys.toList().forEach(::rollbackVideoGesture)
         val draft = mutable.value // immutable request snapshot; later edits cannot rewrite it
         runOperation {
             require(draft.sources.isNotEmpty()) { "Choose media first." }

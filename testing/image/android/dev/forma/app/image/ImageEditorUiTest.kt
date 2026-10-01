@@ -7,11 +7,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.Modifier
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forma.app.*
 import dev.forma.app.ui.FormaTheme
 import dev.forma.app.ui.image.ImageEditorPanel
+import dev.forma.app.ui.image.ImageCanvas
 import dev.forma.core.*
 import dev.forma.core.image.*
 import org.junit.Rule
@@ -23,10 +26,34 @@ class ImageEditorUiTest {
     @Test fun nativeImageToolsHaveNumericCropAndNoVideoControls() {
         val info=ImageInfo(101,77,ImageFormat.PNG,alpha=ImageAlpha.PRESENT,hash="a".repeat(64),bytes=100)
         val doc=ImageEditDocument(source=ImageSource("content://one","one.png",info.hash,100))
-        compose.setContent { FormaTheme { ImageEditorPanel(doc,info,ImageEditorState(open=true),ImagePreviewState(),Capabilities(),{}) } }
+        compose.setContent { FormaTheme { ImageEditorPanel(doc,info,ImageEditorState(open=true),ImagePreviewState(),Capabilities(),action={}) } }
         compose.onNodeWithText("Crop").assertExists();compose.onNodeWithText("Left px").assertExists()
         compose.onNodeWithText("Fit").assertExists();compose.onNodeWithText("100%").assertExists()
         compose.onNodeWithText("FPS").assertDoesNotExist();compose.onNodeWithText("Trim").assertDoesNotExist()
+    }
+    @Test fun cropDragCommitsLatestVisibleImageRectOnce() {
+        val context=InstrumentationRegistry.getInstrumentation().targetContext
+        val folder=File(context.filesDir,"imports/image-drag-${UUID.randomUUID()}")
+        try {
+            val (file,info)=ImageFixtures.png(context,folder,100,100)
+            var document by mutableStateOf(ImageEditDocument(source=ImageFixtures.source(context,file,info)))
+            val actions=mutableListOf<UiAction.ChangeImage>()
+            compose.setContent {FormaTheme {ImageCanvas(document,info,ImagePreviewState(),"Crop") {action ->
+                if(action is UiAction.ChangeImage) {actions+=action;document=action.document}
+            }}}
+            compose.waitUntil(5_000) {
+                runCatching {compose.onNodeWithTag("image-canvas").fetchSemanticsNode().config[SemanticsProperties.StateDescription]}.getOrNull()=="Image loaded"
+            }
+            compose.onNodeWithTag("image-canvas").performTouchInput {
+                val fit=minOf(width/100f,height/100f)
+                val corner=Offset((width-100*fit)/2,(height-100*fit)/2)
+                swipe(start=corner,end=corner+Offset(80f,80f),durationMillis=400)
+            }
+            compose.runOnIdle {
+                org.junit.Assert.assertEquals("actions=$actions",1,actions.count {it.commit})
+                org.junit.Assert.assertTrue(document.crop.left>0.0)
+            }
+        } finally {folder.deleteRecursively()}
     }
     @Test fun publishedBitmapsSurviveDecodeEditorAndPreviewReplacement() {
         val context=InstrumentationRegistry.getInstrumentation().targetContext
