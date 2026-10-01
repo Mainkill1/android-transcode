@@ -67,4 +67,19 @@ class SettingsScreenTest {
         compose.onNodeWithTag("settings-row:power.auto_continue").performClick()
         compose.onNodeWithText("Planned — not active in exports.").assertIsDisplayed()
     }
+
+    @Test fun choosingCustomSaveFolderLaunchesPickerBeforeChangingDefault() {
+        val state=mutableStateOf(SettingsDraft(SettingsDocument()))
+        var pickerCalls=0
+        compose.setContent { FormaTheme { SettingsPanel(state.value,PreferenceValues.EMPTY,false,
+            onValuesChanged={ state.value=state.value.copy(values=it) },onSave={},onDiscard={},onClose={},
+            onChooseSaveFolder={ pickerCalls++ }) } }
+        compose.onNodeWithTag("settings-search").performTextInput("export.destination")
+        compose.onNodeWithTag("settings-row:export.destination").performClick()
+        compose.onNodeWithTag("settings-option:export.destination:custom").performClick()
+        compose.runOnIdle {
+            assertEquals(1,pickerCalls)
+            assertEquals(null,state.value.values["export.destination"])
+        }
+    }
 }

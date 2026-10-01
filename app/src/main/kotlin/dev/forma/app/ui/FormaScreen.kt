@@ -109,6 +109,8 @@ import kotlin.math.ceil
                                 "${size?.let{"${it.width} × ${it.height}"}?:"Check dimensions"} · ${image.output.format.name} · ${image.output.targetBytes?.let{"< $it bytes"}?:"No size limit"}"
                             }else "${ui.sources.size} file(s) · ${ui.editor.settings.container.name} · ${byteLimitLabel(ui.targetBytes)}"
                             Text(summary, style = MaterialTheme.typography.labelMedium)
+                            Text("Saves to ${ui.saveLocationLabel}", style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.testTag("save-location"))
                             val queueable = ui.ready && !ui.busy && !ui.validating && ui.problems.isEmpty()
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = { onAction(UiAction.Queue) }, enabled = queueable, modifier = Modifier.weight(1f)) { Text("Add to queue") }

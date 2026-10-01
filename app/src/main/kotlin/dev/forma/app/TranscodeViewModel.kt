@@ -49,10 +49,18 @@ data class TranscodeUiState(
     val movieRevision: Long = 0,
     val selectedMovieClipId: String? = null,
     val moviePreviewJobId: String? = null,
-    val moviePreviewRevision: Long? = null
+    val moviePreviewRevision: Long? = null,
+    val destinationMode: String = "forma",
+    val chosenFolderLabel: String? = null
 ) {
     val imageDocument get() = selected?.source?.uri?.let(imageDocuments::get)
     val selected: SourceEdit? get() = sources.firstOrNull { it.source.uri == selectedUri } ?: sources.firstOrNull()
+    val saveLocationLabel: String get() = if(destinationMode=="custom") chosenFolderLabel ?: "chosen folder" else when {
+        sources.map { if(it.source.imageInfo!=null) MediaCategory.IMAGE else if(editor.settings.container.audioOnly || it.source.videoTracks==0) MediaCategory.AUDIO else MediaCategory.VIDEO }.distinct().size>1 -> "Forma media folders"
+        selected?.source?.imageInfo!=null -> "Pictures/Forma"
+        editor.settings.container.audioOnly || selected?.source?.videoTracks==0 -> "Music/Forma"
+        else -> "Movies/Forma"
+    }
 }
 
 sealed interface UiAction {
@@ -132,6 +140,11 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
 
     init {
         initialize()
+        viewModelScope.launch { graph.settings.state.collect { saved ->
+            val mode=(saved.document?.values?.get("export.destination") as? SettingValue.Choice)?.value ?: "forma"
+            val label=withContext(Dispatchers.IO) { runCatching { graph.treeGrants.selected()?.label }.getOrNull() }
+            mutable.update { it.copy(destinationMode=mode,chosenFolderLabel=label) }
+        } }
         viewModelScope.launch { graph.imagePreviews.state.collect { preview -> mutable.update { it.copy(imagePreview=preview) } } }
         viewModelScope.launch {
             mutable.map(::key).distinctUntilChanged().collectLatest { input ->
@@ -284,7 +297,15 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             is UiAction.Retry -> runOperation {
                 val old = jobs.value.first { it.spec.id == action.id }
                 require(old.state in setOf(JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED))
-                graph.queue.addTagged(listOf(old.spec.copy(id = UUID.randomUUID().toString())))
+                val retry=old.spec.copy(id = UUID.randomUUID().toString())
+                val values=graph.settings.state.value.document?.values ?: PreferenceValues.EMPTY
+                val delivery=if(old.delivery.destination==null) newDelivery(retry,values) else
+                    SaveDestinationPolicy.retry(old.delivery,retry,values,null)
+                val tree=delivery.destination as? SaveDestination.DocumentTree
+                if(tree!=null) require(withContext(Dispatchers.IO) { graph.treeGrants.validate(tree.uri) }) {
+                    "Forma cannot write to this job's chosen folder. Choose it again before retrying."
+                }
+                graph.queue.addTagged(listOf(retry),mapOf(retry.id to delivery))
                 mutable.update { it.copy(message = "A new copy of this job is waiting in the queue.") }
             }
             is UiAction.OpenSource -> launchRead {
@@ -484,8 +505,9 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                     QueueJobSpec.Av(job)
                 }
             }
-            graph.queue.addTagged(prepared)
             val values=graph.settings.state.value.document?.values ?: PreferenceValues.EMPTY
+            val deliveries=prepared.associate { spec -> spec.id to newDelivery(spec,values) }
+            graph.queue.addTagged(prepared,deliveries)
             if (start || ConsumerSettings.autoStart(values,runState.value.mode==dev.forma.app.work.RunMode.IDLE)) startQueue()
             else mutable.update { it.copy(message = "${draft.sources.size} file(s) added to queue.") }
         }
@@ -514,13 +536,22 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             val job = initial.copy(preferences=preferences)
             val problems = withContext(Dispatchers.Default) { JobPlans.validate(job, if (start) draft.capabilities else null) }
             require(problems.isEmpty()) { problems.joinToString("\n") }
-            graph.queue.addTagged(listOf(QueueJobSpec.Av(job)))
+            val tagged=QueueJobSpec.Av(job)
+            val values=graph.settings.state.value.document?.values ?: PreferenceValues.EMPTY
+            graph.queue.addTagged(listOf(tagged),if(preview) emptyMap() else mapOf(id to newDelivery(tagged,values)))
             if (preview) mutable.update { it.copy(moviePreviewJobId = id, moviePreviewRevision = draft.movieRevision,
                 message = "Rendered preview is queued. Open it after verification in the movie controls or queue.") }
             else mutable.update { it.copy(message = "Movie queued with an independent snapshot and verified size limit.") }
-            val values=graph.settings.state.value.document?.values ?: PreferenceValues.EMPTY
             if (start || ConsumerSettings.autoStart(values,runState.value.mode==dev.forma.app.work.RunMode.IDLE)) startQueue()
         }
+    }
+    private suspend fun newDelivery(spec: QueueJobSpec, values: PreferenceValues): Delivery = withContext(Dispatchers.IO) {
+        val mode=(values["export.destination"] as? SettingValue.Choice)?.value ?: "forma"
+        val tree=if(mode=="custom") graph.treeGrants.selected() else null
+        if(mode=="custom") require(tree!=null && graph.treeGrants.validate(tree.uri)) {
+            "Forma cannot write to your chosen folder. Open Save location and choose it again."
+        }
+        Delivery(SaveDestinationPolicy.snapshot(spec,values,tree),DeliveryReceipt.Waiting)
     }
     private suspend fun startQueue() {
         graph.previews.cancelAndJoin()

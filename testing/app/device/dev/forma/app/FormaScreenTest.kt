@@ -72,6 +72,13 @@ class FormaScreenTest {
         compose.setContent { FormaTheme { FormaScreen(TranscodeUiState(ready = true, sources = listOf(SourceEdit(source))), emptyList(), null, {}) } }
         compose.onNodeWithTag("convert").assertIsNotEnabled()
     }
+    @Test fun convertShowsWhereEachSelectedKindWillSave() {
+        var state by mutableStateOf(TranscodeUiState(ready=true,sources=listOf(SourceEdit(source))))
+        compose.setContent { FormaTheme { FormaScreen(state,emptyList(),null,{}) } }
+        compose.onNodeWithText("Saves to Movies/Forma").assertExists()
+        compose.runOnIdle { state=state.copy(destinationMode="custom",chosenFolderLabel="My exports") }
+        compose.onNodeWithText("Saves to My exports").assertExists()
+    }
     @Test fun leftShelfOpensTheQueueWithoutResettingTheEditor() {
         compose.setContent { FormaTheme { FormaScreen(TranscodeUiState(ready = true), emptyList(), null, {}) } }
         compose.onNodeWithTag("open-shelf").performClick()
