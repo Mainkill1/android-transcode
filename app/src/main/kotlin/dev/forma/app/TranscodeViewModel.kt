@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.forma.app.service.TranscodeService
 import dev.forma.app.service.DeliveryService
+import dev.forma.app.video.VideoFrameController
 import dev.forma.app.work.ProgressGate
 import dev.forma.core.*
 import dev.forma.core.image.*
@@ -119,6 +120,8 @@ sealed interface UiAction {
 
 class TranscodeViewModel(application: Application) : AndroidViewModel(application) {
     val graph = (application as FormaApplication).graph
+    private val videoFrames=VideoFrameController(application,viewModelScope)
+    val videoFrame=videoFrames.state
     private val mutable = MutableStateFlow(TranscodeUiState())
     val state = mutable.asStateFlow()
     val jobs = graph.queue.entries
@@ -219,6 +222,16 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         val audio = if (previewChanged) next.audioEditor.copy(revision=old.audioEditor.revision+1,
             preview=next.audioEditor.preview.copy(identity="",status=if(next.audioEditor.preview.result!=null) "Stale" else "Not rendered",error=null)) else next.audioEditor
         next.copy(audioEditor=audio, validating = if (key(next) != key(old)) true else old.validating)
+    }
+
+    fun requestQuickVideoFrame(timeMs:Long,revision:Long) {
+        val selected=mutable.value.selected?.source ?: return
+        if(selected.videoTracks>0 && selected.imageInfo==null) videoFrames.request(selected,timeMs,revision)
+    }
+
+    override fun onCleared() {
+        videoFrames.close()
+        super.onCleared()
     }
     fun act(action: UiAction) {
         when (action) {
