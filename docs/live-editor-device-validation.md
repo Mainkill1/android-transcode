@@ -3,7 +3,7 @@
 The lab APK was tested on the OnePlus 9 Pro (Android 16) and an API 28 emulator.
 The lab package is isolated from the user's normal Forma installation. The APK
 checked on the phone was SHA-256
-`23f46c9c67cc5caa1d644623986c29829d6e6d9125bef5f3c8851e28c0e9a2b9`.
+`92085d648d40a6a196c9d6df77f28241e5d1b15da76b49e1a62d7b939967d2f7`.
 
 ## Evidence
 
@@ -21,10 +21,11 @@ checked on the phone was SHA-256
   checked a 90-degree metadata source. Review repairs additionally passed
   foreground-conversion preemption, extractor cleanup after ViewModel scope
   cancellation, save-before-exit completion, and an odd-dimension rotated
-  crop gesture (13 focused tests). The strict queued-export editor smoke
+  crop gesture, one advanced-slider undo commit per drag, and rollback of an
+  unfinished crop before Save (15 focused tests). The strict queued-export editor smoke
   passed all five cases: neutral, speed, crop/color, fades, and audio-only.
 - Emulator (API 28): focused editor and quick-frame tests passed
-  (9 tests). The phone's repeated cached-frame crop gesture produced one undo
+  (10 tests). The phone's repeated cached-frame crop gesture produced one undo
   commit per drag and a 14.8 ms p95 state-to-Compose update across 12 drags.
   This measures Compose commit latency, not display-photon latency.
 

@@ -339,6 +339,15 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         saveVideoDraft(next.current,revision)
     }
 
+    private fun rollbackVideoGesture(uri:String) {
+        val baseline=videoGestureBase.remove(uri) ?:return
+        videoHistory[uri]=videoHistory[uri]?.copy(current=baseline.edit) ?: VideoHistory(baseline.edit)
+        graph.videoPreviews.invalidate()
+        mutable.update {ui -> ui.copy(sources=ui.sources.map {if(it.source.uri==uri)baseline.edit else it},
+            videoDraftDirty=if(ui.selected?.source?.uri==uri)baseline.dirty else ui.videoDraftDirty)}
+        if(mutable.value.selected?.source?.uri==uri)rememberSelectedVideoSession()
+    }
+
     private fun saveVideoDraft(edit:SourceEdit,revision:Long) {
         val previous=videoSave
         val tool=mutable.value.videoTool
@@ -368,8 +377,10 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             }
             UiAction.UndoVideo -> restoreVideoHistory(false)
             UiAction.RedoVideo -> restoreVideoHistory(true)
-            UiAction.SaveVideoDraft -> mutable.value.selected?.let {selected ->
+            UiAction.SaveVideoDraft -> mutable.value.selected?.let {current ->
                 if(!mutable.value.videoDraftBusy) {
+                    rollbackVideoGesture(current.source.uri)
+                    val selected=mutable.value.selected ?:return@let
                     val previous=videoSave;val revision=mutable.value.videoRevision;val tool=mutable.value.videoTool
                     mutable.update {it.copy(videoDraftBusy=true,videoDraftExitResult=null)}
                     videoSave=graph.launchDurable {
@@ -486,12 +497,12 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                     audioEditor=if(audioChanged)it.audioEditor.copy(canUndo=audioHistory.canUndo,canRedo=audioHistory.canRedo) else it.audioEditor) }
             }
             is UiAction.Select -> {
-                graph.videoPreviews.invalidate();rememberSelectedVideoSession()
+                graph.videoPreviews.invalidate();mutable.value.selected?.source?.uri?.let(::rollbackVideoGesture);rememberSelectedVideoSession()
                 edit { it.copy(selectedUri = action.uri) };showVideoSession(action.uri)
                 if(mutable.value.imageEditor.open)renderImage(false)
             }
             is UiAction.RemoveSource -> {
-                graph.videoPreviews.invalidate();rememberSelectedVideoSession()
+                graph.videoPreviews.invalidate();mutable.value.selected?.source?.uri?.let(::rollbackVideoGesture);rememberSelectedVideoSession()
                 edit { it.copy(validating = true, sources = it.sources.filterNot { e -> e.source.uri == action.uri }) }
                 showVideoSession(mutable.value.selected?.source?.uri)
             }
@@ -683,6 +694,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                     val imported = SourceEdit(if (shared) graph.files.importShared(uri) else graph.files.inspect(uri))
                     initializeImage(imported.source)
                     // Publish completed files incrementally. Cancelling preserves already imported sources.
+                    mutable.value.selected?.source?.uri?.let(::rollbackVideoGesture)
                     rememberSelectedVideoSession()
                     edit { old -> old.copy(validating = true,
                         message = if (old.sources.isEmpty() && !settingsChosen && imported.source.videoTracks == 0 && imported.source.imageInfo == null)
@@ -710,6 +722,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         mutable.update { it.copy(message = "Copy saved.") }
     }
     private fun enqueue(start: Boolean) {
+        videoGestureBase.keys.toList().forEach(::rollbackVideoGesture)
         val draft = mutable.value // immutable request snapshot; later edits cannot rewrite it
         runOperation {
             require(draft.sources.isNotEmpty()) { "Choose media first." }

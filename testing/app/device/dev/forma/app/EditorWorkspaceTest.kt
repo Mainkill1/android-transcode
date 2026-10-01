@@ -138,4 +138,21 @@ class EditorWorkspaceTest {
         }
         compose.runOnIdle {assertTrue("Crop handle did not move",current.effects.crop!=CropRect(0,0,640,480))}
     }
+
+    @Test fun advancedTrimDragCommitsOnlyOnceOnRelease() {
+        var current by mutableStateOf(edit)
+        val actions=mutableListOf<UiAction.ChangeTrim>()
+        compose.setContent {FormaTheme {AdvancedTrimControls(current) {action ->
+            if(action is UiAction.ChangeTrim) {actions+=action;current=current.copy(trim=action.trim)}
+        }}}
+        compose.onNodeWithText("Trim selected file").performClick()
+        compose.onNodeWithTag("advanced-trim-range").performTouchInput {
+            swipe(start=Offset(12f,height/2f),end=Offset(width/3f,height/2f),durationMillis=400)
+        }
+        compose.runOnIdle {
+            assertTrue("No provisional trim samples",actions.any {!it.commit})
+            assertEquals("One drag must create one undo command",1,actions.count {it.commit})
+            assertTrue(current.trim.startMs>0)
+        }
+    }
 }
