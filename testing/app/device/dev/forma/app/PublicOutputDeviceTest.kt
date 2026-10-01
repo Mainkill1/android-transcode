@@ -22,7 +22,76 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class PublicOutputDeviceTest {
-    @Test fun restartAdoptsItsJournaledTreeDocument() = runBlocking {
+    @Test fun retryAfterTreeGrantReturnsRemovesJournaledPartial() = runBlocking {
+        assumeTrue(Build.VERSION.SDK_INT in 26..28)
+        val app=InstrumentationRegistry.getInstrumentation().targetContext
+        val treeUri=Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMovies")
+        app.contentResolver.takePersistableUriPermission(treeUri,
+            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        val root=File(app.cacheDir,"tree-retained-${UUID.randomUUID()}").apply {mkdirs()}
+        val context=object:ContextWrapper(app) {override fun getFilesDir():File=root}
+        val id=UUID.randomUUID().toString()
+        val spec=QueueJobSpec.Av(JobSpec(id,Source("content://source","retained.mp4",1000,videoTracks=1),Trim(),Settings()))
+        val destination=TreeGrantStore(context).choose(treeUri.toString(),"Movies")
+        val parent=android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri,
+            android.provider.DocumentsContract.getTreeDocumentId(treeUri))
+        val partial=android.provider.DocumentsContract.createDocument(app.contentResolver,parent,"video/mp4",
+            "retained_forma_${id.take(8)}.mp4")!!
+        val queue=QueueRepository(context)
+        var saved:Uri?=null
+        try {
+            app.contentResolver.openOutputStream(partial)!!.use {it.write(byteArrayOf(0))}
+            queue.load();queue.addTagged(listOf(spec),mapOf(id to Delivery(destination,DeliveryReceipt.Waiting)))
+            for(state in listOf(JobState.PREPARING,JobState.RUNNING,JobState.VERIFYING,JobState.COMPLETED)) queue.transition(id,state)
+            val files=MediaFiles(context);files.output(spec).writeBytes(byteArrayOf(8,9,10))
+            assertTrue(queue.updateDelivery(id,DeliveryReceipt.Waiting,
+                Delivery(destination,DeliveryReceipt.Failed("Grant was lost; partial remains",partial.toString()))))
+            val publisher=PublicOutputPublisher(context,queue)
+            assertTrue(publisher.clearRetainedPartial(queue.entries.value.single(),partial.toString()))
+            assertFalse(runCatching {app.contentResolver.query(partial,
+                arrayOf(android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID),null,null,null)?.use {it.moveToFirst()} ?: false}.getOrDefault(false))
+            DeliveryWorker(queue,files,publisher).retry(id)
+            saved=Uri.parse((queue.entries.value.single().delivery.receipt as DeliveryReceipt.Saved).uri)
+            assertArrayEquals(byteArrayOf(8,9,10),app.contentResolver.openInputStream(saved)!!.use {it.readBytes()})
+        } finally {
+            saved?.let {runCatching {android.provider.DocumentsContract.deleteDocument(app.contentResolver,it)}}
+            runCatching {android.provider.DocumentsContract.deleteDocument(app.contentResolver,partial)}
+            root.deleteRecursively()
+        }
+    }
+
+    @Test fun journaledTreeDocumentUsesItsProviderReturnedFilename() = runBlocking {
+        assumeTrue(Build.VERSION.SDK_INT in 26..28)
+        val app=InstrumentationRegistry.getInstrumentation().targetContext
+        val treeUri=Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMovies")
+        app.contentResolver.takePersistableUriPermission(treeUri,
+            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        val root=File(app.cacheDir,"tree-renamed-${UUID.randomUUID()}").apply {mkdirs()}
+        val context=object:ContextWrapper(app) {override fun getFilesDir():File=root}
+        val id=UUID.randomUUID().toString()
+        val spec=QueueJobSpec.Av(JobSpec(id,Source("content://source","renamed.mp4",1000,videoTracks=1),Trim(),Settings()))
+        val name="renamed_forma_${id.take(8)}.mp4"
+        val destination=TreeGrantStore(context).choose(treeUri.toString(),"Movies")
+        val parent=android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri,
+            android.provider.DocumentsContract.getTreeDocumentId(treeUri))
+        val renamed=android.provider.DocumentsContract.createDocument(app.contentResolver,parent,"video/mp4",
+            "provider-changed-${id.take(8)}.mp4")!!
+        val queue=QueueRepository(context)
+        try {
+            queue.load();queue.addTagged(listOf(spec),mapOf(id to Delivery(destination,DeliveryReceipt.Waiting)))
+            for(state in listOf(JobState.PREPARING,JobState.RUNNING,JobState.VERIFYING,JobState.COMPLETED)) queue.transition(id,state)
+            val files=MediaFiles(context);files.output(spec).writeBytes(byteArrayOf(5,6,7))
+            assertTrue(queue.updateDelivery(id,DeliveryReceipt.Waiting,
+                Delivery(destination,DeliveryReceipt.Copying(name,renamed.toString()))))
+            DeliveryWorker(queue,files,PublicOutputPublisher(context,queue)).resumePending()
+            val saved=queue.entries.value.single().delivery.receipt as DeliveryReceipt.Saved
+            assertEquals(renamed.toString(),saved.uri)
+            assertEquals("provider-changed-${id.take(8)}.mp4",saved.displayName)
+            assertArrayEquals(byteArrayOf(5,6,7),app.contentResolver.openInputStream(renamed)!!.use {it.readBytes()})
+        } finally {runCatching {android.provider.DocumentsContract.deleteDocument(app.contentResolver,renamed)};root.deleteRecursively()}
+    }
+
+    @Test fun restartDoesNotOverwriteUnjournaledTreeDocument() = runBlocking {
         assumeTrue(Build.VERSION.SDK_INT in 26..28)
         val app=InstrumentationRegistry.getInstrumentation().targetContext
         val treeUri=Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMovies")
@@ -45,8 +114,9 @@ class PublicOutputDeviceTest {
             val files=MediaFiles(context);files.output(spec).writeBytes(byteArrayOf(2,3,4))
             assertTrue(queue.updateDelivery(id,DeliveryReceipt.Waiting,Delivery(destination,DeliveryReceipt.Copying(name,null))))
             DeliveryWorker(queue,files,PublicOutputPublisher(context,queue)).resumePending()
-            assertEquals(existing.toString(),(queue.entries.value.single().delivery.receipt as DeliveryReceipt.Saved).uri)
-            assertArrayEquals(byteArrayOf(2,3,4),app.contentResolver.openInputStream(existing)!!.use {it.readBytes()})
+            val failed=queue.entries.value.single().delivery.receipt as DeliveryReceipt.Failed
+            assertTrue(failed.message.contains("will not overwrite"))
+            assertArrayEquals(byteArrayOf(1),app.contentResolver.openInputStream(existing)!!.use {it.readBytes()})
         } finally {runCatching {android.provider.DocumentsContract.deleteDocument(app.contentResolver,existing)};root.deleteRecursively()}
     }
 
@@ -88,15 +158,19 @@ class PublicOutputDeviceTest {
             for(state in listOf(JobState.PREPARING,JobState.RUNNING,JobState.VERIFYING,JobState.COMPLETED)) queue.transition(id,state)
             val files=MediaFiles(context);files.output(spec).writeBytes(ByteArray(128*1024) {it.toByte()})
             val copied=CompletableDeferred<Uri>()
-            val worker=DeliveryWorker(queue,files,PublicOutputPublisher(context,queue) {uri,_ ->
+            val publisher=PublicOutputPublisher(context,queue) {uri,_ ->
                 copied.complete(uri);awaitCancellation()
-            })
+            }
+            val worker=DeliveryWorker(queue,files,publisher)
             val job=launch {worker.resumePending()}
             val partial=copied.await()
+            assertEquals(id,publisher.progress.value?.id)
+            assertTrue(publisher.progress.value!!.copiedBytes>0)
             job.cancelAndJoin()
             assertEquals(JobState.COMPLETED,queue.entries.value.single().state)
             assertTrue(queue.entries.value.single().delivery.receipt is DeliveryReceipt.Failed)
             assertTrue(files.output(spec).isFile)
+            assertNull(publisher.progress.value)
             val present=app.contentResolver.query(partial,arrayOf(MediaStore.MediaColumns._ID),null,null,null)?.use {it.moveToFirst()} ?: false
             assertFalse(present)
         } finally {root.deleteRecursively()}

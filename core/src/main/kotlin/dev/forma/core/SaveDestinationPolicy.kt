@@ -7,6 +7,9 @@ import dev.forma.core.settings.SettingValue
 
 /** Resolves a new job's public destination without Android storage APIs. */
 object SaveDestinationPolicy {
+    fun needsLegacyStoragePermission(destination:SaveDestination?,sdk:Int):Boolean =
+        sdk in 26..28 && destination is SaveDestination.FormaLibrary
+
     fun retry(previous:Delivery, spec:QueueJobSpec, values:PreferenceValues,
         chosenTree:SaveDestination.DocumentTree?):Delivery = Delivery(
         previous.destination ?: snapshot(spec,values,chosenTree),DeliveryReceipt.Waiting)

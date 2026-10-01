@@ -22,11 +22,17 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+data class DeliveryCopyProgress(val id:String,val copiedBytes:Long,val totalBytes:Long)
 
 /** Owns public artifacts. Queue receipt updates are the durable publication journal. */
 class PublicOutputPublisher(private val context:Context, private val queue:QueueRepository,
     private val onChunkCopied:suspend (Uri,Long)->Unit={_,_->}) {
     private val resolver get()=context.contentResolver
+    private val mutableProgress=MutableStateFlow<DeliveryCopyProgress?>(null)
+    val progress=mutableProgress.asStateFlow()
 
     suspend fun publish(entry:QueueEntry, privateFile:File):DeliveryReceipt.Saved = withContext(Dispatchers.IO) {
         require(entry.state==JobState.COMPLETED && privateFile.isFile) { "Verified private output is unavailable." }
@@ -39,12 +45,13 @@ class PublicOutputPublisher(private val context:Context, private val queue:Queue
         }
         var uri=copying.uri?.let(Uri::parse)
         try {
-            val base=displayName(entry)
-            require(name==base || Regex(Regex.escape(base.substringBeforeLast('.'))+"_[2-9][0-9]{0,2}\\."+
-                Regex.escape(base.substringAfterLast('.'))).matches(name)) { "The save journal does not match this file." }
+            require(validName(entry,name)) { "The save journal does not match this file." }
             if(destination is SaveDestination.DocumentTree && !TreeGrantStore(context).validate(destination.uri))
                 throw SecurityException("Forma cannot write to this folder. Choose it again in Save location, then retry save.")
             if(uri==null) {
+                if(destination is SaveDestination.DocumentTree && current is DeliveryReceipt.Copying &&
+                    nameTaken(destination,name)) throw IOException(
+                    "A file with this name appeared in the chosen folder. Review it there before retrying; Forma will not overwrite it.")
                 uri=recoverPending(destination,entry.spec.mime,name) ?: create(destination,entry.spec.mime,name)
                 check(queue.updateDelivery(entry.spec.id,copying,Delivery(destination,copying.copy(uri=uri.toString())))) {
                     "Delivery changed after creating the copy."
@@ -53,6 +60,7 @@ class PublicOutputPublisher(private val context:Context, private val queue:Queue
             val alreadyPublished=destination is SaveDestination.FormaLibrary &&
                 owns(destination,uri,name,allowPublished=true) && !owns(destination,uri,name)
             check(owns(destination,uri,name,allowPublished=alreadyPublished)) { "The saved partial file no longer belongs to this job." }
+            mutableProgress.value=DeliveryCopyProgress(entry.spec.id,0,privateFile.length())
             val sourceDigest=MessageDigest.getInstance("SHA-256")
             val bytes=if(alreadyPublished) privateFile.inputStream().use { input ->
                 val buffer=ByteArray(64*1024);var total=0L
@@ -72,6 +80,7 @@ class PublicOutputPublisher(private val context:Context, private val queue:Queue
                         val count=input.read(buffer)
                         if(count<0) break
                         output.write(buffer,0,count);sourceDigest.update(buffer,0,count);total+=count
+                        mutableProgress.value=DeliveryCopyProgress(entry.spec.id,total,privateFile.length())
                         onChunkCopied(uri,total)
                     }
                     output.flush();total
@@ -115,26 +124,55 @@ class PublicOutputPublisher(private val context:Context, private val queue:Queue
         } catch(error:Exception) {
             withContext(NonCancellable) { fail(entry.spec.id,destination,name,uri,error.message ?: "Save failed.") }
             throw error
+        } finally {
+            mutableProgress.value=null
         }
     }
 
     private suspend fun fail(id:String,destination:SaveDestination,name:String,uri:Uri?,message:String) {
         var retained:Uri?=null
-        if(uri!=null && runCatching { owns(destination,uri,name) }.getOrDefault(false)) {
-            val deleted=runCatching { if(destination is SaveDestination.DocumentTree) DocumentsContract.deleteDocument(resolver,uri)
-                else resolver.delete(uri,null,null)>0 }.getOrDefault(false)
-            if(!deleted) retained=uri
+        if(uri!=null) {
+            val ownership=runCatching { owns(destination,uri,name) }
+            if(ownership.getOrDefault(false)) {
+                val deleted=runCatching { if(destination is SaveDestination.DocumentTree) DocumentsContract.deleteDocument(resolver,uri)
+                    else resolver.delete(uri,null,null)>0 }.getOrDefault(false)
+                if(!deleted) retained=uri
+            } else if(destination is SaveDestination.DocumentTree &&
+                (ownership.isFailure || !TreeGrantStore(context).validate(destination.uri))) retained=uri
         }
         queue.updateDelivery(id,DeliveryReceipt.Copying(name,uri?.toString()),
             Delivery(destination,DeliveryReceipt.Failed((message+
                 if(retained!=null) " Partial file remains in the folder; remove it before retrying." else "").take(500),retained?.toString())))
     }
 
-    fun retainedPartialIsGone(uriText:String):Boolean {
+    fun clearRetainedPartial(entry:QueueEntry,uriText:String):Boolean {
+        val destination=requireNotNull(entry.delivery.destination)
         val uri=Uri.parse(uriText)
-        require(uri.scheme=="content") { "The saved partial file has an invalid URI." }
-        return resolver.query(uri,arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),null,null,null)?.use { !it.moveToFirst() }
-            ?: throw IOException("The saved partial file could not be checked. Reopen the folder and try again.")
+        if(destination is SaveDestination.DocumentTree) {
+            if(!TreeGrantStore(context).validate(destination.uri))
+                throw SecurityException("Choose this folder again in Save location, then retry save.")
+            if(!owns(destination,uri,"")) return true
+            return DocumentsContract.deleteDocument(resolver,uri)
+        }
+        val library=destination as SaveDestination.FormaLibrary
+        val (collection,_)=collection(library.category)
+        require(uri.authority==collection.authority && uri.path.orEmpty().startsWith(collection.path.orEmpty()+"/")) {
+            "The saved partial URI does not belong to this media folder."
+        }
+        val rowId=ContentUris.parseId(uri).toString()
+        val queryUri=if(Build.VERSION.SDK_INT>=29) MediaStore.setIncludePending(collection) else collection
+        val name=resolver.query(queryUri,arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+            "${MediaStore.MediaColumns._ID}=?",arrayOf(rowId),null)?.use { c ->
+            if(c.moveToFirst()) c.getString(0) else null
+        } ?: return true
+        if(!validName(entry,name) || !owns(destination,uri,name)) return false
+        return resolver.delete(uri,null,null)>0
+    }
+
+    private fun validName(entry:QueueEntry,name:String):Boolean {
+        val base=displayName(entry)
+        return name==base || Regex(Regex.escape(base.substringBeforeLast('.'))+"_[2-9][0-9]{0,2}\\."+
+            Regex.escape(base.substringAfterLast('.'))).matches(name)
     }
 
     private fun chooseName(entry:QueueEntry,destination:SaveDestination):String {
@@ -190,18 +228,8 @@ class PublicOutputPublisher(private val context:Context, private val queue:Queue
     }
 
     private fun recoverPending(destination:SaveDestination,mime:String,name:String):Uri? {
-        if(destination is SaveDestination.DocumentTree) {
-            val tree=Uri.parse(destination.uri)
-            val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
-            val matches=mutableListOf<Uri>()
-            resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE),null,null,null)?.use { c ->
-                while(c.moveToNext()) if(c.getString(1)==name && c.getString(2)==mime)
-                    matches+=DocumentsContract.buildDocumentUriUsingTree(tree,c.getString(0))
-            }
-            check(matches.size<=1) { "Several unfinished files have this name in the chosen folder." }
-            return matches.singleOrNull()
-        }
+        // A document provider exposes no creator identity. A same-name child is not proof
+        // that Forma created it before the URI could be journaled, so never truncate it.
         if(destination !is SaveDestination.FormaLibrary || Build.VERSION.SDK_INT<29) return null
         val (collection,path)=collection(destination.category)
         val projection=arrayOf(MediaStore.MediaColumns._ID,MediaStore.MediaColumns.DISPLAY_NAME,
@@ -238,14 +266,15 @@ class PublicOutputPublisher(private val context:Context, private val queue:Queue
         }
         is SaveDestination.DocumentTree -> {
             val tree=Uri.parse(destination.uri)
+            // The URI was returned by createDocument and journaled. Providers may rename
+            // the child, so prove it is still a direct child instead of comparing titles.
             if(uri.authority!=tree.authority || uri.pathSegments.take(2)!=tree.pathSegments.take(2)) false
             else {
                 val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
                 resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                     DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use { c ->
                     var found=false
-                    while(c.moveToNext()) if(c.getString(1)==name &&
-                        DocumentsContract.buildDocumentUriUsingTree(tree,c.getString(0))==uri) found=true
+                    while(c.moveToNext()) if(DocumentsContract.buildDocumentUriUsingTree(tree,c.getString(0))==uri) found=true
                     found
                 } ?: false
             }
@@ -279,11 +308,16 @@ class PublicOutputPublisher(private val context:Context, private val queue:Queue
             val tree=Uri.parse(destination.uri)
             val parent=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
             val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
-            resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use { c ->
-                while(c.moveToNext()) require(c.getString(0)!=name) { "A file with this name already exists in the chosen folder." }
+            val existing=mutableSetOf<String>()
+            resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),null,null,null)?.use { c ->
+                while(c.moveToNext()) existing+=c.getString(0)
             }
-            DocumentsContract.createDocument(resolver,parent,mime,name)
+            val created=DocumentsContract.createDocument(resolver,parent,mime,name)
                 ?: throw IOException("The chosen folder could not create a file.")
+            check(DocumentsContract.getDocumentId(created) !in existing) {
+                "The chosen folder returned an existing file instead of creating a new one."
+            }
+            created
         }
     }
 

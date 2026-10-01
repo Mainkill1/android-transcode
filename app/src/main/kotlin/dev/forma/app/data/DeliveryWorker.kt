@@ -20,7 +20,7 @@ class DeliveryWorker(private val queue:QueueRepository,private val files:MediaFi
         val entry=queue.entries.value.first { it.spec.id==id && it.state==JobState.COMPLETED }
         val failed=entry.delivery.receipt as? DeliveryReceipt.Failed ?: error("This save is not waiting for a retry.")
         val retained=failed.uri
-        require(retained==null || publisher.retainedPartialIsGone(retained)) {
+        require(retained==null || publisher.clearRetainedPartial(entry,retained)) {
             "The partial file could not be removed from this folder. Remove it there before retrying."
         }
         val destination=requireNotNull(entry.delivery.destination)

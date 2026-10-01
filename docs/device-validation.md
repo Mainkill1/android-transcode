@@ -286,17 +286,21 @@ through the production verifier, then copied the verified private outputs into
 `Movies/Forma`, `Music/Forma`, and `Pictures/Forma`. Each public URI's bytes matched
 its private verified output; the video/audio outputs retained their expected tracks.
 The aligned native lab APK SHA-256 was
-`94d1a28efe096b6865d1a8258267cd776141a53ca743b812c51036ad10a7e29d`.
+`eed0eb4962073d627d44e0884ef0302c32878c29a09e55a54330eb1bb284afdc`.
 The pinned native AAR SHA-256 was
 `09bd962f7d3ad66b9bc29c2df67681b55b6dc6c2472135d48490e94ea51a7d3a`.
 
-The OnePlus instrumentation run reported **OK (15 tests)** for public save
+The final OnePlus instrumentation run reported **OK (29 tests)** for public save
 publication, crash recovery, filename collision, foreign-URI protection, cancellation,
 corrupt readback, missing private output, delivery cards, and native video/audio/image
 publication. The API 28 emulator passed public-folder permission denial and grant
-cases, plus custom document-tree creation and journal recovery. Denied permission
+cases, plus custom document-tree creation, journaled-URI recovery, a provider-changed
+filename, and safe refusal to overwrite an unjournaled same-name document. Denied permission
 kept the conversion complete and its private output intact. The tree test used the
 Android external-storage document provider; it checked the provider-returned name.
+When a tree creation was interrupted before its URI was journaled, a same-name child
+cannot be proven app-owned through SAF; Forma keeps it untouched and offers a retryable
+conflict instead of overwriting it.
 
 `tools/check-core.sh` passed 49 checks, `tools/check-android-readiness.sh` passed,
 the core/engine/app unit suites and native-enabled lab build passed, and `:app:lintLab`

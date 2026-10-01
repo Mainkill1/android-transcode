@@ -6,6 +6,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SaveDestinationPolicyTest {
+    @Test fun legacyStoragePromptAppliesOnlyToPublicFormaFolders() {
+        val library=SaveDestination.FormaLibrary(MediaCategory.VIDEO)
+        val tree=SaveDestination.DocumentTree("content://documents/tree/folder","Folder")
+        assertTrue(SaveDestinationPolicy.needsLegacyStoragePermission(library,28))
+        assertFalse(SaveDestinationPolicy.needsLegacyStoragePermission(tree,28))
+        assertFalse(SaveDestinationPolicy.needsLegacyStoragePermission(library,29))
+    }
     @Test fun formaFoldersAreDefaultForEveryMediaKind() {
         val source=Source("content://source","clip",1000,videoTracks=1)
         fun av(container:Container)=QueueJobSpec.Av(JobSpec("id",source,Trim(),Settings(container=container)))

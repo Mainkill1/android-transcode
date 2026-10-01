@@ -5,6 +5,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import dev.forma.app.ui.*
 import dev.forma.app.data.LiveProgress
+import dev.forma.app.data.DeliveryCopyProgress
 import dev.forma.app.work.*
 import dev.forma.core.*
 import org.junit.Assert.*
@@ -12,6 +13,11 @@ import org.junit.Rule
 import org.junit.Test
 
 class FormaScreenTest {
+    @Test fun saveProgressReportsCopiedBytesSeparately() {
+        compose.setContent { FormaTheme { DeliveryProgressView(DeliveryCopyProgress("save",1_048_576,4_194_304)) } }
+        compose.onNodeWithTag("save-copy-progress").assertExists()
+        compose.onNodeWithText("1 of 4 MB copied").assertExists()
+    }
     @get:Rule val compose = createComposeRule()
     private val source = Source("content://test/video", "Sample.mp4", 10000, 640, 360, 1, 1)
     @Test fun finishedDeliveryShowsClearLocationAndRetrySave() {

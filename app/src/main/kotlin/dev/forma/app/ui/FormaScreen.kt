@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.forma.app.*
 import dev.forma.app.data.LiveProgress
+import dev.forma.app.data.DeliveryCopyProgress
 import dev.forma.app.work.*
 import dev.forma.core.*
 import dev.forma.core.image.*
@@ -42,7 +43,8 @@ import kotlin.math.ceil
     initiallyQueue: Boolean = false,
     workspaceRequest: WorkspaceRequest? = null,
     onAction: (UiAction) -> Unit,
-    progressContent: @Composable (QueueEntry) -> Unit
+    progressContent: @Composable (QueueEntry) -> Unit,
+    deliveryProgressContent: @Composable (QueueEntry) -> Unit = {}
 ) {
     var page by rememberSaveable { mutableStateOf(if (initiallyQueue) "queue" else "home") }
     val listState = rememberLazyListState()
@@ -225,12 +227,12 @@ import kotlin.math.ceil
                             if (queuedJobs.isEmpty()) Text("Queue is empty")
                         }
                         items(queuedJobs,
-                            key = { "job:${it.spec.id}" }, contentType = { "job" }) { entry -> QueueCard(entry, onAction) }
+                            key = { "job:${it.spec.id}" }, contentType = { "job" }) { entry -> QueueCard(entry, onAction,deliveryProgressContent) }
                     }
                     "finished" -> {
                         item(key = "finished-heading") { QueueListSwitcher(page, queuedJobs.size, finishedJobs.size) { page = it } }
                         if (finishedJobs.isEmpty()) item(key = "finished-empty") { Text("No finished conversions yet") }
-                        items(finishedJobs, key = { "job:${it.spec.id}" }, contentType = { "job" }) { entry -> QueueCard(entry, onAction) }
+                        items(finishedJobs, key = { "job:${it.spec.id}" }, contentType = { "job" }) { entry -> QueueCard(entry, onAction,deliveryProgressContent) }
                     }
                     else -> item(key = "engine") {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -315,7 +317,8 @@ import kotlin.math.ceil
             dismissButton={TextButton(onClick={pending=null;action(value)}) {Text("Replace overrides")}})
     }
 }
-@Composable private fun QueueCard(entry: QueueEntry, action: (UiAction) -> Unit) {
+@Composable private fun QueueCard(entry: QueueEntry, action: (UiAction) -> Unit,
+    deliveryProgressContent: @Composable (QueueEntry) -> Unit) {
     var details by rememberSaveable(entry.spec.id) { mutableStateOf(false) }
     var settingsDetails by rememberSaveable(entry.spec.id) { mutableStateOf(false) }
     OutlinedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -349,6 +352,7 @@ import kotlin.math.ceil
             },style=MaterialTheme.typography.bodySmall)
             if(receipt is DeliveryReceipt.Failed) Text(receipt.message,style=MaterialTheme.typography.bodySmall,
                 color=MaterialTheme.colorScheme.error)
+            if(receipt is DeliveryReceipt.Copying) deliveryProgressContent(entry)
         }
         TextButton(onClick={settingsDetails=!settingsDetails}) { Text(if(settingsDetails) "Hide settings" else "Settings snapshot") }
         if(settingsDetails) {
@@ -382,6 +386,17 @@ import kotlin.math.ceil
             }
         }
     } }
+}
+@Composable fun DeliveryProgressView(progress:DeliveryCopyProgress?) {
+    if(progress==null) return
+    val copied=progress.copiedBytes.coerceAtLeast(0)
+    val total=progress.totalBytes.coerceAtLeast(0)
+    val label="${copied/1_048_576} of ${total/1_048_576} MB copied"
+    Column(Modifier.testTag("save-copy-progress")) {
+        Text(label,style=MaterialTheme.typography.bodySmall)
+        if(total>0) LinearProgressIndicator(progress={ (copied.toFloat()/total).coerceIn(0f,1f) },modifier=Modifier.fillMaxWidth())
+        else LinearProgressIndicator(Modifier.fillMaxWidth())
+    }
 }
 @Composable fun ProgressView(entry: QueueEntry, live: LiveProgress?) {
     if(entry.spec is QueueJobSpec.Image) {
