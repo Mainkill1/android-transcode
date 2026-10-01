@@ -191,9 +191,10 @@ bash tools/check-acceleration.sh
 ```
 
 This executes Kotlin policy/command/PTS checks, Python report validation tests,
-and the real production transcoder's decode-before-publication and cancellation
-checks with host-only storage/native fixtures. The last checks need Kotlin's
-coroutines library. Gradle `:core:test` also references the policy tests. Test sources
+and the current production retry and output-verifier contract checks with host-only
+native fixtures. The latter checks need Kotlin's coroutines library. The queued
+application export path is covered separately by Android device instrumentation.
+Gradle `:core:test` also references the policy tests. Test sources
 are external to `src/main`; the native diagnostic dependency is test-only and the
 same pinned version as the app engine.
 

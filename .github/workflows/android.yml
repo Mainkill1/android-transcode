@@ -38,6 +38,8 @@ jobs:
           ffprobe -version
       - name: Compile, test and lint the no-native application
         run: ./gradlew :core:test :engine-ffmpeg:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug --stacktrace
+      - name: Validate hardware-lab reports
+        run: python3 -m unittest discover -s testing/acceleration/host -v
       - name: No-native preview APK
         if: success()
         uses: actions/upload-artifact@v4

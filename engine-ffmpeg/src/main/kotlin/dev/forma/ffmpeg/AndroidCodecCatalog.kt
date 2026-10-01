@@ -104,9 +104,11 @@ class AndroidCodecCatalog {
         }
     } catch (_: RuntimeException) { emptyList() }
 
-    private fun hardware(info: MediaCodecInfo): Support = if (Build.VERSION.SDK_INT >= 29)
-        when { info.isSoftwareOnly -> Support.NO; info.isHardwareAccelerated -> Support.YES; else -> Support.UNKNOWN }
-    else Support.UNKNOWN // Never guess hardware from a vendor component's name.
+    private fun hardware(info: MediaCodecInfo): Support = try {
+        if (Build.VERSION.SDK_INT >= 29)
+            when { info.isSoftwareOnly -> Support.NO; info.isHardwareAccelerated -> Support.YES; else -> Support.UNKNOWN }
+        else Support.UNKNOWN // Never guess hardware from a vendor component's name.
+    } catch (_: RuntimeException) { Support.UNKNOWN }
 
     private fun software(info: MediaCodecInfo): Support = try {
         if (Build.VERSION.SDK_INT >= 29)
