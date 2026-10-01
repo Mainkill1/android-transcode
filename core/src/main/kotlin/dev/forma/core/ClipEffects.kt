@@ -2,7 +2,7 @@ package dev.forma.core
 
 import java.util.Locale
 
-/** Inspected source pixel coordinates, before this clip's rotation. No arbitrary filter strings. */
+/** Source display pixels after metadata autorotation, before this clip's added rotation. */
 data class CropRect(val x: Int, val y: Int, val width: Int, val height: Int)
 enum class QuarterTurn { NONE, CLOCKWISE, HALF, COUNTERCLOCKWISE }
 
@@ -61,9 +61,9 @@ object EditPipeline {
         if (!audio && e.hasAudio) add("Audio edits require an included source audio track.")
         if (video && settings.video.hardware) add("Edited hardware exports are not qualified yet. Select a software encoder or reset clip edits.")
         e.crop?.let { c ->
-            if (c.x < 0 || c.y < 0 || c.width < 4 || c.height < 4 ||
-                c.x % 2 != 0 || c.y % 2 != 0 || c.width % 2 != 0 || c.height % 2 != 0 ||
-                c.x.toLong() + c.width > source.width || c.y.toLong() + c.height > source.height)
+            val size=PreviewGeometry.displaySize(source.width,source.height,source.displayRotationDegrees)
+            if(size==null) add("This source has an unsupported display transform; crop is unavailable.")
+            else if(!PreviewGeometry.validExportCrop(c,size.first,size.second))
                 add("Crop must use even pixel coordinates and dimensions inside the inspected source, at least 4 × 4.")
         }
         val duration = runCatching { if(settings.container.audioOnly)dev.forma.core.audio.AudioGraphPlanner.sourceFacts(source,trim,settings).durationUs/1000 else duration(source,trim,e) }.getOrNull()

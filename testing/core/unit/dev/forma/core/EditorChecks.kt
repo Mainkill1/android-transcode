@@ -41,6 +41,44 @@ object EditorChecks {
             rejected { args(ClipEffects(crop = CropRect(630, 0, 320, 200))) }
             rejected { args(ClipEffects(crop = CropRect(0, 0, 321, 200))) }
         }
+        test("metadata rotation gives the editor the same crop bounds as export") {
+            val rotated=source.copy(displayRotationDegrees=90)
+            check(PreviewGeometry.displaySize(640,480,90)==(480 to 640))
+            val crop=CropRect(20,100,200,320)
+            check(PreviewGeometry.mapCrop(640,480,90,ClipEffects(),crop)==PreviewCrop.Valid(crop))
+            val vf=value(Planner.arguments(rotated,Trim(),Settings(effects=ClipEffects(crop=crop)),"/in","/out"),"-vf")
+            check("crop=200:320:20:100" in vf)
+            check(Planner.validate(rotated,Trim(),Settings(effects=ClipEffects(crop=CropRect(400,0,200,320)))).isNotEmpty())
+        }
+        test("all quarter-turn metadata orientations preserve crop geometry") {
+            for(turn in listOf(0,90,180,270)) {
+                val dimensions=PreviewGeometry.displaySize(640,480,turn)!!
+                val selected=CropRect(20,20,100,200)
+                check(PreviewGeometry.mapCrop(640,480,turn,ClipEffects(),selected)==PreviewCrop.Valid(selected))
+                check(PreviewGeometry.displayRect(640,480,turn,ClipEffects(),selected)==PreviewCrop.Valid(selected))
+                check(dimensions==if(turn==90 || turn==270) 480 to 640 else 640 to 480)
+            }
+        }
+        test("crop mapping inverts added rotation and mirror") {
+            val effects=ClipEffects(rotation=QuarterTurn.CLOCKWISE,flipHorizontal=true)
+            val selected=CropRect(40,60,200,300)
+            val visual=PreviewGeometry.displayRect(640,480,0,effects,selected)
+            check(visual is PreviewCrop.Valid)
+            check(PreviewGeometry.mapCrop(640,480,0,effects,visual.crop)==PreviewCrop.Valid(selected))
+            check(PreviewGeometry.mapCrop(641,481,0,ClipEffects(rotation=QuarterTurn.CLOCKWISE),CropRect(20,20,200,200)) is PreviewCrop.Unsupported)
+        }
+        test("unsupported display matrix blocks crop") {
+            check(PreviewGeometry.mapCrop(640,480,null,ClipEffects(),CropRect(0,0,100,100)) is PreviewCrop.Unsupported)
+        }
+        test("display matrix parser accepts quarter turns and rejects shear") {
+            val pure="""00000000: 0 -65536 0
+00000001: 65536 0 0
+00000002: 0 0 1073741824"""
+            check(PreviewGeometry.metadataRotation(pure,90.0)==90)
+            check(PreviewGeometry.metadataRotation(pure,45.0)==null)
+            check(PreviewGeometry.metadataRotation(pure.replace("-65536","-30000"),90.0)==null)
+            check(PreviewGeometry.metadataRotation(null,-90.0)==270)
+        }
         test("overflowing crop is rejected") { rejected { args(ClipEffects(crop = CropRect(Int.MAX_VALUE, 0, 320, 200))) } }
         test("invalid speed never divides by zero") { rejected { args(ClipEffects(speedPercent = 0)) } }
         test("fades are measured on edited duration") {

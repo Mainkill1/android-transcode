@@ -11,6 +11,12 @@ class JobCodecTest {
         Trim(500, 9500), Settings(video = VideoEncoder.X265, crf = 19, stereo = false, keepMetadata = true)),
         JobState.QUEUED, "Saved")
     @Test fun roundTripAllSettings() { assertEquals(listOf(entry), JobCodec.decode(JobCodec.encode(listOf(entry)))) }
+    @Test fun displayRotationAndUnknownMatrixSurviveQueueSnapshot() {
+        for(degrees in listOf(90,180,270,null)) {
+            val rotated=entry.copy(spec=entry.spec.copy(source=entry.spec.source.copy(displayRotationDegrees=degrees)))
+            assertEquals(rotated,JobCodec.decode(JobCodec.encode(listOf(rotated))).single())
+        }
+    }
     @Test fun nullableEndTime() { val e = entry.copy(spec = entry.spec.copy(trim = Trim())); assertEquals(listOf(e), JobCodec.decode(JobCodec.encode(listOf(e)))) }
     @Test fun rejectsFutureSchema() { assertThrows(IllegalArgumentException::class.java) { JobCodec.decode("{\"schema\":6,\"jobs\":[]}") } }
     @Test fun rejectsDuplicateIds() { assertThrows(IllegalArgumentException::class.java) { JobCodec.decode(JobCodec.encode(listOf(entry, entry))) } }

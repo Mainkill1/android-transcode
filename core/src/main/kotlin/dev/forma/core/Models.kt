@@ -75,7 +75,8 @@ data class Source(
     val hdr: Boolean = false,
     val bytes: Long = -1,
     val audioStreams: List<SourceAudioFacts> = emptyList(),
-    val imageInfo: dev.forma.core.image.ImageInfo? = null, val imageOriginalUri:String?=null
+    val imageInfo: dev.forma.core.image.ImageInfo? = null, val imageOriginalUri:String?=null,
+    val displayRotationDegrees:Int?=0
 )
 data class Trim(val startMs: Long = 0, val endMs: Long? = null)
 data class SourceEdit(val source: Source, val trim: Trim = Trim(), val effects: ClipEffects = ClipEffects()) {
