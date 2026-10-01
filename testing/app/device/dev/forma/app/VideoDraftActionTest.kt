@@ -9,6 +9,7 @@ import java.util.UUID
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class VideoDraftActionTest {
@@ -20,6 +21,7 @@ class VideoDraftActionTest {
         try {
             withTimeoutOrNull(10_000) {vm.state.first {it.ready}}
                 ?: error("ViewModel was not ready: ${vm.state.value.message}")
+            assumeTrue("Native preview fixture requires FFmpeg", app.graph.bridge.capabilities().available)
             fixture.parentFile!!.mkdirs()
             val generated=app.graph.bridge.execute(listOf("-hide_banner","-v","error","-nostdin","-n",
                 "-f","lavfi","-i","color=red:s=160x90:r=24:d=2","-c:v","libx264",

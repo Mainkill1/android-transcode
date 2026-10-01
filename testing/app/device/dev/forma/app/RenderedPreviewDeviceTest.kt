@@ -13,6 +13,7 @@ import java.util.UUID
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class RenderedPreviewDeviceTest {
@@ -104,6 +105,7 @@ class RenderedPreviewDeviceTest {
         val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
         val bridge=ManagedFfmpegBridge(createFfmpegBridge())
         try {
+            assumeTrue("Native crop preview requires FFmpeg", bridge.capabilities().available)
             val generated=bridge.execute(listOf("-hide_banner","-v","error","-nostdin","-n",
                 "-f","lavfi","-i","color=red:s=160x90:r=24:d=2",
                 "-vf","drawbox=x=80:y=0:w=80:h=90:color=green:t=fill",

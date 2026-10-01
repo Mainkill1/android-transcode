@@ -26,16 +26,16 @@ class EditorWorkspaceTest {
     private val edit=SourceEdit(source)
 
     @Test fun editButtonOpensFocusedVideoPreviewAndClearControls() {
-        var action:UiAction?=null
+        val actions=mutableListOf<UiAction>()
         var tool by mutableStateOf("Crop")
         compose.setContent { FormaTheme { FormaWorkspace(TranscodeUiState(ready=true,sources=listOf(edit),selectedUri=source.uri,videoTool=tool),
-            emptyList(),dev.forma.app.work.RunState(),onAction={if(it is UiAction.VideoTool)tool=it.tool else action=it},progressContent={}) } }
+            emptyList(),dev.forma.app.work.RunState(),onAction={if(it is UiAction.VideoTool)tool=it.tool else actions+=it},progressContent={}) } }
         compose.onNodeWithText("Edit video").performClick()
         compose.onNodeWithTag("video-preview").assertExists()
         compose.onNodeWithText("Rotate").performClick()
         compose.onNodeWithText("Rotate right").performClick()
         compose.runOnIdle {
-            val changed=action as UiAction.ChangeVideoEdit
+            val changed=actions.filterIsInstance<UiAction.ChangeVideoEdit>().last()
             assertEquals(QuarterTurn.CLOCKWISE,changed.edit.effects.rotation)
             assertTrue(changed.commit)
         }

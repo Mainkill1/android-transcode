@@ -14,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assume.assumeTrue
 
 class PreviewPlayerUiTest {
     @get:Rule val compose=createComposeRule()
@@ -24,6 +25,7 @@ class PreviewPlayerUiTest {
         val file=File(context.cacheDir,"player-test-${UUID.randomUUID()}.mp4")
         try {
             val bridge=createFfmpegBridge()
+            assumeTrue("Rendered player fixture requires FFmpeg", bridge.capabilities().available)
             val encoded=bridge.execute(listOf("-hide_banner","-v","error","-nostdin","-n",
                 "-f","lavfi","-i","testsrc2=s=160x90:r=24:d=2","-c:v","libx264","-pix_fmt","yuv420p",file.path)) {}
             assertEquals(encoded.diagnostics,0,encoded.exitCode)
