@@ -45,7 +45,7 @@ class MovieControlsTest {
         val clips=listOf(TimelineClip("a",source),TimelineClip("b",source.copy(uri="content://b",name="B.mp4")))
         val movie=MovieProject(sequence=SequenceSpec(EditTimeline(clips)))
         val caps=Capabilities(true,"",setOf("libx264","aac"),setOf("mp4"),
-            setOf("concat","trim","setpts","atrim","asetpts","aresample","aformat","apad","scale","pad","setsar","fps","tpad","format","settb","color","overlay"))
+            setOf("concat","trim","setpts","atrim","asetpts","aresample","aformat","apad","scale","pad","setsar","fps","tpad","format","settb","color","overlay","xfade"))
         val actions=mutableListOf<UiAction>()
         val ui=TranscodeUiState(ready=true,sources=listOf(SourceEdit(source)),movie=movie,capabilities=caps,
             selectedMovieClipId="a",movieCanUndo=true,movieCanRedo=true)
@@ -64,5 +64,22 @@ class MovieControlsTest {
             assertTrue(actions.any { it is UiAction.MovieEdit && it.command is TimelineCommand.Split })
             assertTrue("Expected undo, redo, preview and export; captured $actions", actions.containsAll(listOf(UiAction.MovieUndo,UiAction.MovieRedo,UiAction.MoviePreview,UiAction.MovieExport)))
         }
+    }
+
+    @Test fun selectedClipPreviewUsesMovieTimeAfterPreviousClipAndTransition() {
+        val first=Source("content://a","A.mp4",6_000,640,360,1)
+        val second=first.copy(uri="content://b",name="B.mp4")
+        val movie=MovieProject(sequence=SequenceSpec(EditTimeline(listOf(
+            TimelineClip("a",first),TimelineClip("b",second,Trim(1_000,6_000)))),
+            CanvasSpec(1280,720,30),500))
+        val caps=Capabilities(true,"",setOf("libx264","aac"),setOf("mp4"),
+            setOf("concat","trim","setpts","atrim","asetpts","aresample","aformat","apad","scale","pad","setsar","fps","tpad","format","settb","color","overlay","xfade"))
+        val actions=mutableListOf<UiAction>()
+        val ui=TranscodeUiState(ready=true,movie=movie,capabilities=caps,selectedMovieClipId="b")
+        compose.setContent { FormaTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            MovieControls(ui,emptyList(),RunState(),actions::add)
+        } } }
+        compose.onNodeWithTag("movie-play-window").performScrollTo().assertIsEnabled().performClick()
+        compose.runOnIdle {assertTrue(actions.contains(UiAction.MoviePreviewAt(5_500)))}
     }
 }

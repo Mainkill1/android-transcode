@@ -102,10 +102,8 @@ import kotlin.math.roundToInt
             modifier=Modifier.fillMaxWidth().testTag("play-video-preview")) {Text("Play preview · 5 seconds")}
         when(ui.videoTool) {
             "Trim" -> {
-                Text("Start ${mediaTime(edit.trim.startMs)} · End ${mediaTime(edit.trim.endMs ?: edit.source.durationMs)}")
-                Slider(value=playhead.toFloat(),onValueChange={playhead=it.toLong()},
-                    valueRange=0f..edit.source.durationMs.coerceAtLeast(1).toFloat(),modifier=Modifier.testTag("video-playhead"))
-                Text("Drag to find a frame. Exact trim times are below.",style=MaterialTheme.typography.bodySmall)
+                VideoTimeline(edit.source,edit.trim,playhead,onSeek={playhead=it},
+                    onTrim={next->onAction(UiAction.ChangeVideoEdit(edit.copy(trim=next)))})
                 Row {FormaTextButton(onClick={onAction(UiAction.ChangeVideoEdit(edit.copy(trim=edit.trim.copy(startMs=playhead))))},
                     enabled=playhead<(edit.trim.endMs ?: edit.source.durationMs)){Text("Set start here")}
                     FormaTextButton(onClick={onAction(UiAction.ChangeVideoEdit(edit.copy(trim=edit.trim.copy(endMs=playhead))))},

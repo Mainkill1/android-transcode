@@ -13,12 +13,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.forma.app.*
+import dev.forma.app.video.RenderedPreviewController
+import dev.forma.app.video.VideoRenderState
 import dev.forma.app.work.*
 import dev.forma.core.*
 import kotlin.math.roundToLong
 
 /** A compact native document inspector. Preview/export remain ordinary service-owned queue jobs. */
-@Composable internal fun MovieControls(ui: TranscodeUiState, jobs: List<QueueEntry>, run: RunState, action: (UiAction) -> Unit) {
+@Composable internal fun MovieControls(ui: TranscodeUiState, jobs: List<QueueEntry>, run: RunState, action: (UiAction) -> Unit,
+    render:VideoRenderState=VideoRenderState.Idle) {
     val movie = ui.movie
     val clips = movie.sequence.timeline.clips
     val selected = clips.firstOrNull { it.id == ui.selectedMovieClipId } ?: clips.firstOrNull()
@@ -58,15 +61,42 @@ import kotlin.math.roundToLong
             }
         }
         if (selected != null) key(selected.id) {
-            var range by remember(selected.trim) { mutableStateOf(selected.trim.startMs.toFloat()..(selected.trim.endMs ?: selected.source.durationMs).toFloat()) }
-            Text("Keep ${range.start.roundToLong()}–${range.endInclusive.roundToLong()} ms of ${selected.source.name}")
-            RangeSlider(value=range, onValueChange={ if (it.endInclusive-it.start >= 50f) range=it },
-                onValueChangeFinished={ action(UiAction.MovieEdit(TimelineCommand.TrimClip(selected.id,Trim(range.start.roundToLong(),range.endInclusive.roundToLong())))) },
-                valueRange=0f..selected.source.durationMs.toFloat(), modifier=Modifier.testTag("movie-bracket-trim").semantics { contentDescription="Kept range of selected movie clip" },
-                startThumb={ Text("[",Modifier.sizeIn(minWidth=52.dp,minHeight=52.dp).wrapContentSize(),fontSize=32.sp) },
-                endThumb={ Text("]",Modifier.sizeIn(minWidth=52.dp,minHeight=52.dp).wrapContentSize(),fontSize=32.sp) })
+            Text("Movie length ${TimelineTimecode.format(SequencePlanner.duration(movie.sequence))}",style=MaterialTheme.typography.labelMedium)
+            if(selected.source.videoTracks>0) {
+                var playhead by remember(selected.id) {mutableLongStateOf(selected.trim.startMs)}
+                VideoTimeline(selected.source,selected.trim,playhead,onSeek={playhead=it},
+                    onTrim={action(UiAction.MovieEdit(TimelineCommand.TrimClip(selected.id,it)))})
+                FormaOutlinedButton(onClick={
+                    SequenceWindowPlanner.movieTimeForClip(movie.sequence,selected.id,playhead)?.let {
+                        action(UiAction.MoviePreviewAt(it))
+                    }
+                },enabled=native,modifier=Modifier.fillMaxWidth().testTag("movie-play-window")) {Text("Play 5 seconds here")}
+                val playable=(render as? VideoRenderState.Ready)?.takeIf {
+                    it.sourceKey==RenderedPreviewController.MOVIE_KEY && it.revision==ui.movieRevision && it.movie==movie
+                }
+                if(playable!=null) {
+                    VideoPreviewPlayer(playable)
+                    FormaTextButton(onClick={action(UiAction.CloseVideoPreview)}) {Text("Edit movie timeline")}
+                } else {
+                    val status=when(render) {
+                        is VideoRenderState.Waiting -> if(render.sourceKey==RenderedPreviewController.MOVIE_KEY)"Waiting for conversion to finish" else null
+                        is VideoRenderState.Rendering -> if(render.sourceKey==RenderedPreviewController.MOVIE_KEY)"Rendering short movie preview" else null
+                        is VideoRenderState.Error -> if(render.sourceKey==RenderedPreviewController.MOVIE_KEY)render.message else null
+                        else -> null
+                    }
+                    if(status!=null)Text(status,style=MaterialTheme.typography.labelSmall)
+                }
+            } else {
+                var range by remember(selected.trim) { mutableStateOf(selected.trim.startMs.toFloat()..(selected.trim.endMs ?: selected.source.durationMs).toFloat()) }
+                Text("Keep ${range.start.roundToLong()}–${range.endInclusive.roundToLong()} ms of ${selected.source.name}")
+                RangeSlider(value=range, onValueChange={ if (it.endInclusive-it.start >= 50f) range=it },
+                    onValueChangeFinished={ action(UiAction.MovieEdit(TimelineCommand.TrimClip(selected.id,Trim(range.start.roundToLong(),range.endInclusive.roundToLong())))) },
+                    valueRange=0f..selected.source.durationMs.toFloat(), modifier=Modifier.testTag("movie-bracket-trim").semantics { contentDescription="Kept range of selected movie clip" },
+                    startThumb={ Text("[",Modifier.sizeIn(minWidth=52.dp,minHeight=52.dp).wrapContentSize(),fontSize=32.sp) },
+                    endThumb={ Text("]",Modifier.sizeIn(minWidth=52.dp,minHeight=52.dp).wrapContentSize(),fontSize=32.sp) })
+            }
             FlowRow {
-                FormaTextButton(onClick={ exactTrim=true }) { Text("Exact trim times") }
+                if(selected.source.videoTracks==0)FormaTextButton(onClick={ exactTrim=true }) { Text("Exact trim times") }
                 FormaTextButton(onClick={ split=true }, modifier=Modifier.testTag("movie-split")) { Text("Split selected clip") }
             }
             EditControls(SourceEdit(selected.source,selected.trim,selected.settings.effects),selected.settings) {
@@ -105,7 +135,7 @@ import kotlin.math.roundToLong
         if(!ui.capabilities.available) Text(ui.capabilities.reason,style=MaterialTheme.typography.bodySmall)
         FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             FormaOutlinedButton(onClick={action(UiAction.MovieQueue)},enabled=ready,modifier=Modifier.testTag("movie-queue")) { Text("Queue movie") }
-            FormaOutlinedButton(onClick={action(UiAction.MoviePreview)},enabled=native,modifier=Modifier.testTag("movie-preview")) { Text("Render preview") }
+            FormaOutlinedButton(onClick={action(UiAction.MoviePreview)},enabled=native,modifier=Modifier.testTag("movie-preview")) { Text("Render full preview") }
             FormaButton(onClick={action(UiAction.MovieExport)},enabled=native,modifier=Modifier.testTag("movie-export")) { Text("Export movie") }
         }
         Text("Preview renders the whole movie at up to 480 pixels. It uses the same edits and queue; final export is checked separately.",style=MaterialTheme.typography.bodySmall)
