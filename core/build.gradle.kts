@@ -11,6 +11,12 @@ kotlin {
     }
 }
 dependencies { if(formaTests) testImplementation(libs.junit) }
+if (formaTests && providers.gradleProperty("accelerationTests").orNull != "false") {
+    sourceSets.test {
+        kotlin.srcDir(rootProject.file("testing/acceleration/core"))
+        kotlin.srcDir(rootProject.file("testing/acceleration/shared"))
+    }
+}
 if (formaTests && providers.gradleProperty("imageTests").orNull != "false") {
     sourceSets.test { kotlin.srcDir("../testing/image/core") }
 }

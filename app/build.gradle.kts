@@ -105,3 +105,11 @@ tasks.matching { it.name == "preReleaseBuild" }.configureEach {
         }
     }
 }
+
+// Removable lab source sets and native diagnostic APIs belong ONLY to the test APK.
+// A UI-only build deliberately has no lab class; the explicit host runner rejects it.
+if (nativeEnabledForRelease && providers.gradleProperty("accelerationTests").orNull != "false") {
+    android.sourceSets.getByName("androidTest").java.srcDir(rootProject.file("testing/acceleration/android"))
+    android.sourceSets.getByName("androidTest").java.srcDir(rootProject.file("testing/acceleration/shared"))
+    dependencies { androidTestImplementation("com.arthenica:ffmpeg-kit-next:9.0.0") }
+}

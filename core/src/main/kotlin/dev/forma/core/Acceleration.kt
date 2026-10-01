@@ -7,11 +7,32 @@ enum class EncodeBackend { SOFTWARE, MEDIACODEC, UNAVAILABLE }
 enum class ProcessingBackend { CPU, NONE }
 enum class DeviceBitrateMode(val ffmpeg: String) { VBR("vbr"), CBR("cbr") }
 enum class BufferFormat(val ffmpeg: String) { YUV420P("yuv420p"), NV12("nv12") }
+/** Only modes that do not explicitly permit dropping frames. Neither mode guarantees output bytes. */
+enum class CodecBitrateMode(val ffmpeg: String) { VBR("vbr"), CBR("cbr") }
+data class BufferConfiguration(val format: BufferFormat, val bitrateMode: CodecBitrateMode)
+
+object EncoderConfigurations {
+    /** A supported layout and rate-control mode do not imply their combination is supported. */
+    fun firstSupported(formats: Set<BufferFormat>, modes: Set<CodecBitrateMode>,
+                       supports: (BufferConfiguration) -> Boolean): BufferConfiguration? {
+        for (mode in CodecBitrateMode.values()) {
+            for (format in BufferFormat.values()) {
+                if (format in formats && mode in modes) {
+                    val configuration = BufferConfiguration(format, mode)
+                    if (supports(configuration)) return configuration
+                }
+            }
+        }
+        return null
+    }
+}
+
 enum class VideoFormat(val mime: String, val software: String, val device: String) {
     H264("video/avc", "libx264", "h264_mediacodec"),
     HEVC("video/hevc", "libx265", "hevc_mediacodec"),
     VP9("video/x-vnd.on2.vp9", "libvpx-vp9", "vp9_mediacodec"),
-    AV1("video/av01", "libsvtav1", "av1_mediacodec")
+    AV1("video/av01", "libsvtav1", "av1_mediacodec"),
+    VP8("video/x-vnd.on2.vp8", "libvpx", "vp8_mediacodec")
 }
 
 data class EncodeRequest(
