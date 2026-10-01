@@ -73,33 +73,50 @@ private data class DisplayedImage(val bitmap:Bitmap,val path:String,val geometry
     val density=androidx.compose.ui.platform.LocalDensity.current
     val hitRadius=with(density){28.dp.toPx()}
     var dragCorner by remember {mutableStateOf<Int?>(null)}
-    var dragBase by remember {mutableStateOf<NormalizedCrop?>(null)}
+    var dragOriginal by remember {mutableStateOf<ImageEditDocument?>(null)}
+    var dragLatest by remember {mutableStateOf<ImageEditDocument?>(null)}
     var dragMapping by remember {mutableStateOf<CropDrag?>(null)}
     Column(Modifier.fillMaxWidth()){
         Text(if(original || edited==null)"Original" else if(dragCorner!=null || editedFrame?.path!=preview.path)"Updating" else preview.status,Modifier.semantics{liveRegion=LiveRegionMode.Polite},style=MaterialTheme.typography.labelLarge)
-        Canvas(Modifier.fillMaxWidth().height(300.dp).testTag("image-canvas").semantics{contentDescription="Image canvas. Pinch to zoom and drag to pan. Crop corners also have exact numeric fields."}
+        Canvas(Modifier.fillMaxWidth().height(300.dp).testTag("image-canvas").semantics{
+            contentDescription="Image canvas. Pinch to zoom and drag to pan. Crop corners also have exact numeric fields."
+            stateDescription=if(bitmap==null)"Loading image" else "Image loaded"
+        }
             .pointerInput(tool,preview.actualPixels){
                 if(tool=="Crop" && !preview.actualPixels)detectDragGestures(onDragStart={point->
                     val corners=cropScreenCorners()
                     dragCorner=corners.indices.minByOrNull{(corners[it]-point).getDistanceSquared()}?.takeIf{(corners[it]-point).getDistance()<=hitRadius}
-                    dragBase=if(dragCorner!=null)currentDocument.crop else null
+                    dragOriginal=if(dragCorner!=null)currentDocument else null
+                    dragLatest=null
                     val g=currentGeometry;val b=currentBitmap;val s=displayScale()
                     dragMapping=if(dragCorner!=null && g!=null && b!=null){
                         val units=if(currentOriginal)g.orientedSize else g.outputSize
                         CropDrag(ImageCropGesture(g,currentDocument.crop,dragCorner!!,currentDocument.cropAspectRatio,currentOriginal),Offset((dimensions.width-b.width*s)/2+pan.x,(dimensions.height-b.height*s)/2+pan.y),units.width.toDouble()/(b.width*s),units.height.toDouble()/(b.height*s))
                     }else null
-                },onDragEnd={if(dragCorner!=null)action(UiAction.ChangeImage(currentDocument,true));dragCorner=null;dragBase=null;dragMapping=null},onDragCancel={
-                    dragBase?.let{action(UiAction.ChangeImage(currentDocument.copy(crop=it),true))};dragCorner=null;dragBase=null;dragMapping=null
+                },onDragEnd={dragLatest?.let{action(UiAction.ChangeImage(it,true))};dragCorner=null;dragOriginal=null;dragLatest=null;dragMapping=null},onDragCancel={
+                    dragOriginal?.let{action(UiAction.ChangeImage(it,true))};dragCorner=null;dragOriginal=null;dragLatest=null;dragMapping=null
                 },onDrag={change,delta->
                     val mapping=dragMapping
                     if(mapping!=null){
                         val pixel=change.position-mapping.origin
                         val crop=mapping.gesture.drag(ImagePoint(pixel.x*mapping.unitsPerPixelX,pixel.y*mapping.unitsPerPixelY))
-                        action(UiAction.ChangeImage(currentDocument.copy(crop=crop),false));change.consume()
+                        val changed=currentDocument.copy(crop=crop)
+                        dragLatest=changed
+                        action(UiAction.ChangeImage(changed,false));change.consume()
                     }else {pan+=delta;change.consume()}
                 })else detectTransformGestures{_,delta,factor,_->zoom=(zoom*factor).coerceIn(.1f,16f);pan+=delta}
             }
-            .pointerInput(tool){if(tool=="Crop")detectTransformGestures{_,delta,factor,_->if(factor!=1f){zoom=(zoom*factor).coerceIn(.1f,16f);pan+=delta}}}
+            .pointerInput(tool){if(tool=="Crop")awaitEachGesture {
+                awaitFirstDown(requireUnconsumed=false)
+                do {
+                    val event=awaitPointerEvent()
+                    if(event.changes.count{it.pressed}>=2) {
+                        zoom=(zoom*event.calculateZoom()).coerceIn(.1f,16f)
+                        pan+=event.calculatePan()
+                        event.changes.forEach {it.consume()}
+                    }
+                } while(event.changes.any {it.pressed})
+            }}
         ){
             dimensions=IntSize(size.width.toInt(),size.height.toInt())
             val bg=when(background){"Light"->Color.White;"Dark"->Color(0xff202020);"Custom"->Color(custom.red/255f,custom.green/255f,custom.blue/255f,1f);else->Color.LightGray}

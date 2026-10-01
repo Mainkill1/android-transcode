@@ -80,6 +80,8 @@ sealed interface UiAction {
     data object SaveVideoDraft:UiAction
     data object DiscardVideoDraft:UiAction
     data class SeekQuickVideo(val timeMs:Long):UiAction
+    data class RenderVideoPreview(val playheadMs:Long):UiAction
+    data object CloseVideoPreview:UiAction
     data object ToggleImageEditor : UiAction
     data object UndoImage : UiAction
     data object RedoImage : UiAction
@@ -136,6 +138,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     val graph = (application as FormaApplication).graph
     private val videoFrames=VideoFrameController(application,viewModelScope)
     val videoFrame=videoFrames.state
+    val videoRender=graph.videoPreviews.state
     private data class VideoHistory(val current:SourceEdit,val past:List<SourceEdit> = emptyList(),val future:List<SourceEdit> = emptyList())
     private val videoHistory=mutableMapOf<String,VideoHistory>()
     private val videoGestureBase=mutableMapOf<String,SourceEdit>()
@@ -271,6 +274,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
             val size=PreviewGeometry.displaySize(value.source.width,value.source.height,value.source.displayRotationDegrees) ?: return
             if(!PreviewGeometry.validExportCrop(crop,size.first,size.second)) return
         }
+        if(value!=current) graph.videoPreviews.invalidate()
         val uri=value.source.uri
         val history=videoHistory[uri] ?: VideoHistory(current)
         val baseline=if(commit) videoGestureBase.remove(uri) ?: history.current else {
@@ -294,6 +298,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         val next=if(redo) VideoHistory(history.future.last(),history.past+history.current,history.future.dropLast(1))
             else VideoHistory(history.past.last(),history.past.dropLast(1),history.future+history.current)
         videoHistory[current.source.uri]=next
+        graph.videoPreviews.invalidate()
         val revision=mutable.value.videoRevision+1
         mutable.update {old -> old.copy(sources=old.sources.map {if(it.source.uri==current.source.uri)next.current else it},
             videoRevision=revision,videoCanUndo=next.past.isNotEmpty(),videoCanRedo=next.future.isNotEmpty(),videoDraftDirty=true)}
@@ -328,6 +333,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                 mutable.update {it.copy(videoDraftDirty=false)}
             }
             UiAction.DiscardVideoDraft -> mutable.value.selected?.let {selected ->
+                graph.videoPreviews.invalidate()
                 viewModelScope.launch {videoSave?.join();graph.videoDrafts.discard(selected.source.uri)}
                 val reset=selected.copy(trim=Trim(),effects=ClipEffects())
                 videoHistory.remove(selected.source.uri);videoGestureBase.remove(selected.source.uri)
@@ -335,6 +341,11 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                     videoRevision=ui.videoRevision+1,videoCanUndo=false,videoCanRedo=false,videoDraftDirty=false)}
             }
             is UiAction.SeekQuickVideo -> requestQuickVideoFrame(action.timeMs,mutable.value.videoRevision)
+            is UiAction.RenderVideoPreview -> mutable.value.selected?.let { selected ->
+                graph.videoPreviews.request(selected,selected.snapshot(mutable.value.editor.settings),
+                    action.playheadMs,mutable.value.videoRevision)
+            }
+            UiAction.CloseVideoPreview -> graph.videoPreviews.invalidate()
             UiAction.ToggleImageEditor -> {
                 mutable.update { it.copy(imageEditor=it.imageEditor.copy(open=!it.imageEditor.open)) }
                 if(mutable.value.imageEditor.open)renderImage(false)
@@ -398,11 +409,11 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                     preferences=preferences),
                     audioEditor=if(audioChanged)it.audioEditor.copy(canUndo=audioHistory.canUndo,canRedo=audioHistory.canRedo) else it.audioEditor) }
             }
-            is UiAction.Select -> { edit { it.copy(selectedUri = action.uri) }; if(mutable.value.imageEditor.open)renderImage(false) }
-            is UiAction.RemoveSource -> edit { it.copy(validating = true, sources = it.sources.filterNot { e -> e.source.uri == action.uri }) }
-            is UiAction.ChangeTrim -> edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(trim = action.trim) else e }) }
+            is UiAction.Select -> { graph.videoPreviews.invalidate();edit { it.copy(selectedUri = action.uri) }; if(mutable.value.imageEditor.open)renderImage(false) }
+            is UiAction.RemoveSource -> {graph.videoPreviews.invalidate();edit { it.copy(validating = true, sources = it.sources.filterNot { e -> e.source.uri == action.uri }) }}
+            is UiAction.ChangeTrim -> {graph.videoPreviews.invalidate();edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(trim = action.trim) else e }) }}
             is UiAction.SetTargetBytes -> { action.targetBytes?.let(UploadFit::validateTarget); edit { it.copy(targetBytes=action.targetBytes,editor=it.editor.copy(targetBytes=action.targetBytes)) } }
-            is UiAction.ChangeEffects -> edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(effects = action.effects) else e }) }
+            is UiAction.ChangeEffects -> {graph.videoPreviews.invalidate();edit { it.copy(validating = true, sources = it.sources.map { e -> if (e.source.uri == action.uri) e.copy(effects = action.effects) else e }) }}
             UiAction.Queue -> enqueue(false)
             UiAction.Convert -> enqueue(true)
             UiAction.StartQueue -> runOperation { startQueue() }

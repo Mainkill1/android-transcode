@@ -5,6 +5,14 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
+import android.os.SystemClock
+import android.util.Log
+import androidx.test.platform.app.InstrumentationRegistry
+import dev.forma.app.image.ImageFixtures
+import dev.forma.core.image.ImageEditDocument
+import java.io.File
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import dev.forma.app.ui.*
 import dev.forma.app.video.VideoFrameState
 import dev.forma.core.*
@@ -33,13 +41,39 @@ class EditorWorkspaceTest {
         }
     }
 
+    @Test fun editImageOpensCanvasWithoutSecondEditTap() {
+        val app=InstrumentationRegistry.getInstrumentation().targetContext
+        val folder=File(app.filesDir,"imports/focused-image-${UUID.randomUUID()}")
+        try {
+            val (file,info)=ImageFixtures.png(app,folder)
+            val image=ImageFixtures.source(app,file,info)
+            val source=Source(image.uri,file.name,0,info.width,info.height,0,
+                imageInfo=info)
+            val selected=SourceEdit(source)
+            val ui=TranscodeUiState(ready=true,sources=listOf(selected),selectedUri=source.uri,
+                imageDocuments=mapOf(source.uri to ImageEditDocument(source=image)))
+            compose.setContent {FormaTheme {FormaWorkspace(ui,emptyList(),dev.forma.app.work.RunState(),
+                onAction={},progressContent={})}}
+            compose.onAllNodesWithText("Edit image")[0].performClick()
+            compose.onNodeWithTag("image-canvas").assertExists()
+        } finally {folder.deleteRecursively()}
+    }
+
     @Test fun cachedFrameShowsCropAndOneUndoableCommitPerGesture() {
         val frame=VideoFrameState.Ready(Bitmap.createBitmap(320,180,Bitmap.Config.ARGB_8888),0,
             source.uri,0,"Quick frame",true)
         val actions=mutableListOf<UiAction>()
         var current by mutableStateOf(edit)
-        compose.setContent { FormaTheme { VideoEditorWorkspace(current,TranscodeUiState(ready=true,sources=listOf(current),selectedUri=source.uri),
-            frame,onAction={actions+=it;if(it is UiAction.ChangeVideoEdit)current=it.edit},onBack={}) } }
+        val waiting=AtomicLong(0)
+        val latencyMs=mutableListOf<Double>()
+        compose.setContent { FormaTheme {
+            SideEffect {val began=waiting.getAndSet(0);if(began>0)latencyMs+=(SystemClock.elapsedRealtimeNanos()-began)/1_000_000.0}
+            VideoEditorWorkspace(current,TranscodeUiState(ready=true,sources=listOf(current),selectedUri=source.uri),
+                frame,onAction={actions+=it;if(it is UiAction.ChangeVideoEdit) {
+                    if(!it.commit)waiting.set(SystemClock.elapsedRealtimeNanos())
+                    current=it.edit
+                }},onBack={})
+        } }
         compose.onNodeWithTag("video-preview").assertExists()
         compose.onNodeWithText("Quick frame").assertExists()
         compose.onNodeWithText("Crop").performClick()
@@ -52,6 +86,23 @@ class EditorWorkspaceTest {
             assertEquals(1,actions.count {it is UiAction.ChangeVideoEdit && it.commit})
             assertNotNull("actions=$actions",current.effects.crop)
             assertTrue(current.effects.crop!!.width<640)
+        }
+        repeat(11) {
+            compose.onNodeWithTag("video-preview").performTouchInput {
+                val fit=minOf(width/640f,height/360f)
+                val crop=current.effects.crop ?: CropRect(0,0,640,360)
+                val corner=Offset((width-640*fit)/2+crop.x*fit,(height-360*fit)/2+crop.y*fit)
+                swipe(start=corner,end=corner+Offset(25f,25f),durationMillis=120)
+            }
+            compose.waitForIdle()
+        }
+        compose.runOnIdle {
+            assertEquals(12,actions.count {it is UiAction.ChangeVideoEdit && it.commit})
+            assertTrue("Too few visible crop updates were recorded: $latencyMs",latencyMs.size>=10)
+            val p95=latencyMs.sorted()[(latencyMs.size*0.95).toInt().coerceAtMost(latencyMs.lastIndex)]
+            Log.i("FormaGestureLatency","video crop state-to-compose p95Ms=$p95 samples=${latencyMs.size}")
+            if(InstrumentationRegistry.getArguments().getString("formaPerformance")=="true")
+                assertTrue("Crop state-to-compose p95 $p95 ms exceeds 150 ms",p95<=150.0)
         }
     }
 }

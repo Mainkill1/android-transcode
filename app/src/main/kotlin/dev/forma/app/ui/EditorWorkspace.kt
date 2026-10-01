@@ -24,23 +24,25 @@ import androidx.compose.ui.unit.dp
 import dev.forma.app.TranscodeUiState
 import dev.forma.app.UiAction
 import dev.forma.app.video.VideoFrameState
+import dev.forma.app.video.VideoRenderState
 import dev.forma.core.*
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-@Composable fun EditorWorkspace(ui:TranscodeUiState,frame:VideoFrameState,onAction:(UiAction)->Unit,onBack:()->Unit) {
+@Composable fun EditorWorkspace(ui:TranscodeUiState,frame:VideoFrameState,render:VideoRenderState,
+    onAction:(UiAction)->Unit,onBack:()->Unit) {
     val edit=ui.selected ?: return
     val imageInfo=edit.source.imageInfo
     val imageDocument=ui.imageDocument
     if(imageInfo!=null && imageDocument!=null) {
         dev.forma.app.ui.image.ImageEditorPanel(imageDocument,imageInfo,
             ui.imageEditor,ui.imagePreview,ui.capabilities,focused=true,onClose=onBack,action=onAction)
-    } else if(edit.source.videoTracks>0) VideoEditorWorkspace(edit,ui,frame,onAction,onBack)
+    } else if(edit.source.videoTracks>0) VideoEditorWorkspace(edit,ui,frame,render,onAction,onBack)
     else Text("Choose a video or image to edit.")
 }
 
 @Composable fun VideoEditorWorkspace(edit:SourceEdit,ui:TranscodeUiState,frame:VideoFrameState,
-    onAction:(UiAction)->Unit,onBack:()->Unit) {
+    render:VideoRenderState=VideoRenderState.Idle,onAction:(UiAction)->Unit,onBack:()->Unit) {
     var close by remember {mutableStateOf(false)}
     BackHandler {if(ui.videoDraftDirty)close=true else onBack()}
     var playhead by rememberSaveable(edit.source.uri) {mutableLongStateOf(edit.trim.startMs)}
@@ -57,21 +59,43 @@ import kotlin.math.roundToInt
             FormaTextButton(onClick={onAction(UiAction.UndoVideo)},enabled=ui.videoCanUndo){Text("Undo")}
             FormaTextButton(onClick={onAction(UiAction.RedoVideo)},enabled=ui.videoCanRedo){Text("Redo")}}
         Text(edit.source.name,style=MaterialTheme.typography.titleMedium,maxLines=1)
-        VideoPreviewCanvas(edit,frame,ui.videoTool,onAction)
+        val playable=(render as? VideoRenderState.Ready)?.takeIf {
+            it.sourceKey==edit.source.uri && it.revision==ui.videoRevision
+        }
+        if(playable!=null) Column {
+            VideoPreviewPlayer(playable)
+            FormaTextButton(onClick={onAction(UiAction.CloseVideoPreview)}) {Text("Edit frame")}
+        }
+        else VideoPreviewCanvas(edit,frame,ui.videoTool,onAction)
+        val renderStatus=when(render) {
+            is VideoRenderState.Waiting -> "Waiting for conversion to finish"
+            is VideoRenderState.Rendering -> "Rendering five-second preview"
+            is VideoRenderState.Error -> render.message
+            VideoRenderState.Stale -> "Preview needs updating"
+            else -> null
+        }
+        if(renderStatus!=null)Text(renderStatus,style=MaterialTheme.typography.labelSmall)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             listOf("Trim","Crop","Rotate").forEach { tool ->
-                FilterChip(selected=ui.videoTool==tool,onClick={onAction(UiAction.VideoTool(tool))},label={Text(tool)})
+                FilterChip(selected=ui.videoTool==tool,onClick={onAction(UiAction.VideoTool(tool))},label={Text(tool)},
+                    enabled=tool!="Crop" || PreviewGeometry.displaySize(edit.source.width,edit.source.height,
+                        edit.source.displayRotationDegrees)!=null)
             }
         }
+        FormaOutlinedButton(onClick={onAction(UiAction.RenderVideoPreview(playhead))},
+            enabled=ui.capabilities.available && render !is VideoRenderState.Rendering && render !is VideoRenderState.Waiting,
+            modifier=Modifier.fillMaxWidth().testTag("play-video-preview")) {Text("Play preview · 5 seconds")}
         when(ui.videoTool) {
             "Trim" -> {
                 Text("Start ${mediaTime(edit.trim.startMs)} · End ${mediaTime(edit.trim.endMs ?: edit.source.durationMs)}")
                 Slider(value=playhead.toFloat(),onValueChange={playhead=it.toLong()},
                     valueRange=0f..edit.source.durationMs.coerceAtLeast(1).toFloat(),modifier=Modifier.testTag("video-playhead"))
                 Text("Drag to find a frame. Exact trim times are below.",style=MaterialTheme.typography.bodySmall)
-                Row {FormaTextButton(onClick={onAction(UiAction.ChangeVideoEdit(edit.copy(trim=edit.trim.copy(startMs=playhead))))}){Text("Set start here")}
-                    FormaTextButton(onClick={onAction(UiAction.ChangeVideoEdit(edit.copy(trim=edit.trim.copy(endMs=playhead))))}){Text("Set end here")}}
+                Row {FormaTextButton(onClick={onAction(UiAction.ChangeVideoEdit(edit.copy(trim=edit.trim.copy(startMs=playhead))))},
+                    enabled=playhead<(edit.trim.endMs ?: edit.source.durationMs)){Text("Set start here")}
+                    FormaTextButton(onClick={onAction(UiAction.ChangeVideoEdit(edit.copy(trim=edit.trim.copy(endMs=playhead))))},
+                        enabled=playhead>edit.trim.startMs){Text("Set end here")}}
             }
             "Crop" -> Row {
                 FormaTextButton(onClick={cropNumbers=true}){Text("Enter crop numbers")}

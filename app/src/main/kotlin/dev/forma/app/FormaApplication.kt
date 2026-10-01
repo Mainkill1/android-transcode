@@ -27,6 +27,7 @@ class AppGraph(private val application: Application) {
     val deliveries = DeliveryWorker(queue,files,publisher)
     val runs = RunCoordinator(scope)
     val previews = dev.forma.app.audio.AudioPreviewController(scope)
+    val videoPreviews = dev.forma.app.video.RenderedPreviewController(application,files,bridge,runs,scope)
     val powerMonitor = AndroidPowerMonitor(application)
     val power = PowerRuntime(settings.state, powerMonitor.samples, runs.state, scope)
     val transcoder = FfmpegTranscoder(files, bridge)
@@ -53,6 +54,7 @@ class AppGraph(private val application: Application) {
                 files.cleanupWork()
                 java.io.File(application.cacheDir,"audio-preview").deleteRecursively()
                 java.io.File(application.cacheDir,"image-preview").deleteRecursively()
+                java.io.File(application.cacheDir,"video-preview").deleteRecursively()
                 val references=imageDrafts.references()
                 val videoReferences=videoDrafts.references()
                 val queuedSources=queue.entries.value.flatMap { entry ->

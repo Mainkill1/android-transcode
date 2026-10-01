@@ -46,7 +46,8 @@ import kotlin.math.ceil
     onAction: (UiAction) -> Unit,
     progressContent: @Composable (QueueEntry) -> Unit,
     deliveryProgressContent: @Composable (QueueEntry) -> Unit = {},
-    videoFrame:VideoFrameState=VideoFrameState.Idle
+    videoFrame:VideoFrameState=VideoFrameState.Idle,
+    videoRender:dev.forma.app.video.VideoRenderState=dev.forma.app.video.VideoRenderState.Idle
 ) {
     var page by rememberSaveable { mutableStateOf(if (initiallyQueue) "queue" else "home") }
     val listState = rememberLazyListState()
@@ -128,7 +129,7 @@ import kotlin.math.ceil
             }
         ) { padding ->
             if(page=="edit") Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=16.dp)) {
-                EditorWorkspace(ui,videoFrame,onAction,onBack={page="home"})
+                EditorWorkspace(ui,videoFrame,videoRender,onAction,onBack={page="home"})
             } else LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("editor"), state = listState,
                 contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 ui.message?.let { message -> item(key = "message") {
