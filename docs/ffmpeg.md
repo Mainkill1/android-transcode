@@ -29,6 +29,8 @@ export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
 
 The direct route requires `ANDROID_SDK_ROOT` and `ANDROID_NDK_ROOT`. An arm64-only artifact serves this phone; build every intended ABI before distribution.
 
+On a host with the Android SDK/NDK but without Nix, set `ANDROID_SDK_ROOT` and `ANDROID_NDK_ROOT`, then run `tools/build-ffmpeg.sh --direct --arch=arm64-v8a --jobs=6` with the same optional wrapper flags. Both routes pass the 16 KB ELF/RELRO linker flags above. The helper temporarily patches the pinned FFprobe source so native frame-count scans honor session cancellation, and restores the checkout after the build. Build each intended ABI before distribution.
+
 Consume the resulting Maven repository directory, not the AAR path:
 
 ```bash
