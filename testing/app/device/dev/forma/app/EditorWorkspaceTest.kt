@@ -33,7 +33,8 @@ class EditorWorkspaceTest {
         compose.onNodeWithText("Edit video").performClick()
         compose.onNodeWithTag("video-preview").assertExists()
         compose.onNodeWithText("Rotate").performClick()
-        compose.onNodeWithText("Rotate right").performClick()
+        compose.onNodeWithText("Rotate right").performScrollTo().assertIsDisplayed().performClick()
+        compose.waitUntil(5_000) {actions.any {it is UiAction.ChangeVideoEdit}}
         compose.runOnIdle {
             val changed=actions.filterIsInstance<UiAction.ChangeVideoEdit>().last()
             assertEquals(QuarterTurn.CLOCKWISE,changed.edit.effects.rotation)
