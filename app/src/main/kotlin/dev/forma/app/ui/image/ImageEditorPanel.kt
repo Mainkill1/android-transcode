@@ -18,10 +18,14 @@ import dev.forma.app.ui.FormaTextButton as TextButton
 import dev.forma.core.Capabilities
 import dev.forma.core.image.*
 
-@Composable fun ImageEditorPanel(document:ImageEditDocument,info:ImageInfo,state:ImageEditorState,preview:ImagePreviewState,caps:Capabilities,action:(UiAction)->Unit) {
+@Composable fun ImageEditorPanel(document:ImageEditDocument,info:ImageInfo,state:ImageEditorState,preview:ImagePreviewState,caps:Capabilities,
+    focused:Boolean=false,onClose:()->Unit={},action:(UiAction)->Unit) {
     var close by remember {mutableStateOf(false)}
-    BackHandler(state.open){if(state.dirty)close=true else action(UiAction.ToggleImageEditor)}
-    if(close)AlertDialog(onDismissRequest={close=false},title={Text("Close image draft?")},text={Text("Save this draft or discard its edits.")},confirmButton={TextButton(onClick={close=false;action(UiAction.SaveImageDraft)}){Text("Save draft")}},dismissButton={FlowRow{TextButton(onClick={close=false;action(UiAction.DiscardImageDraft)}){Text("Discard")};TextButton(onClick={close=false}){Text("Cancel")}}})
+    BackHandler(state.open && !focused){if(state.dirty)close=true else action(UiAction.ToggleImageEditor)}
+    BackHandler(focused){if(state.dirty)close=true else onClose()}
+    if(close)AlertDialog(onDismissRequest={close=false},title={Text("Close image draft?")},text={Text("Save this draft or discard its edits.")},
+        confirmButton={TextButton(onClick={close=false;action(UiAction.SaveImageDraft);if(focused)onClose()}){Text("Save draft")}},
+        dismissButton={FlowRow{TextButton(onClick={close=false;action(UiAction.DiscardImageDraft);if(focused)onClose()}){Text("Discard")};TextButton(onClick={close=false}){Text("Cancel")}}})
     Column(Modifier.fillMaxWidth().testTag("image-editor").onPreviewKeyEvent { e->
         if(e.type==KeyEventType.KeyDown && e.isCtrlPressed && e.key==Key.Z){action(if(e.isShiftPressed)UiAction.RedoImage else UiAction.UndoImage);true}
         else if(e.type==KeyEventType.KeyDown && e.isCtrlPressed && e.key==Key.Y){action(UiAction.RedoImage);true}else false
@@ -29,12 +33,12 @@ import dev.forma.core.image.*
         Text("Image · ${info.width} × ${info.height} · ${info.bytes} bytes · ${info.format.name}",style=MaterialTheme.typography.titleSmall)
         Text("${info.bitDepth}-bit · ${info.alpha.name.lowercase()} alpha · EXIF ${info.orientation} · ${if(info.profile==ImageProfile.ASSUMED_SRGB)"Assumed sRGB" else "sRGB"}",style=MaterialTheme.typography.bodySmall)
         if(info.format.decoder !in caps.decoders)Text("Unavailable · native ${info.format.decoder} decoder is missing.",style=MaterialTheme.typography.bodySmall)
-        if(!state.open) {
+        if(!state.open && !focused) {
             ImageOriginalThumbnail(document,info)
             Button(onClick={action(UiAction.ToggleImageEditor)}){Text("Edit image")}
         }
         else {
-            FlowRow {TextButton(onClick={if(state.dirty)close=true else action(UiAction.ToggleImageEditor)}){Text("Back")};TextButton(onClick={action(UiAction.UndoImage)},enabled=state.canUndo){Text("Undo")};TextButton(onClick={action(UiAction.RedoImage)},enabled=state.canRedo){Text("Redo")};TextButton(onClick={action(UiAction.ChangeImage(ImageEditDocument(source=document.source,revision=document.revision)))}){Text("Reset all")}}
+            FlowRow {TextButton(onClick={if(state.dirty)close=true else if(focused)onClose() else action(UiAction.ToggleImageEditor)}){Text("Back")};TextButton(onClick={action(UiAction.UndoImage)},enabled=state.canUndo){Text("Undo")};TextButton(onClick={action(UiAction.RedoImage)},enabled=state.canRedo){Text("Redo")};TextButton(onClick={action(UiAction.ChangeImage(ImageEditDocument(source=document.source,revision=document.revision)))}){Text("Reset all")}}
             val canvas: @Composable () -> Unit={ImageCanvas(document,info,preview,state.tool,action)}
             val inspector: @Composable () -> Unit={
                 Column(Modifier.heightIn(max=480.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){

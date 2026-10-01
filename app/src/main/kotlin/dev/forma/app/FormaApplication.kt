@@ -33,6 +33,7 @@ class AppGraph(private val application: Application) {
     val imageMarkup = dev.forma.app.image.ImageMarkupRenderer()
     val imageTranscoder = ImageTranscoder(files, bridge, imageMarkup)
     val imageDrafts = dev.forma.app.image.ImageDraftRepository(application)
+    val videoDrafts = dev.forma.app.video.VideoDraftRepository(application)
     val imagePreviews = dev.forma.app.image.ImagePreviewController(scope, runs, files, bridge, imageMarkup, application)
     private val initialization = Mutex()
     private var initialized = false
@@ -53,14 +54,16 @@ class AppGraph(private val application: Application) {
                 java.io.File(application.cacheDir,"audio-preview").deleteRecursively()
                 java.io.File(application.cacheDir,"image-preview").deleteRecursively()
                 val references=imageDrafts.references()
+                val videoReferences=videoDrafts.references()
                 val queuedSources=queue.entries.value.flatMap { entry ->
                     when(val spec=entry.spec) {
                         is dev.forma.core.image.QueueJobSpec.Av -> dev.forma.core.JobPlans.sourceUris(spec.job) + spec.source.uri
                         is dev.forma.core.image.QueueJobSpec.Image -> setOf(spec.source.uri)
                     }
                 }.toSet()
-                if(!references.preserveImports)files.cleanupImports(queuedSources + references.uris)
-                else queue.error.value="Some image drafts cannot be read. Their originals are retained for recovery."
+                if(!references.preserveImports && !videoReferences.preserveImports)
+                    files.cleanupImports(queuedSources + references.uris + videoReferences.uris)
+                else queue.error.value="Some saved drafts cannot be read. Their originals are retained for recovery."
                 initialized = true
             }
         }

@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import dev.forma.app.*
 import dev.forma.app.data.LiveProgress
 import dev.forma.app.data.DeliveryCopyProgress
+import dev.forma.app.video.VideoFrameState
 import dev.forma.app.work.*
 import dev.forma.core.*
 import dev.forma.core.image.*
@@ -44,7 +45,8 @@ import kotlin.math.ceil
     workspaceRequest: WorkspaceRequest? = null,
     onAction: (UiAction) -> Unit,
     progressContent: @Composable (QueueEntry) -> Unit,
-    deliveryProgressContent: @Composable (QueueEntry) -> Unit = {}
+    deliveryProgressContent: @Composable (QueueEntry) -> Unit = {},
+    videoFrame:VideoFrameState=VideoFrameState.Idle
 ) {
     var page by rememberSaveable { mutableStateOf(if (initiallyQueue) "queue" else "home") }
     val listState = rememberLazyListState()
@@ -83,7 +85,7 @@ import kotlin.math.ceil
         }
     }) {
         Scaffold(
-            topBar = { TopAppBar(title = { Text(if (page == "queue") "Queue" else if (page == "finished") "Finished" else if (page == "engine") "App info" else if (page == "movie") "Your movie" else "Forma") },
+            topBar = { TopAppBar(title = { Text(if (page == "queue") "Queue" else if (page == "finished") "Finished" else if (page == "engine") "App info" else if (page == "movie") "Your movie" else if(page=="edit") "Edit" else "Forma") },
                 navigationIcon = { TextButton(onClick = { scope.launch { drawer.open() } }, modifier = Modifier.testTag("open-shelf").semantics { contentDescription = "Open navigation" }) { Text("Menu") } },
                 actions = { if (page != "queue" && queuedJobs.isNotEmpty()) TextButton(onClick = { page = "queue" }) { Text(queueLabel) } }) },
             bottomBar = {
@@ -125,7 +127,9 @@ import kotlin.math.ceil
                 }
             }
         ) { padding ->
-            LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("editor"), state = listState,
+            if(page=="edit") Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=16.dp)) {
+                EditorWorkspace(ui,videoFrame,onAction,onBack={page="home"})
+            } else LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("editor"), state = listState,
                 contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 ui.message?.let { message -> item(key = "message") {
                     var expanded by rememberSaveable(message) { mutableStateOf(false) }
@@ -176,10 +180,13 @@ import kotlin.math.ceil
                                 TextButton(onClick = { onAction(UiAction.Import) }, enabled = ui.fileTask == null) { Text("Add files") }
                             } }
                             items(ui.sources, key = { "source:${it.source.uri}" }, contentType = { "source" }) { source ->
-                                SourceCard(source, ui.selected?.source?.uri == source.source.uri, onAction)
+                                SourceCard(source, ui.selected?.source?.uri == source.source.uri, onAction) {
+                                    onAction(UiAction.Select(source.source.uri));page="edit"
+                                    if(source.source.imageInfo!=null && !ui.imageEditor.open)onAction(UiAction.ToggleImageEditor)
+                                }
                             }
                             if(ui.selected?.source?.imageInfo != null && ui.imageDocument != null) {
-                                item(key="image-editor") { dev.forma.app.ui.image.ImageEditorPanel(ui.imageDocument!!,ui.selected!!.source.imageInfo!!,ui.imageEditor,ui.imagePreview,ui.capabilities,onAction)
+                                item(key="image-editor") { OutlinedButton(onClick={page="edit"},modifier=Modifier.fillMaxWidth().testTag("open-image-editor")){Text("Edit image")}
                                     (ui.problems+ui.runtimeProblems).distinct().take(3).forEach{Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
                                 }
                             } else {
@@ -274,7 +281,7 @@ import kotlin.math.ceil
     }
 }
 
-@Composable private fun SourceCard(edit: SourceEdit, selected: Boolean, action: (UiAction) -> Unit) {
+@Composable private fun SourceCard(edit: SourceEdit, selected: Boolean, action: (UiAction) -> Unit,onEdit:()->Unit) {
     OutlinedCard(onClick = { action(UiAction.Select(edit.source.uri)) }, modifier = Modifier.fillMaxWidth().semantics { this.selected = selected }) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -284,6 +291,8 @@ import kotlin.math.ceil
             Text("${if(edit.source.imageInfo!=null) "Image" else mediaTime(edit.source.durationMs)} · ${if (edit.source.videoTracks > 0 || edit.source.imageInfo!=null) "${edit.source.width} × ${edit.source.height}" else "Audio"}" +
                 if (edit.source.bytes > 0) " · ${mediaSize(edit.source.bytes)}" else "", style = MaterialTheme.typography.bodySmall)
             FlowRow {
+                if(edit.source.imageInfo!=null || edit.source.videoTracks>0)
+                    TextButton(onClick=onEdit){Text(if(edit.source.imageInfo!=null)"Edit image" else "Edit video")}
                 TextButton(onClick = { action(UiAction.OpenSource(edit.source.uri)) }) { Text(if(edit.source.imageInfo!=null)"View source" else "Play source") }
                 TextButton(onClick = { action(UiAction.RemoveSource(edit.source.uri)) }) { Text("Remove from list") }
             }

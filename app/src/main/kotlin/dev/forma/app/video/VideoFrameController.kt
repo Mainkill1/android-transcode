@@ -6,6 +6,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import dev.forma.core.Source
+import dev.forma.core.PreviewGeometry
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.min
@@ -28,7 +29,7 @@ sealed interface VideoFrameState {
     data object Idle:VideoFrameState
     data class Loading(val sourceKey:String,val requestedMs:Long,val revision:Long):VideoFrameState
     data class Ready(val bitmap:Bitmap,val requestedMs:Long,val sourceKey:String,val revision:Long,
-        val status:String):VideoFrameState
+        val status:String,val orientationApplied:Boolean):VideoFrameState
     data class Error(val sourceKey:String,val requestedMs:Long,val revision:Long,val message:String):VideoFrameState
 }
 
@@ -81,7 +82,9 @@ class VideoFrameController(private val context:Context,private val scope:Corouti
                         extractor=extractorFactory().also { it.open(source.uri) }
                         openUri=source.uri
                     }
-                    val (width,height)=targetSize(source.width,source.height)
+                    val display=PreviewGeometry.displaySize(source.width,source.height,source.displayRotationDegrees)
+                        ?: (source.width to source.height)
+                    val (width,height)=targetSize(display.first,display.second)
                     val decoded=extractor!!.frame(requested*1000,width,height,sdkInt>=27)
                         ?: throw IOException("Android could not decode a quick frame at this time.")
                     currentCoroutineContext().ensureActive()
@@ -94,9 +97,17 @@ class VideoFrameController(private val context:Context,private val scope:Corouti
                     }
                     limited
                 } }
+                val display=PreviewGeometry.displaySize(source.width,source.height,source.displayRotationDegrees)
+                    ?: (source.width to source.height)
+                val actualRatio=bitmap.width.toDouble()/bitmap.height
+                val displayRatio=display.first.toDouble()/display.second
+                val rawRatio=source.width.toDouble()/source.height
+                val orientationApplied=source.displayRotationDegrees==0 ||
+                    kotlin.math.abs(actualRatio-displayRatio)<=kotlin.math.abs(actualRatio-rawRatio)
                 if(!closed && generation.get()==token)
                     mutable.value=VideoFrameState.Ready(bitmap,requested,source.uri,revision,
-                        if(source.hdr) "Quick frame · HDR color is approximate" else "Quick frame · nearest decoded image")
+                        if(source.hdr) "Quick frame · HDR color is approximate" else "Quick frame · nearest decoded image",
+                        orientationApplied)
                 // Do not recycle a bitmap that Compose may still hold from an earlier state.
             } catch(cancel:CancellationException) { throw cancel }
             catch(error:Exception) {

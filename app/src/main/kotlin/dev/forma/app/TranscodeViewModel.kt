@@ -11,6 +11,8 @@ import androidx.lifecycle.viewModelScope
 import dev.forma.app.service.TranscodeService
 import dev.forma.app.service.DeliveryService
 import dev.forma.app.video.VideoFrameController
+import dev.forma.app.video.VideoDraft
+import dev.forma.app.video.VideoDraftLoad
 import dev.forma.app.work.ProgressGate
 import dev.forma.core.*
 import dev.forma.core.image.*
@@ -53,7 +55,12 @@ data class TranscodeUiState(
     val moviePreviewJobId: String? = null,
     val moviePreviewRevision: Long? = null,
     val destinationMode: String = "forma",
-    val chosenFolderLabel: String? = null
+    val chosenFolderLabel: String? = null,
+    val videoTool:String = "Crop",
+    val videoRevision:Long = 0,
+    val videoCanUndo:Boolean = false,
+    val videoCanRedo:Boolean = false,
+    val videoDraftDirty:Boolean = false
 ) {
     val imageDocument get() = selected?.source?.uri?.let(imageDocuments::get)
     val selected: SourceEdit? get() = sources.firstOrNull { it.source.uri == selectedUri } ?: sources.firstOrNull()
@@ -66,6 +73,13 @@ data class TranscodeUiState(
 }
 
 sealed interface UiAction {
+    data class ChangeVideoEdit(val edit:SourceEdit,val commit:Boolean=true):UiAction
+    data class VideoTool(val tool:String):UiAction
+    data object UndoVideo:UiAction
+    data object RedoVideo:UiAction
+    data object SaveVideoDraft:UiAction
+    data object DiscardVideoDraft:UiAction
+    data class SeekQuickVideo(val timeMs:Long):UiAction
     data object ToggleImageEditor : UiAction
     data object UndoImage : UiAction
     data object RedoImage : UiAction
@@ -122,6 +136,10 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
     val graph = (application as FormaApplication).graph
     private val videoFrames=VideoFrameController(application,viewModelScope)
     val videoFrame=videoFrames.state
+    private data class VideoHistory(val current:SourceEdit,val past:List<SourceEdit> = emptyList(),val future:List<SourceEdit> = emptyList())
+    private val videoHistory=mutableMapOf<String,VideoHistory>()
+    private val videoGestureBase=mutableMapOf<String,SourceEdit>()
+    private var videoSave:Job?=null
     private val mutable = MutableStateFlow(TranscodeUiState())
     val state = mutable.asStateFlow()
     val jobs = graph.queue.entries
@@ -186,6 +204,21 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         initialization = viewModelScope.launch {
             try {
                 graph.initialize()
+                if(mutable.value.sources.isEmpty()) when(val draft=graph.videoDrafts.latest()) {
+                    is VideoDraftLoad.Valid -> {
+                        val source=draft.draft.edit.source
+                        val readable=withContext(Dispatchers.IO) { runCatching {
+                            getApplication<Application>().contentResolver.openInputStream(Uri.parse(source.uri))?.use { true } ?: false
+                        }.getOrDefault(false) }
+                        if(readable) {
+                            videoHistory[source.uri]=VideoHistory(draft.draft.edit)
+                            mutable.update { it.copy(sources=listOf(draft.draft.edit),selectedUri=source.uri,
+                                videoTool=draft.draft.tool,videoRevision=draft.draft.revision,videoDraftDirty=false) }
+                        } else mutable.update { it.copy(message="Saved video draft source is unavailable. Add the source again to continue editing.") }
+                    }
+                    is VideoDraftLoad.Corrupt -> mutable.update { it.copy(message="Saved video draft is damaged. Its source was kept for recovery.") }
+                    VideoDraftLoad.Missing -> Unit
+                }
                 if(graph.queue.entries.value.any { it.state==JobState.COMPLETED &&
                     (it.delivery.receipt==DeliveryReceipt.Waiting || it.delivery.receipt is DeliveryReceipt.Copying) })
                     runCatching { DeliveryService.start(getApplication()) }.onFailure { error ->
@@ -229,12 +262,79 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         if(selected.videoTracks>0 && selected.imageInfo==null) videoFrames.request(selected,timeMs,revision)
     }
 
+    private fun changeVideoEdit(value:SourceEdit,commit:Boolean) {
+        val current=mutable.value.sources.firstOrNull {it.source.uri==value.source.uri} ?: return
+        if(value.source!=current.source) return
+        if(value.trim.startMs<0 || value.trim.startMs>=value.source.durationMs ||
+            value.trim.endMs?.let {it<=value.trim.startMs || it>value.source.durationMs}==true) return
+        value.effects.crop?.let {crop ->
+            val size=PreviewGeometry.displaySize(value.source.width,value.source.height,value.source.displayRotationDegrees) ?: return
+            if(!PreviewGeometry.validExportCrop(crop,size.first,size.second)) return
+        }
+        val uri=value.source.uri
+        val history=videoHistory[uri] ?: VideoHistory(current)
+        val baseline=if(commit) videoGestureBase.remove(uri) ?: history.current else {
+            videoGestureBase.putIfAbsent(uri,history.current);history.current
+        }
+        val next=if(commit && value!=baseline)
+            VideoHistory(value,(history.past+baseline).takeLast(40))
+        else history.copy(current=value)
+        videoHistory[uri]=next
+        val revision=mutable.value.videoRevision+(if(commit && value!=baseline) 1 else 0)
+        mutable.update { old -> old.copy(sources=old.sources.map {if(it.source.uri==uri)value else it},
+            videoRevision=revision,videoCanUndo=next.past.isNotEmpty(),videoCanRedo=next.future.isNotEmpty(),
+            videoDraftDirty=old.videoDraftDirty || value!=baseline) }
+        if(commit) saveVideoDraft(value,revision)
+    }
+
+    private fun restoreVideoHistory(redo:Boolean) {
+        val current=mutable.value.selected ?: return
+        val history=videoHistory[current.source.uri] ?: return
+        if(redo && history.future.isEmpty() || !redo && history.past.isEmpty()) return
+        val next=if(redo) VideoHistory(history.future.last(),history.past+history.current,history.future.dropLast(1))
+            else VideoHistory(history.past.last(),history.past.dropLast(1),history.future+history.current)
+        videoHistory[current.source.uri]=next
+        val revision=mutable.value.videoRevision+1
+        mutable.update {old -> old.copy(sources=old.sources.map {if(it.source.uri==current.source.uri)next.current else it},
+            videoRevision=revision,videoCanUndo=next.past.isNotEmpty(),videoCanRedo=next.future.isNotEmpty(),videoDraftDirty=true)}
+        saveVideoDraft(next.current,revision)
+    }
+
+    private fun saveVideoDraft(edit:SourceEdit,revision:Long) {
+        val previous=videoSave
+        val tool=mutable.value.videoTool
+        videoSave=viewModelScope.launch {try {
+            previous?.join()
+            graph.videoDrafts.save(VideoDraft(edit,tool,revision))
+        } catch(cancel:CancellationException) {throw cancel}
+        catch(error:Exception) {mutable.update {it.copy(videoDraftDirty=true,message="Could not save video draft: ${error.message}")}}}
+    }
+
     override fun onCleared() {
         videoFrames.close()
         super.onCleared()
     }
     fun act(action: UiAction) {
         when (action) {
+            is UiAction.ChangeVideoEdit -> changeVideoEdit(action.edit,action.commit)
+            is UiAction.VideoTool -> {
+                mutable.update {it.copy(videoTool=action.tool)}
+                mutable.value.selected?.let {saveVideoDraft(it,mutable.value.videoRevision)}
+            }
+            UiAction.UndoVideo -> restoreVideoHistory(false)
+            UiAction.RedoVideo -> restoreVideoHistory(true)
+            UiAction.SaveVideoDraft -> mutable.value.selected?.let {edit ->
+                saveVideoDraft(edit,mutable.value.videoRevision)
+                mutable.update {it.copy(videoDraftDirty=false)}
+            }
+            UiAction.DiscardVideoDraft -> mutable.value.selected?.let {selected ->
+                viewModelScope.launch {videoSave?.join();graph.videoDrafts.discard(selected.source.uri)}
+                val reset=selected.copy(trim=Trim(),effects=ClipEffects())
+                videoHistory.remove(selected.source.uri);videoGestureBase.remove(selected.source.uri)
+                mutable.update {ui -> ui.copy(sources=ui.sources.map {if(it.source.uri==selected.source.uri)reset else it},
+                    videoRevision=ui.videoRevision+1,videoCanUndo=false,videoCanRedo=false,videoDraftDirty=false)}
+            }
+            is UiAction.SeekQuickVideo -> requestQuickVideoFrame(action.timeMs,mutable.value.videoRevision)
             UiAction.ToggleImageEditor -> {
                 mutable.update { it.copy(imageEditor=it.imageEditor.copy(open=!it.imageEditor.open)) }
                 if(mutable.value.imageEditor.open)renderImage(false)

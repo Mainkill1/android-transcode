@@ -45,6 +45,10 @@ class PreviewGeometryDeviceTest {
                 frames.request(source.copy(uri=uri.toString()),250,1)
                 val quick=withTimeout(10_000) {frames.state.first {it is VideoFrameState.Ready || it is VideoFrameState.Error}}
                 assertTrue(quick.toString(),quick is VideoFrameState.Ready)
+                quick as VideoFrameState.Ready
+                assertTrue(quick.orientationApplied)
+                assertEquals(90,quick.bitmap.width)
+                assertEquals(160,quick.bitmap.height)
             } finally {frames.closeAndJoin();scope.cancel()}
             val effects=ClipEffects(crop=CropRect(20,20,40,100))
             val settings=Settings(maxHeight=0,effects=effects)

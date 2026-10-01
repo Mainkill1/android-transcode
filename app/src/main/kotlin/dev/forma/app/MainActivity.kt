@@ -81,6 +81,7 @@ private class CreateOutput : ActivityResultContract<ExportRequest, Uri?>() {
 }
 @Composable private fun FormaRoute(vm: TranscodeViewModel, initiallyQueue: Boolean = false, workspaceRequest: WorkspaceRequest? = null) {
     val ui by vm.state.collectAsStateWithLifecycle()
+    val videoFrame by vm.videoFrame.collectAsStateWithLifecycle()
     val jobs by vm.jobs.collectAsStateWithLifecycle()
     val run by vm.runState.collectAsStateWithLifecycle()
     // DO NOT collect native progress here: it would invalidate the whole editor each tick.
@@ -122,7 +123,7 @@ private class CreateOutput : ActivityResultContract<ExportRequest, Uri?>() {
         if(grants.values.all { it } && id!=null) vm.act(UiAction.RetrySave(id))
     }
     FormaWorkspace(ui, jobs, run, initiallyQueue, workspaceRequest = workspaceRequest, progressContent = progressContent,
-        deliveryProgressContent=deliveryProgressContent,onAction = { action ->
+        deliveryProgressContent=deliveryProgressContent,videoFrame=videoFrame,onAction = { action ->
         when (action) {
             UiAction.Import -> if (ui.fileTask == null) picker.launch(arrayOf("video/*", "audio/*", "image/*"))
             is UiAction.Export -> if (ui.fileTask == null && exportId == null) jobs.firstOrNull { it.spec.id == action.id }?.let {
