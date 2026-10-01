@@ -14,8 +14,9 @@ class ImageQueueCodecTest {
     }
     @Test fun missingSavedTrimEndpointIsRejectedForEveryMigratedSchema() {
         val entry=QueueEntry(JobSpec("3d4754f2-f642-4f9c-9cf4-c6db11a77dca",Source("content://one","audio.m4a",10000),Trim(0,5000),Settings()))
-        for(schema in 1..4){val root=org.json.JSONObject(JobCodec.encode(listOf(entry)));root.put("schema",schema)
+        for(schema in 1..5){val root=org.json.JSONObject(JobCodec.encode(listOf(entry)));root.put("schema",schema)
             val job=root.getJSONArray("jobs").getJSONObject(0)
+            if(schema<5)job.remove("delivery")
             if(schema<3)job.remove("kind")
             if(schema<4){job.remove("preferences");job.remove("completedAtMs");job.remove("targetBytes");job.remove("sequence");job.getJSONObject("settings").remove("effects")}
             if(schema==1)job.getJSONObject("settings").remove("audioEdit")

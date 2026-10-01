@@ -1,5 +1,10 @@
 package dev.forma.app.ui.settings
 
+import android.content.Intent
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -22,6 +27,7 @@ import kotlinx.coroutines.launch
 @Composable fun SettingsDialog(current: Settings, jobScope: Boolean, onApplyToJob: (Settings) -> Unit, onDismiss: () -> Unit,
     preferences: MediaPreferences = MediaPreferences.legacy(current), onApplyPreferences: ((Settings, MediaPreferences) -> Unit)? = null) {
     val graph = (LocalContext.current.applicationContext as FormaApplication).graph
+    val context = LocalContext.current
     val loaded by graph.settings.state.collectAsStateWithLifecycle()
     val run by graph.runs.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -51,6 +57,22 @@ import kotlinx.coroutines.launch
     fun decodeDraft(wire:String)=if(jobScope && legacySnapshot) SettingsCodec.decodeLegacyMediaSnapshot(wire) else SettingsCodec.decode(wire)
     val base = remember(baselineWire) { baselineWire?.let(::decodeDraft) }
     val draft = remember(base, draftWire) { base?.let { SettingsDraft(it, draftWire?.let(::decodeDraft)?.values ?: it.values) } }
+    val chooseSaveFolder=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if(uri!=null && draft!=null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                val document=DocumentsContract.buildDocumentUriUsingTree(uri,DocumentsContract.getTreeDocumentId(uri))
+                val label=context.contentResolver.query(document,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use { cursor ->
+                    if(cursor.moveToFirst()) cursor.getString(0) else null
+                }?.takeIf { it.isNotBlank() } ?: "Selected folder"
+                graph.treeGrants.choose(uri.toString(),label)
+                draftWire=SettingsCodec.encode(SettingsDocument(draft.saved.revision,
+                    draft.values.with("export.destination",SettingValue.Choice("custom"))))
+                failure=null
+            } catch(error:Exception) { failure="Could not use that folder: ${error.message}" }
+        }
+    }
     val inherited = remember(inheritedWire) { inheritedWire?.let(SettingsCodec::decode)?.values ?: PreferenceValues.EMPTY }
     val preset=remember(presetWire) { presetWire?.let(SettingsCodec::decode)?.values ?: PreferenceValues.EMPTY }
     val frozen=if(jobScope) MediaPreferences(inheritedWire?.let(SettingsCodec::decode) ?: SettingsDocument(),preset,
@@ -116,7 +138,10 @@ import kotlinx.coroutines.launch
                         onValuesChanged={ values -> draftWire=SettingsCodec.encode(SettingsDocument(draft.saved.revision,values)); failure=null },
                         onSave={ save() }, onDiscard={ draftWire=baselineWire; failure=null }, onClose={ close() },
                         busy=busy, error=validation ?: failure, canSave=validation == null, backRequest=backRequest,
-                        preset=if(jobScope) preset else PreferenceValues.EMPTY, runControls={ SettingsRunControls(run.mode != RunMode.IDLE, run.mode == RunMode.STOPPING) { graph.runs.stop() } })
+                        preset=if(jobScope) preset else PreferenceValues.EMPTY,
+                        onChooseSaveFolder={ chooseSaveFolder.launch(null) },
+                        saveFolderLabel=runCatching { graph.treeGrants.selected()?.label }.getOrNull(),
+                        runControls={ SettingsRunControls(run.mode != RunMode.IDLE, run.mode == RunMode.STOPPING) { graph.runs.stop() } })
                 }
             }
             retentionPending?.let { closeAfter ->

@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.forma.app.*
 import dev.forma.app.data.LiveProgress
+import dev.forma.app.data.DeliveryCopyProgress
 import dev.forma.app.work.*
 import dev.forma.core.*
 import dev.forma.core.image.*
@@ -42,7 +43,8 @@ import kotlin.math.ceil
     initiallyQueue: Boolean = false,
     workspaceRequest: WorkspaceRequest? = null,
     onAction: (UiAction) -> Unit,
-    progressContent: @Composable (QueueEntry) -> Unit
+    progressContent: @Composable (QueueEntry) -> Unit,
+    deliveryProgressContent: @Composable (QueueEntry) -> Unit = {}
 ) {
     var page by rememberSaveable { mutableStateOf(if (initiallyQueue) "queue" else "home") }
     val listState = rememberLazyListState()
@@ -109,6 +111,8 @@ import kotlin.math.ceil
                                 "${size?.let{"${it.width} × ${it.height}"}?:"Check dimensions"} · ${image.output.format.name} · ${image.output.targetBytes?.let{"< $it bytes"}?:"No size limit"}"
                             }else "${ui.sources.size} file(s) · ${ui.editor.settings.container.name} · ${byteLimitLabel(ui.targetBytes)}"
                             Text(summary, style = MaterialTheme.typography.labelMedium)
+                            Text("Saves to ${ui.saveLocationLabel}", style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.testTag("save-location"))
                             val queueable = ui.ready && !ui.busy && !ui.validating && ui.problems.isEmpty()
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = { onAction(UiAction.Queue) }, enabled = queueable, modifier = Modifier.weight(1f)) { Text("Add to queue") }
@@ -223,12 +227,12 @@ import kotlin.math.ceil
                             if (queuedJobs.isEmpty()) Text("Queue is empty")
                         }
                         items(queuedJobs,
-                            key = { "job:${it.spec.id}" }, contentType = { "job" }) { entry -> QueueCard(entry, onAction) }
+                            key = { "job:${it.spec.id}" }, contentType = { "job" }) { entry -> QueueCard(entry, onAction,deliveryProgressContent) }
                     }
                     "finished" -> {
                         item(key = "finished-heading") { QueueListSwitcher(page, queuedJobs.size, finishedJobs.size) { page = it } }
                         if (finishedJobs.isEmpty()) item(key = "finished-empty") { Text("No finished conversions yet") }
-                        items(finishedJobs, key = { "job:${it.spec.id}" }, contentType = { "job" }) { entry -> QueueCard(entry, onAction) }
+                        items(finishedJobs, key = { "job:${it.spec.id}" }, contentType = { "job" }) { entry -> QueueCard(entry, onAction,deliveryProgressContent) }
                     }
                     else -> item(key = "engine") {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -313,7 +317,8 @@ import kotlin.math.ceil
             dismissButton={TextButton(onClick={pending=null;action(value)}) {Text("Replace overrides")}})
     }
 }
-@Composable private fun QueueCard(entry: QueueEntry, action: (UiAction) -> Unit) {
+@Composable private fun QueueCard(entry: QueueEntry, action: (UiAction) -> Unit,
+    deliveryProgressContent: @Composable (QueueEntry) -> Unit) {
     var details by rememberSaveable(entry.spec.id) { mutableStateOf(false) }
     var settingsDetails by rememberSaveable(entry.spec.id) { mutableStateOf(false) }
     OutlinedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -327,6 +332,28 @@ import kotlin.math.ceil
         }
         Text(description, style = MaterialTheme.typography.bodySmall)
         Text(byteLimitLabel(entry.spec.targetBytes),style=MaterialTheme.typography.bodySmall)
+        if(entry.state==JobState.COMPLETED) {
+            val location=when(val destination=entry.delivery.destination) {
+                is SaveDestination.FormaLibrary -> when(destination.category) {
+                    MediaCategory.VIDEO -> "Movies/Forma"
+                    MediaCategory.AUDIO -> "Music/Forma"
+                    MediaCategory.IMAGE -> "Pictures/Forma"
+                }
+                is SaveDestination.DocumentTree -> destination.label
+                null -> "Forma"
+            }
+            val receipt=entry.delivery.receipt
+            Text(when(receipt) {
+                is DeliveryReceipt.Saved -> "Saved to $location · ${receipt.displayName}"
+                is DeliveryReceipt.Copying -> "Saving to $location…"
+                DeliveryReceipt.Waiting -> "Saving to $location…"
+                is DeliveryReceipt.Failed -> "Converted; save failed · $location"
+                DeliveryReceipt.PrivateLegacy -> "Private in Forma"
+            },style=MaterialTheme.typography.bodySmall)
+            if(receipt is DeliveryReceipt.Failed) Text(receipt.message,style=MaterialTheme.typography.bodySmall,
+                color=MaterialTheme.colorScheme.error)
+            if(receipt is DeliveryReceipt.Copying) deliveryProgressContent(entry)
+        }
         TextButton(onClick={settingsDetails=!settingsDetails}) { Text(if(settingsDetails) "Hide settings" else "Settings snapshot") }
         if(settingsDetails) {
             Text("Defaults revision ${entry.spec.preferences.app.revision} · ${entry.spec.preferences.overrideCount} overrides",style=MaterialTheme.typography.labelSmall)
@@ -347,8 +374,12 @@ import kotlin.math.ceil
             when (entry.state) {
                 JobState.COMPLETED -> {
                     Button(onClick = { action(UiAction.Share(entry.spec.id)) }) { Text("Share output") }
-                    TextButton(onClick = { action(UiAction.OpenOutput(entry.spec.id)) }) { Text(if(entry.spec is QueueJobSpec.Image)"View output" else "Play output") }
-                    TextButton(onClick = { action(UiAction.Export(entry.spec.id)) }) { Text("Save copy") }
+                    TextButton(onClick = { action(UiAction.OpenOutput(entry.spec.id)) }) { Text(if(entry.delivery.receipt is DeliveryReceipt.Saved) "View saved file"
+                        else if(entry.spec is QueueJobSpec.Image) "View output" else "Play output") }
+                    if(entry.delivery.receipt==DeliveryReceipt.Waiting || entry.delivery.receipt is DeliveryReceipt.Copying ||
+                        entry.delivery.receipt is DeliveryReceipt.Failed)
+                        TextButton(onClick = { action(UiAction.RetrySave(entry.spec.id)) }) { Text("Retry save") }
+                    TextButton(onClick = { action(UiAction.Export(entry.spec.id)) }) { Text("Save another copy") }
                 }
                 JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED -> TextButton(onClick = { action(UiAction.Retry(entry.spec.id)) }) { Text("Add retry to queue") }
                 JobState.QUEUED -> TextButton(onClick = { action(UiAction.RemoveJob(entry.spec.id)) }) { Text("Remove queued file") }
@@ -356,6 +387,18 @@ import kotlin.math.ceil
             }
         }
     } }
+}
+@Composable fun DeliveryProgressView(progress:DeliveryCopyProgress?) {
+    if(progress==null) return
+    val copied=progress.copiedBytes.coerceAtLeast(0)
+    val total=progress.totalBytes.coerceAtLeast(0)
+    val label=if(total<1_048_576) "${copied/1_024} of ${total/1_024} KiB copied"
+        else "${copied/1_048_576} of ${total/1_048_576} MB copied"
+    Column(Modifier.testTag("save-copy-progress")) {
+        Text(label,style=MaterialTheme.typography.bodySmall)
+        if(total>0) LinearProgressIndicator(progress={ (copied.toFloat()/total).coerceIn(0f,1f) },modifier=Modifier.fillMaxWidth())
+        else LinearProgressIndicator(Modifier.fillMaxWidth())
+    }
 }
 @Composable fun ProgressView(entry: QueueEntry, live: LiveProgress?) {
     if(entry.spec is QueueJobSpec.Image) {

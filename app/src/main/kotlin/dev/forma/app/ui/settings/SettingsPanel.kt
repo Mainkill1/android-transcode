@@ -33,6 +33,7 @@ import dev.forma.core.settings.*
     onDiscard: () -> Unit, onClose: () -> Unit,
     busy: Boolean = false, error: String? = null, canSave: Boolean = true, backRequest: Int = 0,
     preset: PreferenceValues = PreferenceValues.EMPTY,
+    onChooseSaveFolder: () -> Unit = {}, saveFolderLabel: String? = null,
     runControls: @Composable () -> Unit = {}
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
@@ -134,7 +135,9 @@ import dev.forma.core.settings.*
                                     .clickable(enabled=!busy, role=Role.Button) { keyboard?.hide(); selectedId=spec.id }
                                     .padding(horizontal=12.dp, vertical=if (compact) 8.dp else 14.dp)) {
                                     Text(spec.label, style=MaterialTheme.typography.titleSmall)
-                                    Text(spec.display(value.value), style=MaterialTheme.typography.bodyLarge)
+                                    Text(if(spec.id=="export.destination" && value.value==SettingValue.Choice("custom"))
+                                        saveFolderLabel?.let { "Chosen folder: $it" } ?: "Choose a folder again"
+                                        else spec.display(value.value), style=MaterialTheme.typography.bodyLarge)
                                     Text(if (spec.implemented) provenance else "Planned · $provenance", style=MaterialTheme.typography.labelMedium,
                                         color=MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (showResults) Text(spec.category.title, style=MaterialTheme.typography.bodySmall)
@@ -153,6 +156,7 @@ import dev.forma.core.settings.*
         SettingSheet(spec, resolved.getValue(id).value, jobScope,
             inheritedValue=if (jobScope) SettingsResolver.resolve(appDefaults,preset).getValue(id).value else spec.defaultValue,
             onChange={ onValuesChanged(draft.values.with(id,it)); selectedId=null },
+            onChooseSaveFolder={ selectedId=null;onChooseSaveFolder() },
             onReset={ onValuesChanged(draft.values.without(id)); selectedId=null }, onClose={ selectedId=null })
     }
     resetIds?.let { ids -> AlertDialog(onDismissRequest={ resetIds=null }, title={ Text("Remove these overrides?") },
@@ -163,7 +167,8 @@ import dev.forma.core.settings.*
 }
 
 @Composable private fun SettingSheet(spec: SettingSpec, value: SettingValue, jobScope: Boolean,
-    inheritedValue: SettingValue, onChange: (SettingValue) -> Unit, onReset: () -> Unit, onClose: () -> Unit) {
+    inheritedValue: SettingValue, onChange: (SettingValue) -> Unit, onReset: () -> Unit,
+    onChooseSaveFolder: () -> Unit, onClose: () -> Unit) {
     val keyboard = LocalSoftwareKeyboardController.current
     var query by rememberSaveable(spec.id) { mutableStateOf("") }
     val options = spec.options.filter { query.isBlank() || it.id.contains(query.trim(), ignoreCase=true) || it.label.contains(query.trim(), ignoreCase=true) }
@@ -187,7 +192,8 @@ import dev.forma.core.settings.*
                         val enabled = spec.implemented && option.available
                         Row(Modifier.fillMaxWidth().heightIn(min=56.dp).testTag("settings-option:${spec.id}:${option.id}")
                             .selectable(selected=value.value == option.id, enabled=enabled, role=Role.RadioButton,
-                                onClick={ choose(SettingValue.Choice(option.id)) }), verticalAlignment=Alignment.CenterVertically) {
+                                onClick={ if(spec.id=="export.destination" && option.id=="custom") onChooseSaveFolder()
+                                    else choose(SettingValue.Choice(option.id)) }), verticalAlignment=Alignment.CenterVertically) {
                             RadioButton(selected=value.value == option.id, onClick=null, enabled=enabled)
                             Text(option.label + if (!enabled) " · Planned" else "", Modifier.padding(start=12.dp))
                         }

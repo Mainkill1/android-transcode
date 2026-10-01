@@ -12,6 +12,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class QueuePreservationTest {
+    @Test fun deliveryUpdateIsDurableAndRejectsStaleReceipt() = runBlocking {
+        val app=InstrumentationRegistry.getInstrumentation().targetContext
+        val directory=File(app.cacheDir,"delivery-cas-${UUID.randomUUID()}").apply { mkdirs() }
+        val context=object:ContextWrapper(app) { override fun getFilesDir():File=directory }
+        try {
+            val spec=JobSpec(UUID.randomUUID().toString(),Source("content://original","clip.mp4",3000),Trim(),Settings())
+            val queue=QueueRepository(context);queue.load()
+            queue.addTagged(listOf(dev.forma.core.image.QueueJobSpec.Av(spec)), mapOf(spec.id to
+                Delivery(SaveDestination.FormaLibrary(MediaCategory.VIDEO),DeliveryReceipt.Waiting)))
+            val copying=Delivery(SaveDestination.FormaLibrary(MediaCategory.VIDEO),
+                DeliveryReceipt.Copying("clip_forma_12345678.mp4",null))
+            assertTrue(queue.updateDelivery(spec.id,DeliveryReceipt.Waiting,copying))
+            assertFalse(queue.updateDelivery(spec.id,DeliveryReceipt.Waiting,
+                copying.copy(receipt=DeliveryReceipt.Failed("stale",null))))
+            val reopened=QueueRepository(context);reopened.load()
+            assertEquals(copying,reopened.entries.value.single().delivery)
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun failedLoadPreservesUnsupportedOrFractionalOriginalBytes() = runBlocking {
         val context=InstrumentationRegistry.getInstrumentation().targetContext
         val directory=File(context.cacheDir,"queue-preservation-${UUID.randomUUID()}").apply { mkdirs() }

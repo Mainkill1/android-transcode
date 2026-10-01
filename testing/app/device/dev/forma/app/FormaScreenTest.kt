@@ -5,6 +5,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import dev.forma.app.ui.*
 import dev.forma.app.data.LiveProgress
+import dev.forma.app.data.DeliveryCopyProgress
 import dev.forma.app.work.*
 import dev.forma.core.*
 import org.junit.Assert.*
@@ -12,8 +13,61 @@ import org.junit.Rule
 import org.junit.Test
 
 class FormaScreenTest {
+    @Test fun saveProgressReportsCopiedBytesSeparately() {
+        compose.setContent { FormaTheme { DeliveryProgressView(DeliveryCopyProgress("save",1_048_576,4_194_304)) } }
+        compose.onNodeWithTag("save-copy-progress").assertExists()
+        compose.onNodeWithText("1 of 4 MB copied").assertExists()
+    }
+    @Test fun smallSaveProgressShowsUsefulUnits() {
+        compose.setContent { FormaTheme { DeliveryProgressView(DeliveryCopyProgress("save",524_288,786_432)) } }
+        compose.onNodeWithText("512 of 768 KiB copied").assertExists()
+    }
     @get:Rule val compose = createComposeRule()
     private val source = Source("content://test/video", "Sample.mp4", 10000, 640, 360, 1, 1)
+    @Test fun finishedDeliveryShowsClearLocationAndRetrySave() {
+        val destination=SaveDestination.FormaLibrary(MediaCategory.VIDEO)
+        val failed=QueueEntry(JobSpec("failed-save",source,Trim(),Settings()),JobState.COMPLETED,
+            delivery=Delivery(destination,DeliveryReceipt.Failed("Storage full",null)))
+        var action:UiAction?=null
+        compose.setContent { FormaTheme { FormaWorkspace(TranscodeUiState(ready=true),listOf(failed),RunState(),
+            initiallyQueue=true,onAction={ action=it },progressContent={}) } }
+        compose.onNodeWithTag("finished-list").performClick()
+        compose.onNodeWithText("Converted; save failed",substring=true).assertIsDisplayed()
+        compose.onNodeWithText("Movies/Forma",substring=true).assertIsDisplayed()
+        compose.onNodeWithText("Retry save").performClick()
+        compose.runOnIdle {assertEquals(UiAction.RetrySave("failed-save"),action)}
+    }
+    @Test fun finishedCardsDistinguishSavedSavingAndPrivateResults() {
+        val destination=SaveDestination.FormaLibrary(MediaCategory.VIDEO)
+        val saved=QueueEntry(JobSpec("saved",source.copy(name="Saved.mp4"),Trim(),Settings()),JobState.COMPLETED,
+            delivery=Delivery(destination,DeliveryReceipt.Saved("content://media/external/video/media/1","Saved_forma.mp4",10,"0".repeat(64))))
+        val saving=QueueEntry(JobSpec("saving",source.copy(name="Saving.mp4"),Trim(),Settings()),JobState.COMPLETED,
+            delivery=Delivery(destination,DeliveryReceipt.Waiting))
+        val legacy=QueueEntry(JobSpec("legacy",source.copy(name="Legacy.mp4"),Trim(),Settings()),JobState.COMPLETED)
+        compose.setContent { FormaTheme { FormaWorkspace(TranscodeUiState(ready=true),listOf(saved,saving,legacy),RunState(),
+            initiallyQueue=true,onAction={},progressContent={}) } }
+        compose.onNodeWithTag("finished-list").performClick()
+        compose.onNodeWithText("Saved to Movies/Forma",substring=true).assertExists()
+        compose.onNodeWithText("Saving to Movies/Forma…").assertExists()
+        compose.onNodeWithTag("editor").performScrollToNode(hasText("Private in Forma"))
+        compose.onNodeWithText("Private in Forma").assertExists()
+        compose.onNodeWithTag("editor").performScrollToNode(hasText("Saved.mp4"))
+        compose.onNodeWithText("View saved file").assertExists()
+    }
+
+    @Test fun copyingCardAllowsRetryAfterBackgroundStartFailure() {
+        val destination=SaveDestination.FormaLibrary(MediaCategory.VIDEO)
+        val copying=QueueEntry(JobSpec("copying",source,Trim(),Settings()),JobState.COMPLETED,
+            delivery=Delivery(destination,DeliveryReceipt.Copying("Sample_forma_copying.mp4",
+                "content://media/external/video/media/10")))
+        var action:UiAction?=null
+        compose.setContent { FormaTheme { FormaWorkspace(TranscodeUiState(ready=true),listOf(copying),RunState(),
+            initiallyQueue=true,onAction={action=it},progressContent={}) } }
+        compose.onNodeWithTag("finished-list").performClick()
+        compose.onNodeWithText("Retry save").performClick()
+        compose.runOnIdle {assertEquals(UiAction.RetrySave("copying"),action)}
+    }
+
     @Test fun emptyHomeOnlyAsksForMedia() {
         compose.setContent { FormaTheme { FormaScreen(TranscodeUiState(ready = true), emptyList(), null, {}) } }
         compose.onNodeWithTag("select-media").assertIsDisplayed().assertIsEnabled()
@@ -71,6 +125,13 @@ class FormaScreenTest {
     @Test fun noNativeBuildCannotConvertSelectedMedia() {
         compose.setContent { FormaTheme { FormaScreen(TranscodeUiState(ready = true, sources = listOf(SourceEdit(source))), emptyList(), null, {}) } }
         compose.onNodeWithTag("convert").assertIsNotEnabled()
+    }
+    @Test fun convertShowsWhereEachSelectedKindWillSave() {
+        var state by mutableStateOf(TranscodeUiState(ready=true,sources=listOf(SourceEdit(source))))
+        compose.setContent { FormaTheme { FormaScreen(state,emptyList(),null,{}) } }
+        compose.onNodeWithText("Saves to Movies/Forma").assertExists()
+        compose.runOnIdle { state=state.copy(destinationMode="custom",chosenFolderLabel="My exports") }
+        compose.onNodeWithText("Saves to My exports").assertExists()
     }
     @Test fun leftShelfOpensTheQueueWithoutResettingTheEditor() {
         compose.setContent { FormaTheme { FormaScreen(TranscodeUiState(ready = true), emptyList(), null, {}) } }

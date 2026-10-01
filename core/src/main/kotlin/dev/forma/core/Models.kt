@@ -103,10 +103,33 @@ data class JobSpec(val id: String, val source: Source, val trim: Trim, val setti
     init { targetBytes?.let(UploadFit::validateTarget) }
 }
 enum class JobState { QUEUED, PREPARING, RUNNING, VERIFYING, COMPLETED, FAILED, CANCELLED, INTERRUPTED }
+
+enum class MediaCategory { VIDEO, AUDIO, IMAGE }
+sealed interface SaveDestination {
+    data class FormaLibrary(val category: MediaCategory) : SaveDestination
+    data class DocumentTree(val uri: String, val label: String) : SaveDestination {
+        init {
+            require(uri.startsWith("content://") && uri.length <= 4096 && uri.none(Char::isISOControl)) { "Invalid saved folder URI." }
+            require(label.isNotBlank() && label.length <= 200 && label.none(Char::isISOControl)) { "Invalid saved folder label." }
+        }
+    }
+}
+sealed interface DeliveryReceipt {
+    data object PrivateLegacy : DeliveryReceipt
+    data object Waiting : DeliveryReceipt
+    data class Copying(val intentName: String, val uri: String?) : DeliveryReceipt
+    data class Saved(val uri: String, val displayName: String, val bytes: Long, val digest: String) : DeliveryReceipt
+    data class Failed(val message: String, val uri: String?) : DeliveryReceipt
+}
+data class Delivery(val destination: SaveDestination?, val receipt: DeliveryReceipt) {
+    init { require((destination == null) == (receipt == DeliveryReceipt.PrivateLegacy)) { "Private-only and public deliveries must not be mixed." } }
+    companion object { val LEGACY = Delivery(null, DeliveryReceipt.PrivateLegacy) }
+}
 data class QueueEntry(val spec: dev.forma.core.image.QueueJobSpec, val state: JobState = JobState.QUEUED,
-    val message: String = "", val completedAtMs: Long? = null) {
-    constructor(spec: JobSpec, state: JobState = JobState.QUEUED, message: String = "", completedAtMs: Long? = null) :
-        this(dev.forma.core.image.QueueJobSpec.Av(spec), state, message, completedAtMs)
+    val message: String = "", val completedAtMs: Long? = null, val delivery: Delivery = Delivery.LEGACY) {
+    constructor(spec: JobSpec, state: JobState = JobState.QUEUED, message: String = "", completedAtMs: Long? = null,
+        delivery: Delivery = Delivery.LEGACY) :
+        this(dev.forma.core.image.QueueJobSpec.Av(spec), state, message, completedAtMs, delivery)
 }
 data class Capabilities(
     val available: Boolean = false,

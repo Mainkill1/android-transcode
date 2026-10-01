@@ -19,9 +19,12 @@ class FormaApplication : Application() {
 class AppGraph(private val application: Application) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val settings = dev.forma.app.settings.SettingsRepository(application, scope)
+    val treeGrants = dev.forma.app.settings.TreeGrantStore(application)
     val bridge = ManagedFfmpegBridge(createFfmpegBridge())
     val files = MediaFiles(application, bridge)
     val queue = QueueRepository(application)
+    val publisher = PublicOutputPublisher(application,queue)
+    val deliveries = DeliveryWorker(queue,files,publisher)
     val runs = RunCoordinator(scope)
     val previews = dev.forma.app.audio.AudioPreviewController(scope)
     val powerMonitor = AndroidPowerMonitor(application)

@@ -13,14 +13,14 @@ class EditorPersistenceTest {
 
     private fun legacyRoot(schema:Int):JSONObject=JSONObject(JobCodec.encode(listOf(job))).put("schema",schema).also {
         val row=it.getJSONArray("jobs").getJSONObject(0)
-        row.remove("kind");row.remove("preferences");row.remove("completedAtMs")
+        row.remove("kind");row.remove("preferences");row.remove("completedAtMs");row.remove("delivery")
         row.getJSONObject("source").remove("audioStreams");row.getJSONObject("settings").remove("audioEdit")
         if(schema<3) { row.remove("sequence");row.remove("targetBytes") }
         if(schema==1) row.getJSONObject("settings").remove("effects")
     }
     @Test fun everyEditSurvivesQueueRoundTrip() {
         assertEquals(listOf(job), JobCodec.decode(JobCodec.encode(listOf(job))))
-        assertEquals(4, JSONObject(JobCodec.encode(listOf(job))).getInt("schema"))
+        assertEquals(5, JSONObject(JobCodec.encode(listOf(job))).getInt("schema"))
     }
     @Test fun legacyJobsGetNeutralEdits() {
         val root=legacyRoot(1)
@@ -64,8 +64,8 @@ class EditorPersistenceTest {
         assertEquals(effects, ClipEffectsCodec.decode(ClipEffectsCodec.encode(effects)))
     }
     @Test fun missingSavedTrimEndNeverExpandsTheRange() {
-        for(schema in listOf(1,2,3,4)) {
-            val root=if(schema<4) legacyRoot(schema) else JSONObject(JobCodec.encode(listOf(job)))
+        for(schema in listOf(1,2,3,4,5)) {
+            val root=if(schema<4) legacyRoot(schema) else JSONObject(JobCodec.encode(listOf(job))).also { it.put("schema",schema);if(schema==4) it.getJSONArray("jobs").getJSONObject(0).remove("delivery") }
             val row=root.getJSONArray("jobs").getJSONObject(0)
             assertEquals(1,JobCodec.decode(root.toString()).size)
             row.getJSONObject("trim").remove("endMs")
@@ -74,8 +74,8 @@ class EditorPersistenceTest {
     }
     @Test fun missingSavedEffectFieldsCannotResetEdits() {
         val required=ClipEffectsCodec.encode(effects).keys().asSequence().toList()
-        for(schema in listOf(2,3,4)) for(field in required) {
-            val root=if(schema<4) legacyRoot(schema) else JSONObject(JobCodec.encode(listOf(job)))
+        for(schema in listOf(2,3,4,5)) for(field in required) {
+            val root=if(schema<4) legacyRoot(schema) else JSONObject(JobCodec.encode(listOf(job))).also { it.put("schema",schema);if(schema==4) it.getJSONArray("jobs").getJSONObject(0).remove("delivery") }
             val row=root.getJSONArray("jobs").getJSONObject(0)
             assertEquals(1,JobCodec.decode(root.toString()).size)
             row.getJSONObject("settings").getJSONObject("effects").remove(field)

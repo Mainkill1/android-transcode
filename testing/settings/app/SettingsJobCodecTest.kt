@@ -16,7 +16,7 @@ class SettingsJobCodecTest {
     @Test fun queueWireVersionIncludesPreferenceProvenance() {
         val entry=QueueEntry(JobSpec("a66d2dd7-8f84-40bb-a96f-aa93ac6bcbd4", Source("content://a/b", "clip", 1000), Trim(), Settings()))
         val root=JSONObject(JobCodec.encode(listOf(entry)))
-        assertEquals(4,root.getInt("schema"))
+        assertEquals(5,root.getInt("schema"))
         assertTrue(root.getJSONArray("jobs").getJSONObject(0).has("preferences"))
     }
 

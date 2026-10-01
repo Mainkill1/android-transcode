@@ -7,7 +7,7 @@ import java.util.UUID
 /** Existing queue/notification consumers. Absent values use registry defaults. */
 object ConsumerSettings {
     const val DAY_MS=86_400_000L
-    val boundIds=setOf("queue.auto_start_added","queue.on_error","queue.interrupted_prompt",
+    val boundIds=setOf("export.destination","queue.auto_start_added","queue.on_error","queue.interrupted_prompt",
         "queue.notification_detail","queue.completion_sound","queue.keep_screen_on","privacy.history_days")
     fun choice(values:PreferenceValues,id:String) = ((values[id] ?: SettingCatalog[id].defaultValue) as SettingValue.Choice).value
     fun historyDays(values:PreferenceValues) = ((values["privacy.history_days"] ?: SettingCatalog["privacy.history_days"].defaultValue) as SettingValue.Integer).value.toInt()
@@ -20,7 +20,10 @@ object ConsumerSettings {
     fun expiredHistory(entries:List<QueueEntry>,days:Int,nowMs:Long):Set<String> {
         require(days in 0..90 && nowMs>=0)
         val age=days*DAY_MS
-        return entries.filter { entry -> entry.state==JobState.COMPLETED && entry.completedAtMs?.let {
+        return entries.filter { entry -> entry.state==JobState.COMPLETED &&
+            entry.delivery.receipt !in setOf(DeliveryReceipt.Waiting) &&
+            entry.delivery.receipt !is DeliveryReceipt.Copying &&
+            entry.delivery.receipt !is DeliveryReceipt.Failed && entry.completedAtMs?.let {
             it>=0 && it<=nowMs && nowMs-it>=age
         }==true }.map { it.spec.id }.toSet()
     }
