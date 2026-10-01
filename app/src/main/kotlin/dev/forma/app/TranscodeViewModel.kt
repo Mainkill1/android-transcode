@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.forma.app.service.TranscodeService
+import dev.forma.app.service.DeliveryService
 import dev.forma.app.work.ProgressGate
 import dev.forma.core.*
 import dev.forma.core.image.*
@@ -182,6 +183,12 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
         initialization = viewModelScope.launch {
             try {
                 graph.initialize()
+                if(graph.queue.entries.value.any { it.state==JobState.COMPLETED &&
+                    (it.delivery.receipt==DeliveryReceipt.Waiting || it.delivery.receipt is DeliveryReceipt.Copying) })
+                    runCatching { DeliveryService.start(getApplication()) }.onFailure { error ->
+                        val message="Android could not resume a background save. Tap Retry save. ${error.message.orEmpty()}"
+                        graph.queue.error.value=message
+                    }
                 // Seed once per new editor. Reloading capabilities or saving preferences cannot rebase an existing draft.
                 if (!defaultsSeeded) {
                     defaultsSeeded = true
@@ -309,7 +316,7 @@ class TranscodeViewModel(application: Application) : AndroidViewModel(applicatio
                 graph.queue.addTagged(listOf(retry),mapOf(retry.id to delivery))
                 mutable.update { it.copy(message = "A new copy of this job is waiting in the queue.") }
             }
-            is UiAction.RetrySave -> runOperation { graph.deliveries.retry(action.id) }
+            is UiAction.RetrySave -> runOperation { DeliveryService.start(getApplication(),action.id) }
             is UiAction.OpenSource -> launchRead {
                 val uri = Uri.parse(action.uri)
                 val mime = withContext(Dispatchers.IO) { getApplication<Application>().contentResolver.getType(uri) } ?: "video/*"

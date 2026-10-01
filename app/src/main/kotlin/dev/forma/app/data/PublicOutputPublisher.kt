@@ -202,12 +202,11 @@ class PublicOutputPublisher(private val context:Context, private val queue:Queue
         }
         is SaveDestination.DocumentTree -> {
             val tree=Uri.parse(destination.uri)
-            val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
-            resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use { c ->
+            queryTreeChildren(tree,arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME)) { c ->
                 var found=false
                 while(c.moveToNext()) if(c.getString(0)==name) found=true
                 found
-            } ?: false
+            }
         }
     }
 
@@ -270,15 +269,20 @@ class PublicOutputPublisher(private val context:Context, private val queue:Queue
             // the child, so prove it is still a direct child instead of comparing titles.
             if(uri.authority!=tree.authority || uri.pathSegments.take(2)!=tree.pathSegments.take(2)) false
             else {
-                val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
-                resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                    DocumentsContract.Document.COLUMN_DISPLAY_NAME),null,null,null)?.use { c ->
+                queryTreeChildren(tree,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID)) { c ->
                     var found=false
                     while(c.moveToNext()) if(DocumentsContract.buildDocumentUriUsingTree(tree,c.getString(0))==uri) found=true
                     found
-                } ?: false
+                }
             }
         }
+    }
+
+    private inline fun <T> queryTreeChildren(tree:Uri,projection:Array<String>,read:(android.database.Cursor)->T):T {
+        val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
+        val cursor=resolver.query(children,projection,null,null,null)
+            ?: throw IOException("The chosen folder could not list its files. Retry save when it is available.")
+        return cursor.use(read)
     }
 
     private fun create(destination:SaveDestination,mime:String,name:String):Uri = when(destination) {
@@ -307,10 +311,10 @@ class PublicOutputPublisher(private val context:Context, private val queue:Queue
         is SaveDestination.DocumentTree -> {
             val tree=Uri.parse(destination.uri)
             val parent=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
-            val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
-            val existing=mutableSetOf<String>()
-            resolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),null,null,null)?.use { c ->
-                while(c.moveToNext()) existing+=c.getString(0)
+            val existing=queryTreeChildren(tree,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID)) { c ->
+                val ids=mutableSetOf<String>()
+                while(c.moveToNext()) ids+=c.getString(0)
+                ids
             }
             val created=DocumentsContract.createDocument(resolver,parent,mime,name)
                 ?: throw IOException("The chosen folder could not create a file.")

@@ -376,7 +376,8 @@ import kotlin.math.ceil
                     Button(onClick = { action(UiAction.Share(entry.spec.id)) }) { Text("Share output") }
                     TextButton(onClick = { action(UiAction.OpenOutput(entry.spec.id)) }) { Text(if(entry.delivery.receipt is DeliveryReceipt.Saved) "View saved file"
                         else if(entry.spec is QueueJobSpec.Image) "View output" else "Play output") }
-                    if(entry.delivery.receipt is DeliveryReceipt.Failed)
+                    if(entry.delivery.receipt==DeliveryReceipt.Waiting || entry.delivery.receipt is DeliveryReceipt.Copying ||
+                        entry.delivery.receipt is DeliveryReceipt.Failed)
                         TextButton(onClick = { action(UiAction.RetrySave(entry.spec.id)) }) { Text("Retry save") }
                     TextButton(onClick = { action(UiAction.Export(entry.spec.id)) }) { Text("Save another copy") }
                 }
@@ -391,7 +392,8 @@ import kotlin.math.ceil
     if(progress==null) return
     val copied=progress.copiedBytes.coerceAtLeast(0)
     val total=progress.totalBytes.coerceAtLeast(0)
-    val label="${copied/1_048_576} of ${total/1_048_576} MB copied"
+    val label=if(total<1_048_576) "${copied/1_024} of ${total/1_024} KiB copied"
+        else "${copied/1_048_576} of ${total/1_048_576} MB copied"
     Column(Modifier.testTag("save-copy-progress")) {
         Text(label,style=MaterialTheme.typography.bodySmall)
         if(total>0) LinearProgressIndicator(progress={ (copied.toFloat()/total).coerceIn(0f,1f) },modifier=Modifier.fillMaxWidth())

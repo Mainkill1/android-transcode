@@ -18,6 +18,10 @@ class FormaScreenTest {
         compose.onNodeWithTag("save-copy-progress").assertExists()
         compose.onNodeWithText("1 of 4 MB copied").assertExists()
     }
+    @Test fun smallSaveProgressShowsUsefulUnits() {
+        compose.setContent { FormaTheme { DeliveryProgressView(DeliveryCopyProgress("save",524_288,786_432)) } }
+        compose.onNodeWithText("512 of 768 KiB copied").assertExists()
+    }
     @get:Rule val compose = createComposeRule()
     private val source = Source("content://test/video", "Sample.mp4", 10000, 640, 360, 1, 1)
     @Test fun finishedDeliveryShowsClearLocationAndRetrySave() {
@@ -49,6 +53,19 @@ class FormaScreenTest {
         compose.onNodeWithText("Private in Forma").assertExists()
         compose.onNodeWithTag("editor").performScrollToNode(hasText("Saved.mp4"))
         compose.onNodeWithText("View saved file").assertExists()
+    }
+
+    @Test fun copyingCardAllowsRetryAfterBackgroundStartFailure() {
+        val destination=SaveDestination.FormaLibrary(MediaCategory.VIDEO)
+        val copying=QueueEntry(JobSpec("copying",source,Trim(),Settings()),JobState.COMPLETED,
+            delivery=Delivery(destination,DeliveryReceipt.Copying("Sample_forma_copying.mp4",
+                "content://media/external/video/media/10")))
+        var action:UiAction?=null
+        compose.setContent { FormaTheme { FormaWorkspace(TranscodeUiState(ready=true),listOf(copying),RunState(),
+            initiallyQueue=true,onAction={action=it},progressContent={}) } }
+        compose.onNodeWithTag("finished-list").performClick()
+        compose.onNodeWithText("Retry save").performClick()
+        compose.runOnIdle {assertEquals(UiAction.RetrySave("copying"),action)}
     }
 
     @Test fun emptyHomeOnlyAsksForMedia() {

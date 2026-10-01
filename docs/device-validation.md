@@ -286,21 +286,29 @@ through the production verifier, then copied the verified private outputs into
 `Movies/Forma`, `Music/Forma`, and `Pictures/Forma`. Each public URI's bytes matched
 its private verified output; the video/audio outputs retained their expected tracks.
 The aligned native lab APK SHA-256 was
-`eed0eb4962073d627d44e0884ef0302c32878c29a09e55a54330eb1bb284afdc`.
+`bf592c7e30bc45644b2c05184c25728b50faa6dacad9d6f13f81397dbea6ffcc`.
 The pinned native AAR SHA-256 was
 `09bd962f7d3ad66b9bc29c2df67681b55b6dc6c2472135d48490e94ea51a7d3a`.
 
-The final OnePlus instrumentation run reported **OK (29 tests)** for public save
+The final OnePlus instrumentation run reported **OK (30 tests)** for public save
 publication, crash recovery, filename collision, foreign-URI protection, cancellation,
-corrupt readback, missing private output, delivery cards, and native video/audio/image
-publication. The API 28 emulator passed public-folder permission denial and grant
+corrupt readback, missing private output, and delivery cards. The native video/audio/image
+run was separately enabled and passed **OK (1 test)**;
+the foreground retry-service tests passed **OK (2 tests)** on the phone, including
+reconciling an already-visible, journaled copy. The final focused service and Finished-card
+UI run passed **OK (18 tests)** on the phone. The API 28
+emulator passed public-folder permission denial and grant
 cases, plus custom document-tree creation, journaled-URI recovery, a provider-changed
-filename, and safe refusal to overwrite an unjournaled same-name document. Denied permission
+filename, and safe refusal to overwrite an unjournaled same-name document (**OK (5 tests)**).
+It also passed the foreground retry-service test with a valid WAV (**OK (2 tests)**,
+one API 29+ case skipped).
+Denied permission
 kept the conversion complete and its private output intact. The tree test used the
 Android external-storage document provider; it checked the provider-returned name.
 When a tree creation was interrupted before its URI was journaled, a same-name child
 cannot be proven app-owned through SAF; Forma keeps it untouched and offers a retryable
-conflict instead of overwriting it.
+conflict instead of overwriting it. A temporarily unavailable child listing similarly
+retains any journaled partial for another retry instead of assuming it is absent.
 
 `tools/check-core.sh` passed 49 checks, `tools/check-android-readiness.sh` passed,
 the core/engine/app unit suites and native-enabled lab build passed, and `:app:lintLab`
