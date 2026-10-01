@@ -1,0 +1,568 @@
+{
+  "schemaVersion": 1,
+  "kind": "image-test-manifest",
+  "implemented": true,
+  "allSelectionRunOn": [
+    "android",
+    "native"
+  ],
+  "cases": [
+    {
+      "id": "geometry_identity",
+      "runOn": "native",
+      "features": [
+        "GEO-06",
+        "META-04"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Identity PNG preserves decoded pixels."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "orientation_all_eight",
+      "runOn": "native",
+      "features": [
+        "SRC-07",
+        "GEO-03",
+        "GEO-04"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Actual EXIF JPEG variants use independent known corner mapping through native export and both available platform display adapters; output orientation is 1."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "geometry_crop_turn_resize",
+      "runOn": "native",
+      "features": [
+        "GEO-01",
+        "GEO-03",
+        "GEO-06"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "1200x800 crop 0.25,0.25,0.75,0.75 then clockwise quarter turn and longest edge 300 produces 200x300."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "geometry_odd_png",
+      "runOn": "native",
+      "features": [
+        "GEO-06",
+        "EXP-05"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "101x77 identity PNG remains 101x77 with exact pixels."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "invalid_crop",
+      "runOn": "host",
+      "features": [
+        "GEO-01",
+        "UX-04"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Out-of-bounds or empty crop is rejected before prepare."
+      ],
+      "expectedError": "INVALID_DOCUMENT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
+    },
+    {
+      "id": "nonfinite_numeric",
+      "runOn": "host",
+      "features": [
+        "COL-01",
+        "COL-02",
+        "COL-03",
+        "COL-04"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "NaN, infinity, wrong types and invalid gamma are rejected."
+      ],
+      "expectedError": "INVALID_DOCUMENT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
+    },
+    {
+      "id": "alpha_geometry",
+      "runOn": "native",
+      "features": [
+        "GEO-06",
+        "EXP-03",
+        "EXP-05",
+        "EXP-01"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Identity decoded alpha preserved, then native sparse-alpha crop and opaque full-cover redaction export correctly with no remaining transparency; graph alpha hash detects codec alpha loss.",
+        "Actual native alpha WebP lossless preserves decoded pixels; lossy WebP has independently bounded corner RGB error and exact decoded alpha; both fully decoded and stripped."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "alpha_blur_edges",
+      "runOn": "native",
+      "features": [
+        "FX-01",
+        "FX-02"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Declared premultiplied-edge oracle detects no added fringe."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "jpeg_alpha_block",
+      "runOn": "native",
+      "features": [
+        "EXP-06"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Without flatten consent no JPEG result is published."
+      ],
+      "expectedError": "ALPHA_WOULD_BE_LOST",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "jpeg_flatten",
+      "runOn": "native",
+      "features": [
+        "EXP-06"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Actual native JPEG flattened pixels plus production lossless proxy and actual-pixel previews agree with explicit white flatten consent."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "adjustments_neutral",
+      "runOn": "native",
+      "features": [
+        "COL-01",
+        "COL-02",
+        "COL-03",
+        "COL-04"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Neutral PNG pipeline omits correction and retains decoded pixels."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "adjustments_known_pixels",
+      "runOn": "native",
+      "features": [
+        "COL-01",
+        "COL-02",
+        "COL-03",
+        "COL-04"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Defined formula golden values differ by at most one 8-bit code value before lossy encoding."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "markup_unicode",
+      "runOn": "native",
+      "features": [
+        "ANN-01",
+        "ANN-09"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Multiline, RTL and combining text remain present with correct layout bounds."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "solid_redaction",
+      "runOn": "native",
+      "features": [
+        "ANN-05",
+        "META-01"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Opaque region covers target; export contains no source thumbnail, project or original attachment."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "source_corrupt",
+      "runOn": "native",
+      "features": [
+        "SRC-09"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Valid PNG header/CRC and invalid DEFLATE payload reach actual native decode rejection; post-stage import owns no orphan directory."
+      ],
+      "expectedError": "DECODE_FAILED",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "source_animation",
+      "runOn": "native",
+      "features": [
+        "SRC-08"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "GIF, APNG, animated WebP and multipage input are not silently flattened."
+      ],
+      "expectedError": "UNSUPPORTED_IMAGE",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "source_too_large",
+      "runOn": "host",
+      "features": [
+        "SRC-09",
+        "BAT-06"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "40,000,001 pixels and overflow dimensions fail before allocation."
+      ],
+      "expectedError": "RESOURCE_LIMIT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
+    },
+    {
+      "id": "source_unsupported_color",
+      "runOn": "native",
+      "features": [
+        "META-04",
+        "META-08"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Unqualified high-precision, non-sRGB or gain-map input is not silently converted."
+      ],
+      "expectedError": "UNSUPPORTED_IMAGE",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "source_uri_revoked",
+      "runOn": "android",
+      "features": [
+        "SRC-01",
+        "SRC-02",
+        "UX-05"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Revoked unstaged URI yields actionable failure and preserves draft."
+      ],
+      "expectedError": "SOURCE_ACCESS",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "export_format_mismatch",
+      "runOn": "native",
+      "features": [
+        "EXP-01"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Wrong actual format or geometry fails verification despite native exit zero."
+      ],
+      "expectedError": "OUTPUT_INVALID",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "export_cap_under",
+      "runOn": "host",
+      "features": [
+        "EXP-04"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Finalized 9999999-byte output fits a 10000000-byte cap."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
+    },
+    {
+      "id": "export_cap_equal",
+      "runOn": "host",
+      "features": [
+        "EXP-04"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Finalized 10000000-byte output does not fit an equal cap when no attempts remain."
+      ],
+      "expectedError": "CANNOT_FIT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
+    },
+    {
+      "id": "export_cap_retries",
+      "runOn": "native",
+      "features": [
+        "EXP-04",
+        "EXP-05"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Measured native JPEG quality-90 candidate exceeds a cap between measured 90/81 candidates; fresh prepare retries from original with <=7 attempts and strict finalized bytes."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "export_cap_exhausted",
+      "runOn": "native",
+      "features": [
+        "EXP-04",
+        "EXP-05"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Exhaustion under fixed alpha/geometry/format constraints publishes nothing."
+      ],
+      "expectedError": "CANNOT_FIT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "cancel_prepare",
+      "runOn": "native",
+      "features": [
+        "BAT-05",
+        "BAT-06"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Cancellation during preparation never publishes or leaks ownership."
+      ],
+      "expectedError": "CANCELLED",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "cancel_encode",
+      "runOn": "native",
+      "features": [
+        "BAT-05",
+        "BAT-06"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Native teardown completes before cleanup and worker release."
+      ],
+      "expectedError": "CANCELLED",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "cancel_verify",
+      "runOn": "native",
+      "features": [
+        "EXP-08",
+        "BAT-05"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Cancellation before commit does not publish an unverified result."
+      ],
+      "expectedError": "CANCELLED",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "preview_stale",
+      "runOn": "android",
+      "features": [
+        "UX-02",
+        "UX-10"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Old revision finishing last cannot overwrite the current preview; Original is labeled."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "queue_snapshot",
+      "runOn": "host",
+      "features": [
+        "UX-04",
+        "BAT-05"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Changing editor/lists/defaults after enqueue leaves stored image job unchanged."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
+    },
+    {
+      "id": "queue_schema_migration",
+      "runOn": "host",
+      "features": [
+        "UX-05",
+        "BAT-05"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Known legacy AV payloads and new tagged image payloads retain semantics."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
+    },
+    {
+      "id": "draft_corrupt",
+      "runOn": "android",
+      "features": [
+        "UX-05"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Malformed or unsupported persisted data is retained for recovery, not overwritten."
+      ],
+      "expectedError": "DRAFT_CORRUPT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "release_no_tests",
+      "runOn": "artifact",
+      "features": [
+        "BAT-10"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Product-only build works with testing/image absent; shipped test classes/assets/entry points are absent."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "artifact-verified"
+    },
+    {
+      "id": "native_missing",
+      "runOn": "no-native",
+      "features": [
+        "BAT-09"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "No-native image export reports unavailable; an explicitly requested native suite does not skip to PASS."
+      ],
+      "expectedError": "CAPABILITY_UNAVAILABLE",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "pending-device"
+    },
+    {
+      "id": "publication_collision",
+      "runOn": "native",
+      "features": [
+        "EXP-08"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Existing result and original remain unchanged."
+      ],
+      "expectedError": "OUTPUT_EXISTS",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    },
+    {
+      "id": "memory_budget",
+      "runOn": "host",
+      "features": [
+        "SRC-09",
+        "BAT-06"
+      ],
+      "expectedOutcome": "reject",
+      "oracle": [
+        "Peak native/Java buffer budget rejects work below the pixel ceiling when memory is insufficient."
+      ],
+      "expectedError": "RESOURCE_LIMIT",
+      "implementationStatus": "implemented",
+      "qualificationStatus": "host-verified"
+    },
+    {
+      "id": "full_device_roundtrip",
+      "runOn": "native",
+      "features": [
+        "SRC-01",
+        "GEO-01",
+        "ANN-01",
+        "EXP-01",
+        "EXP-04",
+        "EXP-08"
+      ],
+      "expectedOutcome": "success",
+      "oracle": [
+        "Real imported still is edited, queued, encoded, fully decoded, size-verified and saved as a new copy."
+      ],
+      "implementationStatus": "implemented",
+      "qualificationStatus": "verified-oneplus-le2125-api36-ac41edf"
+    }
+  ],
+  "qualification": "143 host checks and latest3310a26 release artifact gates verified; native/Android direct26 includingWebP passedac41edf; actualShareService1 plus ordinarynativeCompose27 passed3310a26 on primarydevice",
+  "qualificationEvidence": {
+    "productionRevision": "ac41edf4d22ba521643d4725321b08bf88801458",
+    "directAllRunId": "c84b78a2-f1dc-4b5f-a8b7-01ed874399bc",
+    "directAllPassed": 26,
+    "directAllSelected": 26,
+    "device": "OnePlus LE2125 / API36 / arm64 / 4096-byte pages",
+    "webpExtension": "verified-lossless-and-lossy-alpha",
+    "remaining": "manual accessibility/large text/keyboard, additional lifecycle and low-resource coverage, API26/27/other vendor and actual16KiB runtime",
+    "latestUiRevision": "3310a2686896a67b198d3bd9d0bd7ff4260b875c",
+    "latestUiStatus": "verified-primary-device-service-and-ordinary-suite",
+    "hostTests": 143,
+    "releaseSha256": "0f16ae3c61ed9060450a7f2aa27d7a737cb99823aedb291ccefb5be834b4cb65",
+    "actualShareServicePassed": 1,
+    "ordinaryNativeComposePassed": 27,
+    "physicalMethodsOutsideDirectRunner": 28,
+    "shareServiceLog": "vendor/pr-readiness/pr8/bitmap-share-service-device.txt",
+    "ordinaryNativeComposeLog": "vendor/pr-readiness/pr8/bitmap-ordinary-native-device.txt",
+    "installedAppSha256": "0a831af90192b71137c9d26c554c54a327376d981115b4db41d3d20efd3d653e",
+    "installedTestSha256": "881c9d0dc76a86fc771b2121a4c72c2bfe1d8eacdf58fcf49e85eb6c1d008d2a",
+    "nativeOptinTestRevision": "eb9abf71178d782bdea4f335b25e15ddd042f53d",
+    "nativeOptinTestSha256": "4990bb2e2465a3bd2bb1297c802f2bd8104e34d8966c07697a9aec1aa8630b4b",
+    "nativeOptinQualification": "verified-absent-flag4 intentionalassumption-skips; explicitformaNative4passed/noskips",
+    "priorNoNativeCi": "d4c0b79 failed4 inheritedaudio-native methods missingopt-in; test-onlyguard correction eb9abf7",
+    "nativeOptinAbsentSkips": 4,
+    "nativeOptinExplicitPassed": 4,
+    "nativeOptinAbsentLog": "vendor/pr-readiness/pr8/audio-opt-in-absent-device.txt",
+    "nativeOptinExplicitLog": "vendor/pr-readiness/pr8/audio-opt-in-native-device.txt",
+    "ciChecksUrl": "https://github.com/Mainkill1/android-transcode/pull/8/checks"
+  }
+}

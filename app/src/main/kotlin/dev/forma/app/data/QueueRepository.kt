@@ -3,6 +3,8 @@ package dev.forma.app.data
 import android.content.Context
 import android.util.AtomicFile
 import dev.forma.core.*
+import dev.forma.core.image.*
+import dev.forma.ffmpeg.AttemptEvent
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,7 +13,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-data class LiveProgress(val id: String, val progress: Progress)
+data class LiveProgress(val id: String, val progress: Progress = Progress(0), val image: ImageStageProgress? = null, val attempt: AttemptEvent? = null)
 
 class QueueRepository(context: Context) {
     private val file = AtomicFile(File(context.filesDir, "queue-v1.json"))
@@ -28,16 +30,27 @@ class QueueRepository(context: Context) {
             persist(saved.map(QueueRules::recover))
         }
     }
-    suspend fun add(specs: List<JobSpec>) = change {
+    suspend fun add(specs: List<JobSpec>) = addTagged(specs.map(QueueJobSpec::Av))
+    suspend fun addImages(specs: List<ImageJobSpec>) = addTagged(specs.map(QueueJobSpec::Image))
+    suspend fun addTagged(specs: List<QueueJobSpec>, deliveries: Map<String, Delivery> = emptyMap()) = change {
         require(it.size + specs.size <= 200) { "The queue is limited to 200 entries in this foundation." }
         require((it.map { j -> j.spec.id } + specs.map { j -> j.id }).distinct().size == it.size + specs.size)
-        it + specs.map(::QueueEntry)
+        require(deliveries.keys.all { id -> specs.any { spec -> spec.id == id } }) { "Unknown delivery job." }
+        it + specs.map { spec -> QueueEntry(spec, delivery=deliveries[spec.id] ?: Delivery.LEGACY) }
+    }
+    suspend fun updateDelivery(id: String, expected: DeliveryReceipt, next: Delivery): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val old=mutable.value.firstOrNull { it.spec.id==id } ?: return@withLock false
+            if(old.delivery.receipt!=expected || old.delivery.destination!=next.destination) return@withLock false
+            persist(mutable.value.map { if(it.spec.id==id) it.copy(delivery=next) else it })
+            true
+        }
     }
     suspend fun removeQueued(id: String) = change { entries ->
         require(entries.first { it.spec.id == id }.state == JobState.QUEUED) { "Only a waiting job can be removed." }
         entries.filterNot { it.spec.id == id }
     }
-    suspend fun claimNext(): JobSpec? = withContext(Dispatchers.IO) {
+    suspend fun claimNext(): QueueJobSpec? = withContext(Dispatchers.IO) {
         mutex.withLock {
             val next = mutable.value.firstOrNull { it.state == JobState.QUEUED } ?: return@withLock null
             persist(mutable.value.map { if (it == next) QueueRules.transition(it, JobState.PREPARING) else it })
@@ -46,7 +59,16 @@ class QueueRepository(context: Context) {
     }
     suspend fun transition(id: String, state: JobState, message: String = "") = change { entries ->
         require(entries.any { it.spec.id == id }) { "The job no longer exists." }
-        entries.map { if (it.spec.id == id) QueueRules.transition(it, state, message) else it }
+        entries.map { if (it.spec.id == id) QueueRules.transition(it, state, message).let { next ->
+            if(state==JobState.COMPLETED) next.copy(completedAtMs=System.currentTimeMillis()) else next
+        } else it }
+    }
+    suspend fun pruneCompleted(days:Int,nowMs:Long):Set<String> = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val expired=dev.forma.core.settings.ConsumerSettings.expiredHistory(mutable.value,days,nowMs)
+            if(expired.isNotEmpty()) persist(mutable.value.filterNot { it.spec.id in expired })
+            expired
+        }
     }
     private suspend fun change(update: (List<QueueEntry>) -> List<QueueEntry>) = withContext(Dispatchers.IO) {
         mutex.withLock { persist(update(mutable.value)) }

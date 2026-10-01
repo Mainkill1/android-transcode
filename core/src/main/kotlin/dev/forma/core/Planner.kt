@@ -1,10 +1,19 @@
 package dev.forma.core
 
 import java.util.Locale
+import dev.forma.core.audio.AudioEffectRegistry
+import dev.forma.core.audio.SourceAudioFacts
+import dev.forma.core.audio.AudioGraphPlanner
 
 /** The only place where UI intent becomes FFmpeg arguments. No shell is involved. */
 object Planner {
     fun duration(source: Source, trim: Trim): Long = (trim.endMs ?: source.durationMs) - trim.startMs
+
+    /** Budget the actual audio sample graph, rather than the unedited input window. */
+    fun outputDuration(source: Source, trim: Trim, settings: Settings): Long =
+        if(settings.container.audioOnly && source.audioTracks>0 && settings.audio!=AudioEncoder.NONE)
+            (AudioGraphPlanner.plan(source,trim,settings).outputDurationUs+999)/1000
+        else EditPipeline.duration(source,trim,settings.effects)
 
     fun preset(goal: Goal, quality: Quality): Settings {
         val crf = when (quality) { Quality.SMALL -> 28; Quality.BALANCED -> 23; Quality.CLEAR -> 18 }
@@ -18,15 +27,15 @@ object Planner {
         }
     }
 
-    fun validate(source: Source, trim: Trim, settings: Settings, caps: Capabilities? = null): List<String> = buildList {
-        val video = settings.container != Container.M4A
+    fun validate(source: Source, trim: Trim, settings: Settings, caps: Capabilities? = null, allowSilentAudioSegment: Boolean = false): List<String> = buildList {
+        val video = !settings.container.audioOnly
         if (source.durationMs <= 0) add("The source has no readable duration.")
         if (trim.startMs < 0 || trim.startMs >= source.durationMs ||
             (trim.endMs != null && (trim.endMs <= trim.startMs || trim.endMs > source.durationMs)))
             add("Choose a start and end inside the source duration.")
         if (video && source.videoTracks == 0) add("Choose Just the audio for an audio-only source.")
         if (video && source.hdr) add("HDR/high-bit-depth or an unqualified pixel format needs a tested color pipeline; not enabled in this foundation.")
-        if (!video && (source.audioTracks == 0 || settings.audio == AudioEncoder.NONE)) add("Audio output needs an audio track.")
+        if (!video && !allowSilentAudioSegment && (source.audioTracks == 0 || settings.audio == AudioEncoder.NONE)) add("Audio output needs an audio track.")
         if (settings.audio != AudioEncoder.NONE && source.audioTracks > 0 && settings.audioTrack !in 0 until source.audioTracks)
             add("The selected audio track does not exist in this source.")
         if (settings.maxHeight < 0 || settings.maxHeight > 4320 || settings.maxHeight % 2 != 0 || settings.maxHeight == 2)
@@ -38,21 +47,49 @@ object Planner {
         if (settings.crf !in 0..maxCrf) add("The quality value is outside this encoder's range.")
         if (video && settings.video.hardware && settings.rateControl == RateControl.QUALITY)
             add("Device encoders require bitrate mode; CRF is not a device quality scale.")
-        if (settings.container == Container.WEBM && (settings.video !in setOf(VideoEncoder.VP9, VideoEncoder.AV1) ||
+        if (settings.container == Container.WEBM && (settings.video.softwareVariant() !in setOf(VideoEncoder.VP9, VideoEncoder.AV1) ||
                     settings.audio !in setOf(AudioEncoder.OPUS, AudioEncoder.NONE)))
             add("WebM needs VP9/AV1 video and Opus audio (or no audio).")
         if (settings.container == Container.MP4 && settings.audio !in setOf(AudioEncoder.AAC, AudioEncoder.NONE))
             add("This MP4 profile supports AAC audio or no audio.")
         if (settings.container == Container.M4A && settings.audio != AudioEncoder.AAC) add("This M4A profile needs AAC.")
+        if (settings.container == Container.WAV && settings.audio !in setOf(AudioEncoder.PCM_S16LE, AudioEncoder.PCM_F32LE))
+            add("WAV output needs PCM 16-bit or float audio.")
+        if (settings.container == Container.FLAC && settings.audio != AudioEncoder.FLAC) add("FLAC output needs the FLAC encoder.")
+        if (video && settings.audioEdit.rate.value != 1.0) add("Audio speed changes are unavailable while linked to video.")
+        addAll(EditPipeline.validate(source,trim,settings,caps))
+        val audioFacts = AudioGraphPlanner.sourceFacts(source, trim, settings)
+        addAll(AudioEffectRegistry.validate(settings.audioEdit, audioFacts, caps).map { it.message })
+        if (video && source.audioStreams.getOrNull(settings.audioTrack)?.timelineOffsetUs?.let { it != 0L } == true &&
+            (settings.audioEdit.nodes.any { it.enabled } || settings.audioEdit.output != dev.forma.core.audio.AudioOutputPolicy()))
+            add("Audio with a timeline offset is not yet qualified for linked processing. Export just the audio or bypass its edits.")
+        val audioRate = settings.audioEdit.output.sampleRateHz ?: source.audioStreams.getOrNull(settings.audioTrack)?.sampleRateHz
+        if (settings.audio == AudioEncoder.AAC && audioRate != null && audioRate !in setOf(7350,8000,11025,12000,16000,22050,24000,32000,44100,48000,64000,88200,96000))
+            add("AAC does not support that sample rate. Choose 44.1 or 48 kHz.")
+        if (settings.audio == AudioEncoder.OPUS && settings.audioEdit.output.sampleRateHz?.let { it != 48000 } == true)
+            add("This Opus profile requires a 48 kHz output rate.")
         if (caps != null) {
             if (!caps.available) add(caps.reason)
             else {
-                if (video && settings.video.ffmpeg !in caps.encoders) add("Encoder ${settings.video.ffmpeg} is not enabled in this build/profile.")
+                if (video) {
+                    if (!settings.video.isCompiled(caps.encoders))
+                        add("Encoder ${settings.video.ffmpeg} is not enabled in this build/profile.")
+                    else if (settings.video.automatic &&
+                        (settings.rateControl == RateControl.QUALITY || settings.fps == 0) &&
+                        settings.video.format.software !in caps.encoders)
+                        add("Automatic constant-quality or source-rate output requires software encoder ${settings.video.format.software} in this build.")
+                }
                 if (settings.audio != AudioEncoder.NONE && source.audioTracks > 0 && settings.audio.ffmpeg !in caps.encoders)
                     add("Encoder ${settings.audio.ffmpeg} is not included in this FFmpeg build.")
                 if (settings.container.muxer !in caps.muxers) add("Output format ${settings.container.muxer} is unavailable.")
+                if (source.audioTracks > 0 && settings.audio != AudioEncoder.NONE &&
+                    AudioEffectRegistry.validate(settings.audioEdit, audioFacts).isEmpty()) {
+                    for (filter in AudioGraphPlanner.plan(source, trim, settings).requiredFilters - caps.filters)
+                        add("The audio $filter filter is unavailable.")
+                }
                 if (video) {
                     if ("scale" !in caps.filters) add("The scale filter is unavailable.")
+                    if (settings.fps>0 && "fps" !in caps.filters) add("The fps filter is unavailable.")
                     if (settings.denoise && "hqdn3d" !in caps.filters) add("The denoise filter is unavailable.")
                     if (settings.deinterlace && "yadif" !in caps.filters) add("The deinterlace filter is unavailable.")
                 }
@@ -60,48 +97,68 @@ object Planner {
         }
     }
 
-    fun arguments(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<String> {
-        require(input.isNotBlank() && output.isNotBlank() && input != output) { "Separate input and output paths are required." }
-        require('\u0000' !in input && '\u0000' !in output) { "Paths cannot contain a NUL character." }
-        val problems = validate(source, trim, settings)
-        require(problems.isEmpty()) { problems.joinToString("\n") }
-        fun seconds(ms: Long) = String.format(Locale.ROOT, "%.3f", ms / 1000.0)
+    fun audioArguments(source: Source, trim: Trim, settings: Settings, input: String, output: String): List<String> =
+        arguments(source,trim,settings,input,output,audioTransport=true)
+
+    fun arguments(source: Source, trim: Trim, settings: Settings, input: String, output: String, audioTransport: Boolean = false): List<String> {
+        require(input.isNotBlank() && output.isNotBlank() && input!=output && '\u0000' !in input && '\u0000' !in output) { "Separate, nonempty paths are required." }
+        val problems=validate(source,trim,settings)
+        require(problems.isEmpty()){problems.joinToString("\n")}
+        val audio=source.audioTracks>0 && settings.audio!=AudioEncoder.NONE
+        val graph=if(audio) AudioGraphPlanner.plan(source,trim,settings,forceProcessed=audioTransport) else null
+        val audioEditActive=settings.audioEdit.nodes.any {it.enabled} || settings.audioEdit.output!=dev.forma.core.audio.AudioOutputPolicy() || settings.audioEdit.rate.value!=1.0 || settings.container in setOf(Container.WAV,Container.FLAC) || audioTransport
+        val filtered=graph?.processed==true || !settings.effects.isNeutral
+        fun seconds(ms:Long)=String.format(Locale.ROOT,"%.3f",ms/1000.0)
         return buildList {
-            addAll(listOf("-hide_banner", "-loglevel", "warning", "-nostdin", "-n", "-i", input))
-            if (trim.startMs > 0) addAll(listOf("-ss", seconds(trim.startMs)))
-            addAll(listOf("-t", seconds(duration(source, trim))))
-            if (settings.container == Container.M4A) add("-vn") else {
-                addAll(listOf("-map", "0:v:0", "-c:v", settings.video.ffmpeg))
-                if (settings.rateControl == RateControl.QUALITY) {
-                    addAll(listOf("-crf", settings.crf.toString()))
-                    if (settings.video == VideoEncoder.VP9) addAll(listOf("-b:v", "0"))
-                } else addAll(listOf("-b:v", "${settings.videoKbps}k"))
-                when (settings.video) {
-                    VideoEncoder.X264, VideoEncoder.X265 -> addAll(listOf("-preset", "medium"))
-                    VideoEncoder.VP9 -> addAll(listOf("-deadline", "good", "-cpu-used", "4"))
-                    VideoEncoder.AV1 -> addAll(listOf("-preset", "8"))
-                    else -> Unit
-                }
-                val filters = buildList {
-                    if (settings.deinterlace) add("yadif")
-                    if (settings.denoise) add("hqdn3d")
-                    val h = if (settings.maxHeight == 0) "ih" else "min(ih,${settings.maxHeight})"
+            addAll(listOf("-hide_banner","-loglevel","warning","-nostdin","-n","-i",input))
+            if(trim.startMs>0 && !filtered)addAll(listOf("-ss",seconds(trim.startMs)))
+            if(!audioTransport && (!audioEditActive || !settings.container.audioOnly))addAll(listOf("-t",seconds(outputDuration(source,trim,settings))))
+            if(!audioTransport && !settings.container.audioOnly) {
+                val filters=buildList {
+                    if(settings.deinterlace)add("yadif")
+                    if(settings.denoise)add("hqdn3d")
+                    if(settings.effects.isNeutral && graph?.originNormalized==true) {
+                        add("trim=start=${AudioGraphPlanner.number(trim.startMs/1000.0)}:end=${AudioGraphPlanner.number((trim.endMs ?: source.durationMs)/1000.0)}")
+                        add("setpts=PTS-STARTPTS")
+                    }else addAll(EditPipeline.videoFilters(source,trim,settings,forceTrim=audioEditActive))
+                    val h=if(settings.maxHeight==0)"ih" else "min(ih,${settings.maxHeight})"
                     add("scale=-2:'trunc($h/2)*2'")
+                    add("format=yuv420p")
+                    if(settings.fps>0)add("fps=${settings.fps}")
                 }
-                addAll(listOf("-vf", filters.joinToString(","), "-pix_fmt", "yuv420p"))
-                if (settings.fps > 0) addAll(listOf("-r", settings.fps.toString(), "-fps_mode", "cfr"))
-                else addAll(listOf("-fps_mode", "passthrough"))
+                addAll(listOf("-vf",filters.joinToString(",")))
             }
-            if (source.audioTracks == 0 || settings.audio == AudioEncoder.NONE) add("-an") else {
-                addAll(listOf("-map", "0:a:${settings.audioTrack}", "-c:a", settings.audio.ffmpeg))
-                if (settings.audio != AudioEncoder.FLAC) addAll(listOf("-b:a", "${settings.audioKbps}k"))
-                if (settings.stereo) addAll(listOf("-ac", "2"))
+            if(audio) {
+                val filters=if(audioEditActive) graph!!.filters else EditPipeline.audioFilters(source,trim,settings)
+                if(filters.isNotEmpty())addAll(listOf("-af",filters.joinToString(",")))
             }
-            addAll(listOf("-sn", "-dn", "-map_chapters", "-1", "-map_metadata", if (settings.keepMetadata) "0" else "-1"))
-            if (settings.container in setOf(Container.MP4, Container.M4A)) addAll(listOf("-movflags", "+faststart"))
-            addAll(listOf("-f", settings.container.muxer, output))
+            val encoded=if(audioTransport)settings.copy(container=Container.WAV,audio=AudioEncoder.PCM_F32LE) else settings
+            addAll(outputArguments(encoded,if(audioTransport || settings.container.audioOnly)null else "0:v:0",if(audio)"0:a:${settings.audioTrack}" else null))
+            add(output)
         }
     }
+
+    /** Shared final encoding options; graph output channels/rate override the legacy stereo switch. */
+    fun outputArguments(settings: Settings, videoMap: String?, audioMap: String?): List<String> = buildList {
+        if(videoMap==null)add("-vn") else {
+            addAll(listOf("-map",videoMap,"-c:v",settings.video.ffmpeg))
+            if(settings.rateControl==RateControl.QUALITY){addAll(listOf("-crf",settings.crf.toString()));if(settings.video==VideoEncoder.VP9)addAll(listOf("-b:v","0"))}
+            else addAll(listOf("-b:v","${settings.videoKbps}k"))
+            when(settings.video){VideoEncoder.X264,VideoEncoder.X265->addAll(listOf("-preset","medium"));VideoEncoder.VP9->addAll(listOf("-deadline","good","-cpu-used","4"));VideoEncoder.AV1->addAll(listOf("-preset","8"));else->Unit}
+            addAll(listOf("-pix_fmt","yuv420p"))
+            if(settings.fps>0)addAll(listOf("-r",settings.fps.toString(),"-fps_mode","cfr"))else addAll(listOf("-fps_mode","passthrough"))
+        }
+        if(audioMap==null)add("-an") else {
+            addAll(listOf("-map",audioMap,"-c:a",settings.audio.ffmpeg))
+            if(settings.audio.usesBitrate)addAll(listOf("-b:a","${settings.audioKbps}k"))
+            if(settings.stereo && settings.audioEdit.output.channels==null)addAll(listOf("-ac","2"))
+            settings.audioEdit.output.sampleRateHz?.let {addAll(listOf("-ar",it.toString()))}
+        }
+        addAll(listOf("-sn","-dn","-map_chapters","-1","-map_metadata",if(settings.keepMetadata)"0" else "-1"))
+        if(settings.container in setOf(Container.MP4,Container.M4A))addAll(listOf("-movflags","+faststart"))
+        addAll(listOf("-f",settings.container.muxer))
+    }
+
 }
 
 object QueueRules {

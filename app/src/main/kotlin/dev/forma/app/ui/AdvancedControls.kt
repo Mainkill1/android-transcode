@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -25,64 +26,79 @@ import kotlin.math.roundToLong
 /** Contextual controls retain existing native features, without listing future features as settings. */
 @Composable internal fun AdvancedControls(ui: TranscodeUiState, action: (UiAction) -> Unit) {
     val s = ui.editor.settings
-    fun update(value: Settings) = action(UiAction.ChangeSettings(value))
+    fun update(value: Settings, vararg explicitIds:String) = action(UiAction.ChangeSettings(value,explicitIds=explicitIds.toSet()))
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Section("Video & format", true) {
-            Choice("Output format", s.container, Container.entries, { it.name }) { update(s.copy(container = it)) }
-            if (s.container != Container.M4A) {
+            Choice("Output format", s.container, Container.entries, { it.name }) { update(s.copy(container = it, audio = when(it) { Container.WAV -> AudioEncoder.PCM_S16LE;Container.FLAC -> AudioEncoder.FLAC;Container.M4A,Container.MP4 -> AudioEncoder.AAC;else -> s.audio }),"export.container","audio.codec") }
+            if (!s.container.audioOnly) {
                 Choice("Video encoder", s.video, VideoEncoder.entries, { it.label },
-                    enabled = { if (it.hardware) ui.capabilities.available && it.ffmpeg in ui.capabilities.encoders else !ui.capabilities.available || it.ffmpeg in ui.capabilities.encoders }) {
-                    update(if (it.hardware) s.copy(video = it, rateControl = RateControl.BITRATE, fps = if (s.fps == 0) 30 else s.fps) else s.copy(video = it))
+                    enabled = { if (it.deviceRequested) ui.capabilities.available && it.isCompiled(ui.capabilities.encoders) else !ui.capabilities.available || it.isCompiled(ui.capabilities.encoders) }) {
+                    update(if (it.deviceRequested) s.copy(video = it, rateControl = RateControl.BITRATE, fps = if (s.fps == 0) 30 else s.fps) else s.copy(video = it),"video.codec","engine.encode_backend")
                 }
-                if (s.video.hardware) Text("Device encoding uses bitrate mode. The actual device component is checked for this file before export; support is not guaranteed.", style = MaterialTheme.typography.bodySmall)
+                if (s.video.deviceRequested) Text(if (s.video.automatic)
+                    "Tries device encoders, then software for codec failures. Constant quality or source frame rate uses software. Reports show the actual route."
+                else "Tries device configurations without software fallback. Older Android versions may not identify whether the component is hardware.", style = MaterialTheme.typography.bodySmall)
+                if (ui.targetBytes != null) Text("Remove the size limit to use these quality settings.", style=MaterialTheme.typography.bodySmall)
                 Choice("Rate control", s.rateControl, if (s.video.hardware) listOf(RateControl.BITRATE) else RateControl.entries,
-                    { if (it == RateControl.QUALITY) "Constant quality" else "Average bitrate" }) { update(s.copy(rateControl = it)) }
+                    { if (it == RateControl.QUALITY) "Constant quality" else "Average bitrate" }) { update(s.copy(rateControl = it),"video.rate_control") }
                 if (s.rateControl == RateControl.QUALITY) {
                     val upper = if (s.video in setOf(VideoEncoder.VP9, VideoEncoder.AV1)) 63f else 51f
                     Text("Quality: ${s.crf} · lower keeps more detail")
-                    Slider(value = s.crf.toFloat().coerceIn(0f, upper), onValueChange = { update(s.copy(crf = it.roundToInt())) },
+                    Slider(value = s.crf.toFloat().coerceIn(0f, upper), onValueChange = { update(s.copy(crf = it.roundToInt()),"video.quality") },
                         valueRange = 0f..upper, steps = upper.toInt() - 1, modifier = Modifier.semantics { contentDescription = "Constant quality" })
-                    Text("This controls quality, not a guaranteed file size.", style = MaterialTheme.typography.bodySmall)
-                } else Choice("Video bitrate", s.videoKbps, listOf(500, 1000, 2000, 4000, 8000, 12000, 20000, 40000), { "$it kb/s" }) { update(s.copy(videoKbps = it)) }
+                } else Choice("Video bitrate", s.videoKbps, listOf(500, 1000, 2000, 4000, 8000, 12000, 20000, 40000), { "$it kb/s" }) { update(s.copy(videoKbps = it),"video.bitrate_kbps") }
                 Choice("Frame rate", s.fps, if (s.video.hardware) listOf(24, 25, 30, 50, 60, 120) else listOf(0, 24, 25, 30, 50, 60, 120),
-                    { if (it == 0) "Same as source" else "$it fps" }) { update(s.copy(fps = it)) }
+                    { if (it == 0) "Same as source" else "$it fps" }) { update(s.copy(fps = it),"video.frame_rate") }
             }
         }
-        if (s.container != Container.M4A) Section("Picture & filters") {
-            Choice("Maximum height", s.maxHeight, listOf(0, 480, 720, 1080, 1440, 2160, 4320), { if (it == 0) "Same as source" else "$it pixels" }) { update(s.copy(maxHeight = it)) }
-            Text("Aspect ratio is kept. Smaller sources are not upscaled.", style = MaterialTheme.typography.bodySmall)
-            Toggle("Deinterlace", s.deinterlace) { update(s.copy(deinterlace = it)) }
+        if (!s.container.audioOnly) Section("Picture & filters") {
+            Choice("Maximum height", s.maxHeight, listOf(0, 480, 720, 1080, 1440, 2160, 4320), { if (it == 0) "Same as source" else "$it pixels" }) { update(s.copy(maxHeight = it),"video.max_height") }
+            Text("Keeps proportions · No upscaling", style = MaterialTheme.typography.bodySmall)
+            Toggle("Deinterlace", s.deinterlace) { update(s.copy(deinterlace = it),"video.deinterlace") }
             Toggle("Reduce noise", s.denoise) { update(s.copy(denoise = it)) }
         }
         Section("Audio") {
-            Choice("Audio encoder", s.audio, AudioEncoder.entries, { if (it == AudioEncoder.NONE) "Remove sound" else it.name }) { update(s.copy(audio = it)) }
+            Choice("Audio encoder", s.audio, AudioEncoder.entries, { if (it == AudioEncoder.NONE) "Remove sound" else it.name }) { update(s.copy(audio = it),"audio.codec") }
             val tracks = ui.selected?.source?.audioTracks ?: 0
             if (tracks > 0 && s.audio != AudioEncoder.NONE) Choice("Source track", s.audioTrack, (0 until tracks).toList(), { "Track ${it + 1}" }) { update(s.copy(audioTrack = it)) }
-            if (s.audio !in setOf(AudioEncoder.NONE, AudioEncoder.FLAC)) Choice("Audio bitrate", s.audioKbps, listOf(64, 96, 128, 160, 192, 256, 320), { "$it kb/s" }) { update(s.copy(audioKbps = it)) }
-            if (s.audio != AudioEncoder.NONE) Toggle("Mix down to stereo", s.stereo) { update(s.copy(stereo = it)) }
+            if (s.audio.usesBitrate) Choice("Audio bitrate", s.audioKbps, listOf(64, 96, 128, 160, 192, 256, 320), { "$it kb/s" }) { update(s.copy(audioKbps = it),"audio.bitrate_kbps") }
+            if (s.audio != AudioEncoder.NONE) Toggle("Mix down to stereo", dev.forma.app.audio.AudioEditorSettings.stereoEnabled(s)) {
+                update(dev.forma.app.audio.AudioEditorSettings.withStereo(s,it),"audio.channels")
+            }
         }
-        ui.selected?.let { edit -> Section("Trim selected file") {
+        ui.selected?.let { edit -> AdvancedTrimControls(edit,action) }
+        ui.selected?.let { EditControls(it, s, action) }
+        Section("Output details") {
+            Toggle("Keep source metadata", s.keepMetadata) { update(s.copy(keepMetadata = it)) }
+            Text("One audio track · No subtitles", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable internal fun AdvancedTrimControls(edit:SourceEdit,action:(UiAction)->Unit) {
+    Section("Trim selected file") {
+            var pendingTrim by remember(edit.source.uri) { mutableStateOf<Trim?>(null) }
             Text(edit.source.name, style = MaterialTheme.typography.labelLarge)
             Text("Keep ${mediaTime(edit.trim.startMs)} – ${mediaTime(edit.trim.endMs ?: edit.source.durationMs)}")
             RangeSlider(value = edit.trim.startMs.toFloat()..(edit.trim.endMs ?: edit.source.durationMs).toFloat(),
-                onValueChange = { range -> if (range.endInclusive - range.start >= 50f) action(UiAction.ChangeTrim(edit.source.uri,
-                    Trim(range.start.roundToLong(), range.endInclusive.roundToLong()))) },
+                onValueChange = { range -> if (range.endInclusive - range.start >= 50f) {
+                    val next=Trim(range.start.roundToLong(), range.endInclusive.roundToLong())
+                    pendingTrim=next
+                    action(UiAction.ChangeTrim(edit.source.uri,next,commit=false))
+                } },
+                onValueChangeFinished = {pendingTrim?.let {action(UiAction.ChangeTrim(edit.source.uri,it,commit=true))};pendingTrim=null},
                 valueRange = 0f..edit.source.durationMs.toFloat(),
+                modifier = Modifier.testTag("advanced-trim-range"),
                 startThumb = { Text("[", Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).wrapContentSize(), fontSize = 32.sp) },
                 endThumb = { Text("]", Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).wrapContentSize(), fontSize = 32.sp) })
-            Text("The highlighted section is kept. The full filmstrip editor is a separate native-port milestone.", style = MaterialTheme.typography.bodySmall)
+            Text("Keep the selected range", style = MaterialTheme.typography.bodySmall)
             FlowRow {
                 TextButton(onClick = { action(UiAction.ChangeTrim(edit.source.uri, Trim((edit.trim.startMs - 100).coerceAtLeast(0), edit.trim.endMs))) }) { Text("Start −0.1s") }
                 TextButton(onClick = { action(UiAction.ChangeTrim(edit.source.uri, Trim((edit.trim.startMs + 100).coerceAtMost((edit.trim.endMs ?: edit.source.durationMs) - 50).coerceAtLeast(0), edit.trim.endMs))) }) { Text("Start +0.1s") }
                 TextButton(onClick = { action(UiAction.ChangeTrim(edit.source.uri, Trim())) }) { Text("Use entire file") }
             }
-        } }
-        Section("Output details") {
-            Toggle("Keep source metadata", s.keepMetadata) { update(s.copy(keepMetadata = it)) }
-            Text("This native slice exports one selected audio track. Subtitles, attachments and chapters are not copied.", style = MaterialTheme.typography.bodySmall)
-        }
     }
-}
+    }
 
 /** A touch-friendly selector instead of a small cascading menu. */
 @Composable internal fun <T> Choice(label: String, value: T, options: List<T>, title: (T) -> String,

@@ -6,7 +6,7 @@ command -v kotlinc >/dev/null || { echo 'Install Kotlin CLI or use ./gradlew :co
 KOTLIN_LIB="$(cd "$(dirname "$(command -v kotlinc)")/../lib" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-kotlinc core/src/main/kotlin/dev/forma/core/WorkPolicy.kt core/src/test/kotlin/dev/forma/core/WorkPolicyChecks.kt -include-runtime -d "$TMP/policy.jar"
+kotlinc core/src/main/kotlin/dev/forma/core/WorkPolicy.kt testing/core/unit/dev/forma/core/WorkPolicyChecks.kt -include-runtime -d "$TMP/policy.jar"
 java -jar "$TMP/policy.jar"
-kotlinc app/src/main/kotlin/dev/forma/app/work/*.kt app/src/test/kotlin/dev/forma/app/work/WorkRuntimeChecks.kt -cp "$KOTLIN_LIB/kotlinx-coroutines-core-jvm.jar" -include-runtime -d "$TMP/runtime.jar"
+kotlinc app/src/main/kotlin/dev/forma/app/work/*.kt testing/app/unit/dev/forma/app/work/WorkRuntimeChecks.kt -cp "$KOTLIN_LIB/kotlinx-coroutines-core-jvm.jar" -include-runtime -d "$TMP/runtime.jar"
 java -cp "$TMP/runtime.jar:$KOTLIN_LIB/kotlinx-coroutines-core-jvm.jar" dev.forma.app.work.WorkRuntimeChecksKt

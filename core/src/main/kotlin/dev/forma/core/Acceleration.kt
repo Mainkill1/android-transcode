@@ -5,12 +5,34 @@ enum class AccelerationMode { AUTO, SOFTWARE_ONLY, HARDWARE_REQUIRED }
 enum class Support { YES, NO, UNKNOWN }
 enum class EncodeBackend { SOFTWARE, MEDIACODEC, UNAVAILABLE }
 enum class ProcessingBackend { CPU, NONE }
+enum class DeviceBitrateMode(val ffmpeg: String) { VBR("vbr"), CBR("cbr") }
 enum class BufferFormat(val ffmpeg: String) { YUV420P("yuv420p"), NV12("nv12") }
+/** Only modes that do not explicitly permit dropping frames. Neither mode guarantees output bytes. */
+enum class CodecBitrateMode(val ffmpeg: String) { VBR("vbr"), CBR("cbr") }
+data class BufferConfiguration(val format: BufferFormat, val bitrateMode: CodecBitrateMode)
+
+object EncoderConfigurations {
+    /** A supported layout and rate-control mode do not imply their combination is supported. */
+    fun firstSupported(formats: Set<BufferFormat>, modes: Set<CodecBitrateMode>,
+                       supports: (BufferConfiguration) -> Boolean): BufferConfiguration? {
+        for (mode in CodecBitrateMode.values()) {
+            for (format in BufferFormat.values()) {
+                if (format in formats && mode in modes) {
+                    val configuration = BufferConfiguration(format, mode)
+                    if (supports(configuration)) return configuration
+                }
+            }
+        }
+        return null
+    }
+}
+
 enum class VideoFormat(val mime: String, val software: String, val device: String) {
     H264("video/avc", "libx264", "h264_mediacodec"),
     HEVC("video/hevc", "libx265", "hevc_mediacodec"),
     VP9("video/x-vnd.on2.vp9", "libvpx-vp9", "vp9_mediacodec"),
-    AV1("video/av01", "libsvtav1", "av1_mediacodec")
+    AV1("video/av01", "libsvtav1", "av1_mediacodec"),
+    VP8("video/x-vnd.on2.vp8", "libvpx", "vp8_mediacodec")
 }
 
 data class EncodeRequest(
@@ -41,9 +63,14 @@ data class CodecCandidate(
     val configuration: Support,
     val bufferFormat: BufferFormat?,
     val reason: String,
-    val request: EncodeRequest
+    val request: EncodeRequest,
+    val performanceHint: CodecPerformanceHint? = null,
+    val platformRank: Int = Int.MAX_VALUE
 ) {
-    init { require(name.isNotBlank() && '\u0000' !in name) { "Invalid codec component name." } }
+    init {
+        require(name.isNotBlank() && '\u0000' !in name) { "Invalid codec component name." }
+        require(platformRank >= 0) { "Invalid platform codec rank." }
+    }
 }
 
 data class EncodeDecision(
@@ -56,13 +83,15 @@ data class EncodeDecision(
     val decoder: ProcessingBackend = ProcessingBackend.CPU,
     val filters: ProcessingBackend = ProcessingBackend.CPU,
     val npu: ProcessingBackend = ProcessingBackend.NONE,
-    val configuration: EncodeRequest? = null
+    val configuration: EncodeRequest? = null,
+    val bitrateMode: DeviceBitrateMode = DeviceBitrateMode.VBR,
+    val hardwareSupport: Support = Support.UNKNOWN
 ) {
     /** Append only to a validated bitrate plan with no existing video encoder/quality flags. */
     fun videoOptions(request: EncodeRequest): List<String> {
         require(backend == EncodeBackend.MEDIACODEC && !request.constantQuality && configuration == request)
         require(encoder == request.format.device && !codecName.isNullOrBlank() && bufferFormat != null)
-        return listOf("-c:v", encoder, "-codec_name:v", codecName, "-bitrate_mode:v", "vbr",
+        return listOf("-c:v", encoder, "-codec_name:v", codecName, "-bitrate_mode:v", bitrateMode.ffmpeg,
             "-b:v", request.bitrate.toString(), "-bf:v", "0", "-pix_fmt", bufferFormat.ffmpeg)
     }
 }
@@ -86,11 +115,11 @@ object AccelerationPolicy {
         val candidate = candidates.asSequence().filter {
             it.request == request && it.format == request.format && it.encoder && it.hardware == Support.YES &&
                 it.configuration == Support.YES && it.bufferFormat != null
-        }.sortedBy { it.name }.firstOrNull()
+        }.sortedWith(CodecRanking.preference).firstOrNull()
             ?: return rejected("No Android hardware encoder advertises the exact size, rate, bitrate and buffer format.")
         return EncodeDecision(EncodeBackend.MEDIACODEC, request.format.device, candidate.name,
             candidate.bufferFormat, "Advertised-compatible hardware encode; output verification and device qualification still required.",
-            configuration = request)
+            configuration = request, hardwareSupport = candidate.hardware)
     }
 
     /** Executor must classify errors structurally; never treat every FFmpeg failure as a codec failure. */

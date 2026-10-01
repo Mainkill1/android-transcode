@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "jobs": [
+    {
+      "id": "a66d2dd7-8f84-40bb-a96f-aa93ac6bcbd4",
+      "state": "QUEUED",
+      "message": "Legacy preserved",
+      "source": {
+        "uri": "content://documents/clip",
+        "name": "../clip.mp4",
+        "durationMs": 30000,
+        "width": 1920,
+        "height": 1080,
+        "videoTracks": 1,
+        "audioTracks": 2,
+        "hdr": true,
+        "bytes": 987654
+      },
+      "trim": {
+        "startMs": 5000,
+        "endMs": 15000
+      },
+      "settings": {
+        "container": "MKV",
+        "video": "H265_HW",
+        "rateControl": "BITRATE",
+        "crf": 19,
+        "videoKbps": 4000,
+        "maxHeight": 1000,
+        "fps": 33,
+        "audio": "AAC",
+        "audioKbps": 384,
+        "audioTrack": 1,
+        "stereo": true,
+        "denoise": true,
+        "deinterlace": true,
+        "keepMetadata": true
+      }
+    }
+  ]
+}

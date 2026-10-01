@@ -11,13 +11,19 @@ import android.os.SystemClock
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.app.ServiceCompat
 import dev.forma.app.FormaApplication
 import dev.forma.app.MainActivity
 import dev.forma.app.R
 import dev.forma.app.data.LiveProgress
 import dev.forma.app.work.*
 import dev.forma.core.*
+import dev.forma.core.image.*
+import dev.forma.ffmpeg.AttemptEvent
+import dev.forma.ffmpeg.AttemptStatus
+import java.util.concurrent.atomic.AtomicReference
+import dev.forma.core.settings.PowerWorkerInstruction
+import dev.forma.core.settings.ConsumerSettings
+import dev.forma.core.settings.PreferenceValues
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
 
@@ -34,6 +40,8 @@ class TranscodeService : Service() {
         super.onCreate()
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, getString(R.string.channel_name), NotificationManager.IMPORTANCE_LOW))
+        getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(COMPLETION_CHANNEL,"Conversion finished",NotificationManager.IMPORTANCE_DEFAULT))
     }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -44,12 +52,23 @@ class TranscodeService : Service() {
             else -> { stopSelfResult(startId); return START_NOT_STICKY }
         }
         if (ticket?.job?.isCompleted == false) return START_NOT_STICKY
+        val powerAtStart = graph.power.refresh()
+        if (!powerAtStart.decision.canStart) {
+            graph.queue.error.value = powerAtStart.blockingMessage
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
         val type = when {
             Build.VERSION.SDK_INT >= 35 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
             Build.VERSION.SDK_INT >= 29 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             else -> 0
         }
-        try { ServiceCompat.startForeground(this, NOTIFICATION, notification("Preparing queue", null), type) }
+        try {
+            val initial = notification("Preparing queue", null)
+            // ServiceCompat's API 34 mask strips MEDIA_PROCESSING even on API 35+.
+            if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, initial, type)
+            else startForeground(NOTIFICATION, initial)
+        }
         catch (error: Exception) {
             graph.queue.error.value = "Android could not start background conversion. Return to the app and try again. ${error.message.orEmpty()}"
             stopSelfResult(startId)
@@ -58,14 +77,14 @@ class TranscodeService : Service() {
         val awake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dev.forma.transcode:conversion")
         try {
             awake.setReferenceCounted(false)
-            awake.acquire(6L * 60 * 60 * 1000) // bounded safety timeout, never keeps the screen on
+            awake.acquire(6L * 60 * 60 * 1000)
         } catch (error: Exception) {
             graph.queue.error.value = "Could not keep background processing awake: ${error.message}"
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelfResult(startId)
             return START_NOT_STICKY
         }
-        val started = graph.runs.start { run -> process(run) }
+        val started = graph.runs.start { run -> graph.previews.cancelAndJoin(); graph.imagePreviews.cancelAndJoin(); process(run) }
         if (started == null) {
             releaseWake(awake)
             graph.queue.error.value = "The previous conversion is still stopping. Its files are being released."
@@ -75,7 +94,6 @@ class TranscodeService : Service() {
         }
         ticket = started
         wakeLock = awake
-        // Observe in the service, not the UI. A hidden Activity is not a worker subscription.
         scope.launch {
             val status = launch {
                 graph.runs.state.collect { state ->
@@ -83,10 +101,29 @@ class TranscodeService : Service() {
                     if (state.id == started.id && state.mode == RunMode.DRAINING) notify("Finishing current file; remaining jobs will wait", null)
                 }
             }
+            val powerPolicy = launch {
+                graph.power.state.collect { snapshot ->
+                    if (graph.runs.state.value.id != started.id) return@collect
+                    when (snapshot.instruction) {
+                        PowerWorkerInstruction.WARN -> notify(snapshot.warningMessage ?: "Device condition warning", null)
+                        PowerWorkerInstruction.FINISH_CURRENT -> {
+                            graph.runs.finishCurrent()
+                            notify("Finishing current file. ${snapshot.blockingMessage}", null)
+                        }
+                        PowerWorkerInstruction.STOP_CURRENT -> {
+                            notify("Stopping safely. ${snapshot.blockingMessage}", null)
+                            graph.runs.stop(started.id, StopReason.POWER_POLICY)
+                        }
+                        PowerWorkerInstruction.BLOCK_START -> graph.runs.finishCurrent()
+                        PowerWorkerInstruction.CONTINUE -> Unit
+                    }
+                }
+            }
             try {
                 started.job.join()
                 started.failure?.let { graph.queue.error.value = it }
             } finally {
+                powerPolicy.cancel()
                 status.cancel()
                 releaseWake(awake)
                 if (ticket === started) {
@@ -99,38 +136,77 @@ class TranscodeService : Service() {
     }
 
     private suspend fun process(run: RunCoordinator.Ticket) {
-        var active: JobSpec? = null
+        var active: QueueJobSpec? = null
         var completed = 0
         try {
             graph.initialize()
             while (currentCoroutineContext().isActive && run.canTakeNext()) {
-                // Retain ownership even if cancellation races a successful disk transaction.
+                val gate = graph.power.refresh()
+                if (!gate.decision.canStart) {
+                    graph.queue.error.value = gate.blockingMessage
+                    notify(gate.blockingMessage, null)
+                    break
+                }
                 withContext(NonCancellable) { active = graph.queue.claimNext() }
                 val spec = active ?: break
                 currentCoroutineContext().ensureActive()
                 try {
-                    notify("Preparing ${spec.source.name}", null)
-                    graph.transcoder.run(spec, { state ->
-                        graph.queue.transition(spec.id, state)
-                        graph.queue.progress.value = null
-                        notify(when (state) { JobState.VERIFYING -> "Checking ${spec.source.name}"; JobState.COMPLETED -> "Ready: ${spec.source.name}"; else -> "Converting ${spec.source.name}" }, null)
-                    }, { progress ->
-                        if (uiGate.accept(spec.id)) graph.queue.progress.value = LiveProgress(spec.id, progress)
-                        if (notificationGate.accept(spec.id)) {
-                            val status = when (graph.runs.state.value.mode) {
-                                RunMode.DRAINING -> "Finishing current: ${spec.source.name}"
-                                RunMode.STOPPING -> "Stopping safely…"
-                                else -> "Converting ${spec.source.name}"
+                    notify("Preparing media",null,spec.source.name)
+                    if (spec is QueueJobSpec.Image) {
+                        var diagnostics:ImageExportDiagnostics?=null
+                        graph.imageTranscoder.run(spec.job, { state ->
+                            graph.queue.transition(spec.id, state,if(state==JobState.COMPLETED)diagnostics?.summary().orEmpty() else "")
+                            graph.queue.progress.value = null
+                            notify(if (state == JobState.COMPLETED) "Image ready" else "Processing image", null,spec.source.name)
+                        }, { stage ->
+                            stage.diagnostics?.let { diagnostics=it }
+                            graph.queue.progress.value = LiveProgress(spec.id, image = stage)
+                            if (notificationGate.accept(spec.id)) notify("${stage.stage.name.lowercase().replaceFirstChar { it.uppercase() }} image · attempt ${stage.attempt}", stage.fraction,spec.source.name)
+                        })
+                    } else {
+                        val av = spec as QueueJobSpec.Av
+                        val lastAttempt=AtomicReference<AttemptEvent?>(null)
+                        graph.transcoder.run(av.job, { state ->
+                            graph.queue.transition(spec.id, state)
+                            graph.queue.progress.value = null
+                            notify(when (state) { JobState.VERIFYING -> "Checking output"; JobState.COMPLETED -> "Output ready"; else -> "Converting media" }, null,spec.source.name)
+                        }, { progress ->
+                            if (uiGate.accept(spec.id)) graph.queue.progress.value = LiveProgress(spec.id, progress,attempt=lastAttempt.get())
+                            if (notificationGate.accept(spec.id)) {
+                                val status = when (graph.runs.state.value.mode) {
+                                    RunMode.DRAINING -> "Finishing current file"
+                                    RunMode.STOPPING -> "Stopping safely…"
+                                    else -> "Converting media"
+                                }
+                                notify(status, WorkPolicy.fraction(progress.processedMs, JobPlans.duration(av.job)),spec.source.name)
                             }
-                            notify(status, WorkPolicy.fraction(progress.processedMs, Planner.duration(spec.source, spec.trim)))
-                        }
-                    })
+                        }, onAttempt={ event ->
+                            lastAttempt.set(event)
+                            val current=graph.queue.progress.value?.takeIf { it.id==spec.id }
+                            val progress=if(event.status==AttemptStatus.STARTED) Progress(0) else current?.progress ?: Progress(0)
+                            graph.queue.progress.value=LiveProgress(spec.id,progress,attempt=event)
+                            val status=when(event.status) {
+                                AttemptStatus.STARTED -> "Converting media"
+                                AttemptStatus.REJECTED -> "Trying next encoder"
+                                AttemptStatus.VERIFIED -> "Checking size and output"
+                                AttemptStatus.FAILED -> "Conversion failed"
+                            }
+                            notify("$status · attempt ${event.number}/${event.total}",null,spec.source.name)
+                        })
+                    }
+                    if(graph.queue.entries.value.firstOrNull { it.spec.id==spec.id }?.state==JobState.COMPLETED)
+                        graph.deliveries.resumePending()
                     completed++
                 } catch (cancel: CancellationException) { throw cancel }
                 catch (error: LinkageError) { graph.queue.transition(spec.id, JobState.FAILED, "The native encoder could not load: ${error.message}") }
                 catch (error: Exception) { graph.queue.transition(spec.id, JobState.FAILED, error.message ?: "Conversion failed.") }
                 finally { graph.queue.progress.value = null }
                 active = null
+                if(graph.queue.entries.value.firstOrNull { it.spec.id==spec.id }?.state==JobState.FAILED &&
+                    !ConsumerSettings.continueAfterError(preferences())) {
+                    graph.queue.error.value="A conversion failed. Review the item before starting remaining jobs."
+                    graph.runs.finishCurrent()
+                }
             }
             if (completed > 0) {
                 val waiting = graph.queue.entries.value.count { it.state == JobState.QUEUED }
@@ -139,14 +215,26 @@ class TranscodeService : Service() {
         } catch (cancel: CancellationException) {
             withContext(NonCancellable) {
                 active?.let { spec ->
-                    if (graph.queue.entries.value.any { it.spec.id == spec.id && it.state in ACTIVE }) {
-                        val reason = run.stopReason
-                        graph.queue.transition(spec.id, if (reason == StopReason.USER) JobState.CANCELLED else JobState.INTERRUPTED,
-                            when (reason) {
-                                StopReason.USER -> "Cancelled. Other queued files are still waiting."
-                                StopReason.TIME_LIMIT -> "Android's background time allowance ended. Restart from the app."
-                                else -> "Processing was interrupted. Restart this job explicitly."
-                            })
+                    val current = graph.queue.entries.value.firstOrNull { it.spec.id == spec.id }?.state
+                    when (run.stopReason) {
+                        StopReason.POWER_POLICY -> current?.let { state ->
+                            PowerServiceRules.powerStopTransitions(state).forEach { next ->
+                                graph.queue.transition(spec.id, next, when (next) {
+                                    JobState.INTERRUPTED -> "Stopped safely because device conditions changed. Partial output was discarded."
+                                    JobState.QUEUED -> graph.power.state.value.blockingMessage + " Start the queue again when conditions recover."
+                                    else -> ""
+                                })
+                            }
+                        }
+                        else -> if (current in ACTIVE) {
+                            val reason = run.stopReason
+                            graph.queue.transition(spec.id, if (reason == StopReason.USER) JobState.CANCELLED else JobState.INTERRUPTED,
+                                when (reason) {
+                                    StopReason.USER -> "Cancelled. Other queued files are still waiting."
+                                    StopReason.TIME_LIMIT -> "Android's background time allowance ended. Restart from the app."
+                                    else -> "Processing was interrupted. Restart this job explicitly."
+                                })
+                        }
                     }
                 }
             }
@@ -158,7 +246,7 @@ class TranscodeService : Service() {
         ticket?.let { graph.runs.stop(it.id, StopReason.TIME_LIMIT) }
         stopForeground(STOP_FOREGROUND_REMOVE)
         releaseWake(wakeLock)
-        stopSelf() // Android requires prompt stop; coordinator still owns native cleanup.
+        stopSelf()
     }
     override fun onDestroy() {
         ticket?.let { graph.runs.stop(it.id, StopReason.SERVICE_STOPPED) }
@@ -181,16 +269,17 @@ class TranscodeService : Service() {
             .addAction(0, "Finish current", finish).addAction(0, "Stop", stop).build()
     }
     private fun allowed() = Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-    // Publishing notification updates is not part of the output transaction. A
-    // revoked permission or system notification failure must not fail an encode.
-    private fun notify(text: String, fraction: Float?) = postNotification {
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(text, fraction))
+    private fun preferences() = graph.settings.state.value.document?.values ?: PreferenceValues.EMPTY
+    private fun notify(text: String, fraction: Float?, name:String?=null) = postNotification {
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION,
+            notification(ConsumerSettings.notification(preferences(),text,name), fraction))
     }
     private fun completion(text: String) = postNotification {
         getSystemService(NotificationManager::class.java).notify(COMPLETION,
-            NotificationCompat.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_forma)
+            NotificationCompat.Builder(this, if(ConsumerSettings.choice(preferences(),"queue.completion_sound")=="channel") COMPLETION_CHANNEL else CHANNEL)
+                .setSilent(ConsumerSettings.choice(preferences(),"queue.completion_sound")=="off").setSmallIcon(R.drawable.ic_forma)
                 .setContentTitle("Forma · ready to share").setContentText(text).setContentIntent(openIntent())
-                .setAutoCancel(true).setOnlyAlertOnce(true).build())
+                .setAutoCancel(true).build())
     }
     private fun postNotification(action: () -> Unit) {
         try { if (allowed()) action() }
@@ -201,6 +290,7 @@ class TranscodeService : Service() {
         const val STOP = "dev.forma.STOP_QUEUE"
         const val FINISH_CURRENT = "dev.forma.FINISH_CURRENT"
         private const val CHANNEL = "transcoding"
+        private const val COMPLETION_CHANNEL = "transcoding-completed"
         private const val NOTIFICATION = 1
         private const val COMPLETION = 2
         private val ACTIVE = setOf(JobState.PREPARING, JobState.RUNNING, JobState.VERIFYING)

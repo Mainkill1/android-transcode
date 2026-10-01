@@ -14,7 +14,7 @@ Read **[the agent entry point](docs/AGENT-START.md)**, then the
 
 | Component | Location | Actual status |
 | --- | --- | --- |
-| Native Android app | `app/`, `core/`, `engine-ffmpeg/` | Compose/document/queue/service foundation; FFmpeg adapter; newly checked explicit H.264/H.265 MediaCodec preparation. Real native bundle/device qualification is required. |
+| Native Android app | `app/`, `core/`, `engine-ffmpeg/` | Source-built FFmpeg, Share import, compact progress and persistent queue. Software H.264/AAC and checked H.264 MediaCodec smoke passed on one physical arm64 phone; broader device qualification remains. |
 | Upload-first reference | [`studio/`](studio/README.md) | Working desktop byte-fit retries, video/audio/still images, URL import and bracket editor. These newer workflows still need a native port. |
 | Acceleration policy and package checks | `core/Acceleration.kt` (under Kotlin sources), `tools/verify_android_native.py` | Tested host-side policy and static native payload/alignment gate; neither is a phone speed or compatibility result. |
 
@@ -59,6 +59,19 @@ compiles a wrapper without .so files; never distribute that artifact as FFmpeg.
 Windows can use `gradlew.bat` and Python for APK checks; follow upstream's supported
 host instructions for the native source build.
 
+On a native-enabled installation, choose **Add files**, or use **Share / Send To
+→ Forma** from Gallery or Files. Single and multiple video/audio shares are copied
+into private storage and prepared for conversion; tap **Convert** to start.
+An untouched editor selects M4A for audio-only shares. Existing settings and queued
+jobs are preserved. See [physical build and validation](docs/device-validation.md)
+for the source-built dependency correction and device test procedure.
+
+During conversion, the compact display shows percentage, speed relative to real
+time, estimated time remaining and approximate battery draw when reported by the
+phone. Charging or unavailable readings do not display invented watts. Advanced
+settings and detailed errors expand on request. Completed outputs offer **Play
+output**, **Share output** and **Save copy**.
+
 ## User workflow to preserve during the native port
 
 Home defaults to **10 MB**, with 20/25/50/100/500 MB and Custom. Select media or
@@ -101,3 +114,17 @@ Finish current, completion notifications and bounded screen-off wake handling.
 See [native UX, threading and performance validation](docs/native-ux.md).
 Run `tools/check-ux.sh` for the host concurrency checks. This does not close the
 remaining native upload-fit/URL/image/full-editor or physical-device test gates.
+
+## Audio editor
+
+Read the [feature roadmap and framework decisions](docs/audio-editor.md),
+[native UI layouts](docs/audio-editor-ui.md), and
+[file-by-file implementation and Android testing plan](docs/superpowers/plans/2026-09-29-audio-editor.md).
+After selecting a source, tap **Edit audio**. Adjust gain, fades, EQ, compression
+or limiting; tap **Render preview**, then **Play original** or **Play edited**.
+**Undo**, **Redo** and **Reset audio edits** change the current draft. Expand
+**Audio output settings** for format, channels, sample rate, normalization and byte cap;
+tap **Convert** to export. Source files are preserved.
+
+The waveform and A/B preview cover the first ten seconds of the selected range.
+See [actual implementation, phone results and remaining gates](docs/audio-editor-validation.md).

@@ -1,0 +1,32 @@
+# Precision video timeline and clip editing
+
+## Intent and scope
+
+Cutting a video should feel like editing a filmstrip, not guessing at a range slider. The user can inspect a frame at an independent playhead, pinch into a short time window, pan, and drag visible start/end brackets. Exact millisecond entry remains available. The same interaction works for a single source on Convert and for the selected clip in Make a movie. This work builds on the in-app preview/editor screen; it does not replace FFmpeg trim semantics, introduce multitrack compositing, or promise frame-exact seeking for variable-frame-rate sources.
+
+## Timeline layout
+
+Place a horizontal filmstrip and time ruler beneath the always-visible preview. The selected clip's kept range has two large labeled brackets, discarded regions are shaded, and a separate playhead identifies the inspected source time. Show `Start`, `End`, `Kept`, and total movie duration as short `h:mm:ss.mmm` values that update during a drag. Tapping a frame or ruler moves only the playhead. **Set start here**, **Set end here**, **Split here**, **Zoom to selection**, **Fit**, and **Exact times** are named for their actions. Current Earlier/Later, Duplicate, and Remove remain available on the selected clip; the output-order strip shows which clip is being edited. Opening another clip moves the source filmstrip and brackets to that clip without altering its saved range.
+
+One- and two-finger gestures have distinct owners. Dragging a bracket changes that edge's draft time and seeks the quick-frame preview to the boundary. Dragging empty filmstrip space pans the visible time window; pinching zooms around the fingers' centroid without moving the time underneath it. Panning near a bracket edge auto-scrolls when the window is zoomed. The window ranges from Fit (whole source) down to one second or the source's shorter duration. A Zoom-to-selection action makes accurate cuts reachable on multi-hour footage without dozens of pinches. Bracket targets are at least 48 dp and remain separable for a narrow selection. Haptic or color cues supplement, never replace, time and accessibility labels.
+
+During a gesture, only the local draft and quick-frame position change. Releasing a valid drag sends one `ChangeTrim` or `TimelineCommand.TrimClip` to the existing history; canceling pointer input, changing source, or leaving the editor restores the prior range. Minimum kept duration remains 50 ms, and start/end cannot leave the source. Exact entry accepts and displays millisecond times and allows one-millisecond changes where the source duration permits. It must not claim that every requested millisecond is a distinct encoded frame. Undo/Redo treats a completed drag as one edit, not hundreds of pointer updates. Queued jobs retain their prior immutable trim snapshot.
+
+## Time model and preview assets
+
+Use `Long` milliseconds for persisted times and `Double` only for mapping a bounded viewport to screen coordinates. Never convert an entire multi-hour source duration to `Float` for interaction state. A pure `TimelineViewport` models source duration, visible start/duration, playhead, selected trim, pinch anchor, pan and edge movement. Mapping clamps before rounding; playhead, brackets, and ruler use the same transform. A frame step action, if shown, uses an explicit output-frame grid and says so; it is not labeled source-frame accurate without proven source timestamps.
+
+The filmstrip requests a fixed number of real frames covering the *visible* window, not the whole source, through the bounded frame controller from the editor-preview work. Time changes invalidate obsolete requests and cap retained bitmaps. A frame that cannot be decoded shows an empty/failed tile, never fabricated imagery. Audio-only sources keep their current audio editor; this PR's visual filmstrip is for video. The quick preview continues to update immediately from cached frames while new source frames are fetched asynchronously.
+
+For a movie, the output-order strip uses the existing `MovieProject` clip order and `SequencePlanner` durations. The ruler being trimmed is the selected clip's source time; the total movie duration is computed separately with transitions and speed. Split at the playhead creates the existing validated `TimelineCommand.Split`; a prohibited split (such as a fade requiring remapping) states why and keeps the project untouched. A five-second rendered preview around the movie playhead includes any adjacent clip and transition crossed by that window. A typed sequence-window planner produces the preview snapshot; the existing renderer still performs the encode and strict verification. Compare the bounded window with the corresponding segment of a full movie render before claiming transition parity.
+
+## Accessibility, errors, and acceptance
+
+TalkBack exposes each bracket, current time, kept duration, and increment/decrement actions; exact fields remain usable without multitouch. The layout keeps the preview and controls reachable at 200% text scale, narrow width, and landscape. If thumbnails fail, time-based trimming still works and the error is specific. A rapid source switch or process recreation cannot apply a stale draft to another clip. The preview must not consume the conversion service's native slot until it is free.
+
+Start with failing pure tests for a three-hour source, pinch anchoring, pan clamping, 1 ms exact entry, 50 ms minimum, edge auto-scroll, split mapping, and one undo transaction. Compose tests exercise multi-pointer zoom, bracket drags, independent scrubbing, TalkBack actions and rotation. On the target phone, verify a short and a multi-hour sample: pinch to a one-second window, drag and enter exact times, render a bounded preview, export, inspect the decoded output duration/frame range, and confirm the original file hash and queued snapshot are unchanged. A separate movie case must cover a split and a transition across the preview window. Run core/readiness, Android unit/build/lint, emulator UI tests, and the physical export checks; report time precision as millisecond requests with observed output frame boundaries rather than unsupported frame-perfect claims.
+
+## References
+
+- [Compose gesture guidance](https://developer.android.com/develop/ui/compose/touch-input/pointer-input/understand-gestures)
+- [Android nearest-frame extraction behavior](https://developer.android.com/reference/android/media/MediaMetadataRetriever)
